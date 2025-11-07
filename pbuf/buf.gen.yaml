@@ -1,0 +1,29 @@
+version: v1
+plugins:
+  - name: go
+    out: .
+    opt: 
+      - paths=source_relative
+  
+  - name: go-grpc
+    out: .
+    opt:
+      - paths=source_relative
+  
+  - name: grpc-gateway
+    out: .
+    opt:
+      - paths=source_relative
+      - generate_unbound_methods=true
+      
+  - name: openapiv2
+    out: docs
+    opt:
+      - logtostderr=true
+      - json_names_for_fields=false
+      - allow_merge=true
+      - merge_file_name=api
+      - use_go_templates=true
+      - repeated_path_param_separator=ssv
+      - openapi_naming_strategy=fqn
+      - simple_operation_ids=true

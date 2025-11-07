@@ -1,0 +1,14 @@
+{
+  "recommendations": [
+    "Vue.volar",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "stylelint.vscode-stylelint",
+    // "ahmadalli.vscode-nginx-conf",
+    "golang.go",
+    "eamodio.gitlens",
+    "lokalise.i18n-ally",
+    "Gruntfuggly.todo-tree",
+    "eamodio.gitlens"
+  ]
+}
