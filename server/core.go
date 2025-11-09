@@ -3,7 +3,7 @@
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-10 00:16:00
- * @FilePath: \go-rpc-gateway\internal\server\core.go
+ * @FilePath: \go-rpc-gateway\server\core.go
  * @Description: 核心组件初始化模块，集成go-core和go-logger
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/kamalyes/go-core/pkg/global"
-	"github.com/kamalyes/go-rpc-gateway/internal/config"
+	"github.com/kamalyes/go-rpc-gateway/config"
 )
 
 // initCore 初始化核心组件，集成go-core

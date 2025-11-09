@@ -3,7 +3,7 @@
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-07 20:32:21
- * @FilePath: \go-rpc-gateway\internal\server\http.go
+ * @FilePath: \go-rpc-gateway\server\http.go
  * @Description: HTTP服务器和网关初始化模块
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.

@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-08 00:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 01:40:14
- * @FilePath: \go-rpc-gateway\internal\server\banner.go
+ * @LastEditTime: 2025-11-10 07:30:05
+ * @FilePath: \go-rpc-gateway\server\banner.go
  * @Description: Gateway启动横幅和信息展示
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/kamalyes/go-core/pkg/global"
-	"github.com/kamalyes/go-rpc-gateway/internal/config"
+	"github.com/kamalyes/go-rpc-gateway/config"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 )
 

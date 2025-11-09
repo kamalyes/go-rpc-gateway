@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 18:05:14
+ * @LastEditTime: 2025-11-07 18:05:15
  * @FilePath: \go-rpc-gateway\internal\constants\http.go
  * @Description: HTTP相关常量定义
  *

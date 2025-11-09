@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 01:54:20
+ * @LastEditTime: 2025-11-10 07:16:13
  * @FilePath: \go-rpc-gateway\gateway.go
  * @Description: Gateway主入口，基于go-config和go-core重构
  *
@@ -23,9 +23,9 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/kamalyes/go-config/pkg/register"
 	"github.com/kamalyes/go-core/pkg/global"
-	"github.com/kamalyes/go-rpc-gateway/internal/config"
-	"github.com/kamalyes/go-rpc-gateway/internal/server"
+	"github.com/kamalyes/go-rpc-gateway/config"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
+	"github.com/kamalyes/go-rpc-gateway/server"
 	"google.golang.org/grpc"
 )
 
@@ -47,14 +47,15 @@ type PProfOptions struct {
 	DevModeOnly  bool     `json:"dev_mode_only"` // 是否只在开发模式启用
 }
 
-// Config 是网关配置的别名，使用简化的配置结构
-type Config = config.GatewayConfig
 
 // ServiceRegisterFunc gRPC服务注册函数类型
 type ServiceRegisterFunc func(*grpc.Server)
 
 // HandlerRegisterFunc HTTP处理器注册函数类型
 type HandlerRegisterFunc func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error
+
+// Config 网关配置类型别名
+type Config = config.GatewayConfig
 
 // getEnvOrDefault 获取环境变量或返回默认值
 func getEnvOrDefault(key, defaultValue string) string {
@@ -70,7 +71,7 @@ func New(cfg ...*Config) (*Gateway, error) {
 	if len(cfg) > 0 && cfg[0] != nil {
 		gatewayConfig = cfg[0]
 	} else {
-		gatewayConfig = DefaultConfig()
+		gatewayConfig = config.DefaultGatewayConfig()
 	}
 
 	srv, err := server.NewServer(gatewayConfig)
@@ -166,10 +167,7 @@ func (g *Gateway) Stop() error {
 	return g.Server.Stop()
 }
 
-// DefaultConfig 返回默认网关配置
-func DefaultConfig() *Config {
-	return config.DefaultGatewayConfig()
-}
+
 
 // EnablePProf 启用pprof性能分析功能
 // 这是一个简化的API，使用默认配置启用pprof

@@ -24,4 +24,45 @@
         }
       }
     },
+    {
+      "name": "simple-gateway",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "cwd": "${workspaceFolder}/cmd/simple-gateway",
+      "program": "${workspaceFolder}/cmd/simple-gateway/main.go",
+      "windows": {
+        "env": {
+          "GOARCH": "amd64",
+          "GOOS": "windows"
+        }
+      },
+      "osx": {
+        "env": {
+          "GOARCH": "arm64",
+          "GOOS": "darwin"
+        }
+      }
+    },
+    {
+      "name": "test-adapter",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "cwd": "${workspaceFolder}/cmd/test-adapter",
+      "program": "${workspaceFolder}/cmd/test-adapter/main.go",
+      "windows": {
+        "env": {
+          "GOARCH": "amd64",
+          "GOOS": "windows"
+        }
+      },
+      "osx": {
+        "env": {
+          "GOARCH": "arm64",
+          "GOOS": "darwin"
+        }
+      }
+    },
+  ]
 }

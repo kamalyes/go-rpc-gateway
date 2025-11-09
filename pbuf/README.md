@@ -6,13 +6,29 @@
 ```
 pbuf/
 ├── buf.gen.yaml        # buf 生成配置文件
-├── generate.bat        # Windows 生成脚本
-├── generate.sh         # Linux/Mac 生成脚本
-├── Makefile           # Make 构建脚本
 ├── README.md          # 本说明文件
-├── common/
-│   └── common.proto   # 公共消息定义
+└── common/
+    ├── common.proto   # 公共消息定义 (包含BaseResponse等)
+    └── common.pb.go   # 生成的Go代码
 ```
+
+## 公共消息定义 (common.proto)
+
+### BaseResponse - 通用响应结构
+```protobuf
+message BaseResponse {
+  Status status = 1;    // 状态 (STATUS_SUCCESS, STATUS_FAILED等)
+  string message = 2;   // 消息
+  string code = 3;      // 错误码 (可选)
+}
+```
+
+### 其他通用结构
+- **StatusCode** - 系统状态码枚举 (OK, INVALID_ARGUMENT, INTERNAL等)
+- **Status** - 业务状态枚举 (SUCCESS, FAILED, PENDING等)
+- **PageRequest/PageResponse** - 分页请求/响应
+- **Result** - 通用处理结果
+- **TimestampInfo** - 时间戳信息
 
 ## 使用方法
 ```bash

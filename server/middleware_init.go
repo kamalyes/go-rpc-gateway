@@ -3,7 +3,7 @@
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-07 13:40:31
- * @FilePath: \go-rpc-gateway\internal\server\middleware.go
+ * @FilePath: \go-rpc-gateway\server\middleware.go
  * @Description: 中间件管理器初始化模块
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.

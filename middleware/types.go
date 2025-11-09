@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 18:12:25
+ * @LastEditTime: 2025-11-10 07:49:58
  * @FilePath: \go-rpc-gateway\middleware\types.go
  * @Description: 中间件类型定义
  *
@@ -16,7 +16,7 @@ import (
 	"time"
 
 	logger "github.com/kamalyes/go-logger"
-	"github.com/kamalyes/go-rpc-gateway/internal/constants"
+	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-toolbox/pkg/osx"
 )
 
@@ -76,6 +76,6 @@ func DefaultLoggerConfig() LoggerConfig {
 	return LoggerConfig{
 		EnableRequest:  true,
 		EnableResponse: true,
-		SkipPaths:      []string{constants.PathHealth, constants.PathMetrics, constants.PathPprof},
+		SkipPaths:      []string{constants.DefaultHealthPath, constants.DefaultMetricsPath, constants.DefaultDebugPath},
 	}
 }

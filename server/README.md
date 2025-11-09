@@ -5,13 +5,14 @@
 ## 文件结构
 
 ```
-internal/server/
+server/
 ├── server.go           # 主要的Server结构定义和构造函数
 ├── core.go            # 核心组件初始化（数据库、Redis、日志等）
 ├── grpc.go            # gRPC服务器初始化和启动逻辑
 ├── http.go            # HTTP服务器和网关初始化逻辑
 ├── middleware_init.go # 中间件管理器初始化
 ├── lifecycle.go       # 服务器生命周期管理（启动、停止等）
+├── banner.go          # 启动横幅显示
 └── README.md          # 本文件
 ```
 
@@ -53,6 +54,12 @@ internal/server/
 - 优雅关闭：`Shutdown()`
 - 状态检查：`IsRunning()`
 - 等待运行：`Wait()`
+
+### banner.go
+- 启动横幅显示：`showBanner()`
+- 版本信息显示
+- 启动时间记录
+- 美化的控制台输出
 
 ## 重构收益
 

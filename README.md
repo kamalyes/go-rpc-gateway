@@ -17,6 +17,34 @@
 
 ---
 
+
+### 🏗️ 核心架构
+
+```
+                    ┌─────────────────────────┐
+                    │      Gateway入口        │
+                    │   (cmd/gateway/main.go) │
+                    └───────────┬─────────────┘
+                                │
+                    ┌─────────────────────────┐
+                    │      Server核心         │
+                    │   (server/server.go)    │
+                    └───────────┬─────────────┘
+                                │
+        ┌─────────────────┬─────────────────┬─────────────────┐
+        │                 │                 │                 │
+┌───────▼──────┐ ┌────────▼────────┐ ┌──────▼──────┐ ┌───────▼──────┐
+│  HTTP Server │ │  gRPC Server    │ │ Middleware  │ │ Config Mgr   │
+│  (http.go)   │ │  (grpc.go)     │ │ (middleware)│ │ (config/)    │
+└──────────────┘ └─────────────────┘ └─────────────┘ └──────────────┘
+        │                 │                 │                 │
+┌───────▼──────┐ ┌────────▼────────┐ ┌──────▼──────┐ ┌───────▼──────┐
+│ gRPC Gateway │ │ Business Logic  │ │ Security    │ │ Hot Reload   │
+│ (Gateway)    │ │ (Your Services) │ │ Metrics     │ │ Validation   │
+│              │ │                 │ │ Logging     │ │              │
+└──────────────┘ └─────────────────┘ └─────────────┘ └──────────────┘
+```
+
 ## ✨ 核心特性
 
 <table>
@@ -303,53 +331,92 @@ export REDIS_PASSWORD=your_password
 ```
 go-rpc-gateway/
 ├── 🎯 cmd/                    # 应用程序入口
-│   └── gateway/
-│       └── main.go           # 主程序入口
-├── 🏗️ internal/               # 内部包（不对外暴露）
-│   ├── config/               # 配置管理
-│   │   ├── config.go        # 配置结构定义
-│   │   └── manager.go       # 配置管理器
-│   └── server/              # 服务器实现 [已重构]
-│       ├── server.go        # 🔧 核心结构定义
-│       ├── core.go          # 🛠️ 组件初始化
-│       ├── grpc.go          # 📡 gRPC 服务器
-│       ├── http.go          # 🌐 HTTP 网关
-│       ├── middleware_init.go # 🔌 中间件初始化
-│       ├── lifecycle.go     # 🔄 生命周期管理
-│       └── README.md        # 📖 重构说明文档
+│   ├── gateway/
+│   │   └── main.go           # 主程序入口 - 网关服务
+│   ├── simple-gateway/
+│   │   └── main.go           # 简单网关示例
+│   └── test-adapter/
+│       └── main.go           # 测试适配器
+├── 🏗️ server/                 # 服务器实现 [已重构]
+│   ├── server.go            # 🔧 核心结构定义
+│   ├── core.go              # 🛠️ 组件初始化
+│   ├── grpc.go              # 📡 gRPC 服务器
+│   ├── http.go              # 🌐 HTTP 网关
+│   ├── middleware_init.go   # 🔌 中间件初始化
+│   ├── lifecycle.go         # 🔄 生命周期管理
+│   ├── banner.go            # 🎨 启动横幅
+│   └── README.md            # 📖 重构说明文档
 ├── 🔌 middleware/             # 中间件生态系统
 │   ├── manager.go           # 中间件管理器
-│   ├── access.go           # 访问日志
-│   ├── metrics.go          # 监控指标
-│   ├── security.go         # 安全防护
-│   ├── ratelimit.go        # 流量控制
-│   ├── recovery.go         # 异常恢复
-│   ├── signature.go        # 签名验证
-│   └── types.go            # 类型定义
-├── 🔄 response/              # 统一响应处理
-│   └── response.go         # 响应格式化
-├── 📚 examples/              # 使用示例
-│   ├── basic/              # 基础示例
-│   ├── quickstart/         # 快速开始
-│   ├── with-config/        # 配置文件示例
-│   ├── with-logs/          # 日志示例
-│   └── config.yaml         # 示例配置
-├── 📝 docs/                  # 文档目录
-│   └── BUSINESS_HANDLER_GUIDE.md
+│   ├── access.go            # 访问日志
+│   ├── observability.go     # 可观测性
+│   ├── metrics.go           # 监控指标
+│   ├── security.go          # 安全防护
+│   ├── ratelimit.go         # 流量控制
+│   ├── recovery.go          # 异常恢复
+│   ├── logging.go           # 日志中间件
+│   ├── signature.go         # 签名验证
+│   ├── pprof.go             # 性能分析
+│   ├── pprof_gateway.go     # PProf网关
+│   ├── pprof_scenarios.go   # 性能测试场景
+│   ├── requestid.go         # 请求ID
+│   └── types.go             # 类型定义
+├── � config/                 # 配置管理
+│   ├── defaults.go          # 默认配置
+│   ├── gateway.go           # 网关配置
+│   ├── manager.go           # 配置管理器
+│   ├── middleware.go        # 中间件配置
+│   ├── monitoring.go        # 监控配置
+│   └── security.go          # 安全配置
+├── 🏷️ constants/              # 常量定义
+│   ├── gateway.go           # 网关常量
+│   └── headers.go           # HTTP头常量
+├── � pbuf/                   # Protocol Buffers定义
+│   ├── buf.gen.yaml         # Buf配置文件
+│   ├── README.md            # Proto文档说明
+│   └── common/              # 通用proto定义
+│       ├── common.proto     # 通用消息定义
+│       └── common.pb.go     # 生成的Go代码
+├── 📚 examples/               # 使用示例
+│   ├── 01-quickstart/       # 快速开始
+│   ├── 02-with-config/      # 配置文件示例
+│   ├── 03-middleware/       # 中间件示例
+│   ├── 04-pprof/           # 性能分析示例
+│   ├── 05-grpc/            # gRPC集成示例
+│   ├── 06-enterprise/      # 企业级示例
+│   ├── config/             # 配置模板
+│   ├── demo/               # 演示程序
+│   ├── docker/             # Docker配置
+│   ├── k8s/                # Kubernetes配置
+│   └── README.md           # 示例说明文档
+├── 📝 docs/                   # 文档目录
+│   ├── BUILTIN_PPROF_USAGE.md # 内置PProf使用指南
+│   └── PPROF_MIDDLEWARE.md    # PProf中间件文档
+├── 🛠️ scripts/               # 构建和工具脚本
+│   ├── build-pprof.bat     # Windows PProf构建脚本
+│   └── build-pprof.sh      # Unix PProf构建脚本
+├── 🧪 tests/                 # 测试目录
+│   └── performance/         # 性能测试
+│       └── load-test.js     # 负载测试脚本
 ├── 🛠️ build scripts          # 构建脚本
 │   ├── build.sh            # Unix 构建脚本
 │   ├── build.bat           # Windows 构建脚本
 │   ├── start.sh            # Unix 启动脚本
-│   └── start.bat           # Windows 启动脚本
-└── 📋 config/                # 配置文件模板
-    └── example.yaml        # 配置示例
+│   ├── start.bat           # Windows 启动脚本
+│   ├── run-with-logs.sh    # Unix 日志启动脚本
+│   └── run-with-logs.bat   # Windows 日志启动脚本
+├── gateway.go               # 主要网关包导出
+├── go.mod                   # Go模块定义
+├── go.sum                   # 依赖校验文件
+├── Makefile                 # Make构建脚本
+└── README.md                # 项目说明文档
 ```
 
 ### 🎯 设计原则
 
 <table>
 <tr>
-<td width="25%">
+<td width="20%">
 
 **🔧 模块化设计**
 - 单一职责原则
@@ -357,7 +424,7 @@ go-rpc-gateway/
 - 可插拔组件
 
 </td>
-<td width="25%">
+<td width="20%">
 
 **⚙️ 配置驱动**
 - 配置文件控制
@@ -365,7 +432,7 @@ go-rpc-gateway/
 - 环境变量覆盖
 
 </td>
-<td width="25%">
+<td width="20%">
 
 **🔌 中间件架构**
 - 管道式处理
@@ -373,7 +440,7 @@ go-rpc-gateway/
 - 自定义扩展
 
 </td>
-<td width="25%">
+<td width="20%">
 
 **🔍 可观测性**
 - 结构化日志
@@ -381,20 +448,28 @@ go-rpc-gateway/
 - 链路追踪
 
 </td>
+<td width="20%">
+
+**📦 类型安全**
+- Protocol Buffers
+- 统一响应格式
+- 编译时检查
+
+</td>
 </tr>
 </table>
 
 ### 🔄 重构亮点
 
-| 文件 | 行数 | 职责 | 优势 |
-|------|------|------|------|
-| `server.go` | ~99 | 核心结构定义 | 清晰的接口设计 |
-| `core.go` | ~140 | 组件初始化 | 统一的初始化流程 |
-| `grpc.go` | ~63 | gRPC 服务管理 | 专注 gRPC 逻辑 |
-| `http.go` | ~112 | HTTP 网关管理 | 专注 HTTP 逻辑 |
-| `lifecycle.go` | ~108 | 生命周期管理 | 优雅启停控制 |
+| 组件 | 文件数 | 职责 | 优势 |
+|------|--------|------|------|
+| **Server核心** | 6个文件 | 服务器生命周期管理 | 模块化，易维护 |
+| **Middleware** | 12个文件 | 中间件生态系统 | 功能完整，可插拔 |
+| **Config管理** | 6个文件 | 配置管理和热重载 | 集中管理，类型安全 |
+| **PBuf定义** | 2个文件 | Protocol Buffers | 标准化响应，类型安全 |
+| **常量定义** | 2个文件 | 系统常量集中管理 | 避免硬编码，易维护 |
 
-> 📊 **重构效果**: 原 506 行的单一文件拆分为 6 个专业模块，提高了代码的可读性和可维护性。
+> 📊 **重构效果**: 原始单一文件拆分为专业化模块，提高了代码的可读性、可维护性和可测试性。
 
 ## 🔧 中间件系统
 

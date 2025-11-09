@@ -3,7 +3,7 @@
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-10 01:39:29
- * @FilePath: \go-rpc-gateway\internal\server\grpc.go
+ * @FilePath: \go-rpc-gateway\server\grpc.go
  * @Description: gRPC服务器初始化和启动模块
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.

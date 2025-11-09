@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 18:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 01:50:34
+ * @LastEditTime: 2025-11-10 07:49:18
  * @FilePath: \go-rpc-gateway\middleware\pprof.go
  * @Description: pprof性能分析中间件 - 使用适配器模式包装go-config类型
  *
@@ -21,14 +21,14 @@ import (
 
 	"github.com/kamalyes/go-config/pkg/register"
 	gologger "github.com/kamalyes/go-logger"
-	"github.com/kamalyes/go-rpc-gateway/internal/constants"
+	"github.com/kamalyes/go-rpc-gateway/constants"
 )
 
 // DefaultPProfConfig 默认pprof配置
 func DefaultPProfConfig() *register.PProf {
 	return &register.PProf{
 		Enabled:        false, // 默认关闭
-		PathPrefix:     constants.PathPprof,
+		PathPrefix:     constants.DefaultDebugPath + "/pprof",
 		AllowedIPs:     []string{}, // 默认允许所有IP
 		RequireAuth:    true,       // 默认需要认证
 		AuthToken:      "",         // 需要用户设置

@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 18:03:45
+ * @LastEditTime: 2025-11-10 07:18:12
  * @FilePath: \go-rpc-gateway\middleware\access.go
  * @Description: 访问记录中间件
  *
@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kamalyes/go-rpc-gateway/internal/constants"
+	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/mssola/user_agent"
 )
 
@@ -47,7 +47,7 @@ func DefaultAccessRecordConfig() *AccessRecordConfig {
 		IncludeBody:     true,
 		IncludeResponse: true,
 		IncludeHeaders:  []string{constants.HeaderUserAgent, constants.HeaderXRequestID, constants.HeaderXTraceID, constants.HeaderAuthorization, constants.HeaderContentType},
-		ExcludePaths:    []string{constants.PathHealth, constants.PathMetrics, constants.PathDebug},
+		ExcludePaths:    []string{constants.DefaultHealthPath, constants.DefaultMetricsPath, constants.DefaultDebugPath},
 		MaxBodySize:     1024 * 1024,     // 1MB
 		MaxResponseSize: 1024 * 1024 * 5, // 5MB
 	}

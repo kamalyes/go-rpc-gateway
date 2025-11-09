@@ -3,7 +3,7 @@
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-10 01:05:46
- * @FilePath: \go-rpc-gateway\internal\server\lifecycle.go
+ * @FilePath: \go-rpc-gateway\server\lifecycle.go
  * @Description: 服务器生命周期管理模块，包括启动、停止等
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.

@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/kamalyes/go-core/pkg/global"
-	"github.com/kamalyes/go-rpc-gateway/internal/constants"
+	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-toolbox/pkg/osx"
 )
 

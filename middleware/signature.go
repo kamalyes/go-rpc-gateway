@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kamalyes/go-rpc-gateway/internal/constants"
+	"github.com/kamalyes/go-rpc-gateway/constants"
 )
 
 // SignatureConfig 签名验证配置

@@ -3,7 +3,7 @@
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-07 13:40:31
- * @FilePath: \go-rpc-gateway\internal\server\server.go
+ * @FilePath: \go-rpc-gateway\server\server.go
  * @Description: Gateway服务器核心结构定义
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
@@ -18,7 +18,7 @@ import (
 	"sync"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"github.com/kamalyes/go-rpc-gateway/internal/config"
+	"github.com/kamalyes/go-rpc-gateway/config"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
