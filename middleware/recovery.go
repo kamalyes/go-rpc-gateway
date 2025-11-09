@@ -2,9 +2,9 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 16:30:00
+ * @LastEditTime: 2025-11-10 01:00:09
  * @FilePath: \go-rpc-gateway\middleware\recovery.go
- * @Description: Recovery恢复中间件
+ * @Description: Recovery恢复中间件，使用go-logger
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
  */
@@ -17,12 +17,12 @@ import (
 	"net/http"
 	"runtime"
 
+	"github.com/kamalyes/go-core/pkg/global"
 	"github.com/kamalyes/go-core/pkg/response"
-	"go.uber.org/zap"
 )
 
 // Recovery 恢复中间件，捕获panic并返回友好的错误响应
-func Recovery(logger *zap.Logger) MiddlewareFunc {
+func Recovery() MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
@@ -32,13 +32,13 @@ func Recovery(logger *zap.Logger) MiddlewareFunc {
 					n := runtime.Stack(buf, false)
 					stackTrace := string(buf[:n])
 
-					logger.Error("请求恐慌恢复",
-						zap.Any("panic", err),
-						zap.String("path", r.URL.Path),
-						zap.String("method", r.Method),
-						zap.String("remote_addr", r.RemoteAddr),
-						zap.String("stack_trace", stackTrace),
-					)
+					// 使用全局logger记录错误
+					global.LOGGER.ErrorKV("请求恐慌恢复",
+						"error", err,
+						"path", r.URL.Path,
+						"method", r.Method,
+						"remote_addr", r.RemoteAddr,
+						"stack_trace", string(stackTrace))
 
 					// 设置响应头
 					w.Header().Set("Content-Type", "application/json")
@@ -51,8 +51,8 @@ func Recovery(logger *zap.Logger) MiddlewareFunc {
 						"success": false,
 					}
 
-					if err := json.NewEncoder(w).Encode(resp); err != nil {
-						logger.Error("写入panic响应失败", zap.Error(err))
+					if err := json.NewEncoder(w).Encode(resp); err != nil && global.LOGGER != nil {
+						global.LOGGER.WithError(err).ErrorMsg("写入panic响应失败")
 					}
 				}
 			}()
@@ -64,10 +64,6 @@ func Recovery(logger *zap.Logger) MiddlewareFunc {
 
 // RecoveryWithConfig Recovery中间件配置版本
 func RecoveryWithConfig(config RecoveryConfig) MiddlewareFunc {
-	if config.Logger == nil {
-		panic("Recovery中间件需要Logger配置")
-	}
-
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
@@ -81,18 +77,14 @@ func RecoveryWithConfig(config RecoveryConfig) MiddlewareFunc {
 					}
 
 					// 记录日志
-					fields := []zap.Field{
-						zap.Any("panic", err),
-						zap.String("path", r.URL.Path),
-						zap.String("method", r.Method),
-						zap.String("remote_addr", r.RemoteAddr),
-					}
-
+					logger := global.LOGGER.WithField("error", err).
+						WithField("path", r.URL.Path).
+						WithField("method", r.Method).
+						WithField("remote_addr", r.RemoteAddr)
 					if config.EnableStack {
-						fields = append(fields, zap.String("stack_trace", stackTrace))
+						logger = logger.WithField("stack_trace", stackTrace)
 					}
-
-					config.Logger.Error("请求恐慌恢复", fields...)
+					logger.ErrorMsg("请求恐慌恢复")
 
 					// 自定义恢复处理
 					if config.RecoveryHandler != nil {
@@ -133,7 +125,6 @@ func RecoveryWithConfig(config RecoveryConfig) MiddlewareFunc {
 
 // RecoveryConfig Recovery中间件配置
 type RecoveryConfig struct {
-	Logger          *zap.Logger
 	EnableStack     bool
 	StackSize       int
 	EnableDebug     bool

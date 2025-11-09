@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 15:05:16
+ * @LastEditTime: 2025-11-08 03:38:29
  * @FilePath: \go-rpc-gateway\middleware\ratelimit.go
  * @Description:
  *
@@ -14,10 +14,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/kamalyes/go-core/pkg/global"
+	"github.com/kamalyes/go-rpc-gateway/internal/constants"
 )
 
 // RateLimitConfig 限流配置
@@ -231,18 +233,26 @@ func RateLimitMiddlewareWithConfig(config *RateLimitConfig) HTTPMiddleware {
 	return RateLimitMiddleware(limiter)
 }
 
-// getClientIP 获取客户端 IP
-func getClientIP(r *http.Request) string {
-	// 尝试从 X-Forwarded-For 获取
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return xff
-	}
 
-	// 尝试从 X-Real-IP 获取
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+// getClientIP 获取客户端真实IP
+func getClientIP(r *http.Request) string {
+	// 检查X-Forwarded-For头
+	if xff := r.Header.Get(constants.HeaderXForwardedFor); xff != "" {
+		// 取第一个IP
+		if ips := strings.Split(xff, ","); len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
+	}
+	
+	// 检查X-Real-IP头
+	if xri := r.Header.Get(constants.HeaderXRealIP); xri != "" {
 		return xri
 	}
-
-	// 使用 RemoteAddr
+	
+	// 使用RemoteAddr
+	if ip := strings.Split(r.RemoteAddr, ":"); len(ip) > 0 {
+		return ip[0]
+	}
+	
 	return r.RemoteAddr
 }

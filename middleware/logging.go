@@ -12,10 +12,10 @@ package middleware
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
+	"github.com/kamalyes/go-core/pkg/global"
 	"github.com/kamalyes/go-rpc-gateway/internal/constants"
 	"github.com/kamalyes/go-toolbox/pkg/osx"
 )
@@ -117,7 +117,7 @@ func logRequestText(r *http.Request, rw *loggingResponseWriter, duration time.Du
 		}
 	}
 
-	log.Println(logLine)
+	global.LOGGER.Info(logLine)
 }
 
 // logRequestJSON JSON 格式日志
@@ -149,7 +149,7 @@ func logRequestJSON(r *http.Request, rw *loggingResponseWriter, duration time.Du
 	}
 
 	// 简单的 JSON 输出（生产环境建议使用专业的日志库）
-	log.Printf("REQUEST: %+v", logData)
+	global.LOGGER.WithField("request", logData).InfoMsg("REQUEST")
 }
 
 // RecoveryMiddleware 恢复中间件
@@ -158,12 +158,11 @@ func RecoveryMiddleware() HTTPMiddleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if err := recover(); err != nil {
-					log.Printf("PANIC: %v", err)
-
-					// 记录详细错误信息
-					log.Printf("Request: %s %s", r.Method, r.URL.String())
-					log.Printf("Remote: %s", r.RemoteAddr)
-					log.Printf("User-Agent: %s", r.UserAgent())
+					global.LOGGER.ErrorKV("PANIC",
+						"error", err,
+						"request", r.Method+" "+r.URL.String(),
+						"remote", r.RemoteAddr,
+						"user_agent", r.UserAgent())
 
 					// 返回 500 错误
 					w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)

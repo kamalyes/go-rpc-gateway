@@ -1,0 +1,461 @@
+# GitHub Actions CI/CD Pipeline
+# Go RPC Gateway 自动化构建和部署
+
+name: Go RPC Gateway CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: 'Deployment Environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  GO_VERSION: '1.21'
+  DOCKER_REGISTRY: ghcr.io
+  IMAGE_NAME: go-rpc-gateway
+
+jobs:
+  # 代码质量检查
+  quality-check:
+    name: Quality Check
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Cache Go Modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install Dependencies
+      run: |
+        go mod download
+        go mod verify
+
+    - name: Run Go Vet
+      run: go vet ./...
+
+    - name: Run Go Fmt Check
+      run: |
+        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+          echo "Code is not formatted:"
+          gofmt -s -l .
+          exit 1
+        fi
+
+    - name: Install golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        args: --timeout=5m
+
+    - name: Run Security Scan
+      uses: securecodewarrior/github-action-gosec@master
+      with:
+        args: ./...
+
+  # 单元测试
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: quality-check
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_pass
+          MYSQL_DATABASE: gateway_test
+          MYSQL_USER: test_user
+          MYSQL_PASSWORD: test_pass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Install Dependencies
+      run: go mod download
+
+    - name: Wait for Services
+      run: |
+        timeout 30s bash -c 'until nc -z localhost 3306; do sleep 1; done'
+        timeout 30s bash -c 'until nc -z localhost 6379; do sleep 1; done'
+
+    - name: Run Unit Tests
+      env:
+        DB_HOST: localhost
+        DB_PORT: 3306
+        DB_USER: test_user
+        DB_PASSWORD: test_pass
+        DB_NAME: gateway_test
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+      run: |
+        go test -v -race -coverprofile=coverage.out ./...
+        go tool cover -html=coverage.out -o coverage.html
+
+    - name: Upload Coverage Reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+        flags: unittests
+        name: codecov-umbrella
+
+    - name: Archive Coverage Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-report
+        path: coverage.html
+
+  # 集成测试
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Build Application
+      run: |
+        make build
+
+    - name: Start Services with Docker Compose
+      run: |
+        cd examples/docker
+        docker-compose -f docker-compose.yml up -d mysql redis
+        sleep 30
+
+    - name: Run Integration Tests
+      env:
+        GATEWAY_ENV: test
+      run: |
+        # 启动Gateway服务
+        ./bin/gateway &
+        GATEWAY_PID=$!
+        
+        # 等待服务启动
+        sleep 10
+        
+        # 运行集成测试
+        go test -tags=integration ./tests/integration/...
+        
+        # 清理
+        kill $GATEWAY_PID
+
+    - name: Cleanup
+      run: |
+        cd examples/docker
+        docker-compose down -v
+
+  # Docker构建
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [quality-check, test]
+    if: github.event_name != 'pull_request'
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract Metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=sha,prefix={{branch}}-,suffix=-{{date 'YYYYMMDD'}}
+
+    - name: Build and Push Docker Image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: examples/docker/Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+    - name: Generate SBOM
+      uses: anchore/sbom-action@v0
+      with:
+        image: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}:latest
+        format: spdx-json
+        output-file: sbom.spdx.json
+
+    - name: Scan for Vulnerabilities
+      uses: anchore/scan-action@v3
+      with:
+        image: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}:latest
+        fail-build: false
+
+  # 部署到Staging环境
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    if: github.ref == 'refs/heads/develop' || github.event.inputs.deploy_environment == 'staging'
+    environment:
+      name: staging
+      url: https://gateway-staging.yourdomain.com
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Update Kubeconfig
+      run: |
+        aws eks update-kubeconfig --region us-west-2 --name staging-cluster
+
+    - name: Deploy to Staging
+      run: |
+        # 更新镜像标签
+        export IMAGE_TAG=${{ needs.docker-build.outputs.image-tag }}
+        envsubst < examples/k8s/gateway-deployment.yaml | kubectl apply -f -
+        
+        # 等待部署完成
+        kubectl rollout status deployment/gateway-deployment -n gateway --timeout=600s
+
+    - name: Run Smoke Tests
+      run: |
+        # 等待服务就绪
+        sleep 30
+        
+        # 运行基本健康检查
+        kubectl get pods -n gateway
+        
+        # 测试API端点
+        GATEWAY_URL="https://gateway-staging.yourdomain.com"
+        curl -f "$GATEWAY_URL/health" || exit 1
+        curl -f "$GATEWAY_URL/ready" || exit 1
+
+  # 部署到生产环境
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [docker-build, deploy-staging]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.deploy_environment == 'production'
+    environment:
+      name: production
+      url: https://gateway.yourdomain.com
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Manual Approval
+      uses: trstringer/manual-approval@v1
+      with:
+        secret: ${{ github.TOKEN }}
+        approvers: admin,devops-team
+        minimum-approvals: 2
+        issue-title: "Deploy to Production - ${{ github.ref_name }}"
+        issue-body: |
+          Please review and approve the production deployment:
+          - Version: ${{ github.ref_name }}
+          - Commit: ${{ github.sha }}
+          - Image: ${{ needs.docker-build.outputs.image-tag }}
+          
+          Changes in this release:
+          ${{ github.event.head_commit.message }}
+
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Update Kubeconfig
+      run: |
+        aws eks update-kubeconfig --region us-west-2 --name production-cluster
+
+    - name: Deploy to Production
+      run: |
+        # 蓝绿部署策略
+        export IMAGE_TAG=${{ needs.docker-build.outputs.image-tag }}
+        envsubst < examples/k8s/gateway-deployment.yaml | kubectl apply -f -
+        
+        # 等待新版本部署完成
+        kubectl rollout status deployment/gateway-deployment -n gateway --timeout=900s
+        
+        # 验证新版本健康状态
+        sleep 60
+        kubectl get pods -n gateway
+
+    - name: Post-deployment Tests
+      run: |
+        # 生产环境健康检查
+        GATEWAY_URL="https://gateway.yourdomain.com"
+        
+        # API健康检查
+        for i in {1..5}; do
+          if curl -f "$GATEWAY_URL/health"; then
+            echo "Health check passed"
+            break
+          fi
+          echo "Health check attempt $i failed, retrying..."
+          sleep 10
+        done
+
+    - name: Rollback on Failure
+      if: failure()
+      run: |
+        echo "Deployment failed, initiating rollback..."
+        kubectl rollout undo deployment/gateway-deployment -n gateway
+        kubectl rollout status deployment/gateway-deployment -n gateway --timeout=600s
+
+  # 性能测试
+  performance-test:
+    name: Performance Test
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.event_name != 'pull_request'
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Install k6
+      run: |
+        sudo gpg -k
+        sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+        echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+        sudo apt-get update
+        sudo apt-get install k6
+
+    - name: Run Performance Tests
+      run: |
+        # 基准性能测试
+        k6 run --out json=results.json tests/performance/load-test.js
+        
+        # 压力测试
+        k6 run tests/performance/stress-test.js
+
+    - name: Archive Performance Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-results
+        path: results.json
+
+  # 安全扫描
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    steps:
+    - name: Run Trivy Vulnerability Scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ needs.docker-build.outputs.image-tag }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy Scan Results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # 通知
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: always()
+    steps:
+    - name: Notify Slack
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: |
+          🚀 Gateway Deployment Status: ${{ job.status }}
+          📦 Version: ${{ github.ref_name }}
+          🔗 URL: https://gateway.yourdomain.com
+          👤 Triggered by: ${{ github.actor }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

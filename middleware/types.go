@@ -15,9 +15,9 @@ import (
 	"net/http"
 	"time"
 
+	logger "github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/internal/constants"
 	"github.com/kamalyes/go-toolbox/pkg/osx"
-	"go.uber.org/zap"
 )
 
 // MiddlewareFunc 中间件函数类型
@@ -65,7 +65,7 @@ func DefaultTimeoutConfig() TimeoutConfig {
 
 // LoggerConfig 日志中间件配置
 type LoggerConfig struct {
-	Logger         *zap.Logger
+	Logger         *logger.Logger
 	EnableRequest  bool
 	EnableResponse bool
 	SkipPaths      []string
@@ -76,6 +76,6 @@ func DefaultLoggerConfig() LoggerConfig {
 	return LoggerConfig{
 		EnableRequest:  true,
 		EnableResponse: true,
-		SkipPaths:      []string{constants.PathHealth, constants.PathMetrics},
+		SkipPaths:      []string{constants.PathHealth, constants.PathMetrics, constants.PathPprof},
 	}
 }

@@ -33,9 +33,13 @@ type Server struct {
 	grpcServer *grpc.Server
 	httpServer *http.Server
 	gwMux      *runtime.ServeMux
+	httpMux    *http.ServeMux  // 添加HTTP路由管理器
 
 	// 中间件管理器
 	middlewareManager *middleware.Manager
+	
+	// Banner管理器
+	bannerManager *BannerManager
 
 	// 状态管理
 	ctx    context.Context
@@ -56,9 +60,10 @@ func NewServer(cfg *config.GatewayConfig) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	server := &Server{
-		config: cfg,
-		ctx:    ctx,
-		cancel: cancel,
+		config:        cfg,
+		ctx:           ctx,
+		cancel:        cancel,
+		bannerManager: NewBannerManager(cfg),
 	}
 
 	// 初始化全局配置和核心组件
@@ -100,6 +105,16 @@ func NewServerWithConfigManager(configManager *config.ConfigManager) (*Server, e
 // GetConfig 获取配置
 func (s *Server) GetConfig() *config.GatewayConfig {
 	return s.config
+}
+
+// GetMiddlewareManager 获取中间件管理器
+func (s *Server) GetMiddlewareManager() *middleware.Manager {
+	return s.middlewareManager
+}
+
+// GetBannerManager 获取Banner管理器
+func (s *Server) GetBannerManager() *BannerManager {
+	return s.bannerManager
 }
 
 // RegisterGRPCService 注册gRPC服务

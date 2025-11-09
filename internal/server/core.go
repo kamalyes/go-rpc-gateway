@@ -2,9 +2,9 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 18:36:15
+ * @LastEditTime: 2025-11-10 00:16:00
  * @FilePath: \go-rpc-gateway\internal\server\core.go
- * @Description: 核心组件初始化模块，包括数据库、Redis、日志等
+ * @Description: 核心组件初始化模块，集成go-core和go-logger
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
  */
@@ -15,20 +15,12 @@ import (
 	"fmt"
 
 	"github.com/kamalyes/go-core/pkg/global"
-	gocoreZap "github.com/kamalyes/go-core/pkg/zap"
 	"github.com/kamalyes/go-rpc-gateway/internal/config"
-	"go.uber.org/zap"
 )
 
 // initCore 初始化核心组件，集成go-core
 func (s *Server) initCore() error {
-	// 设置全局配置
-	global.CONFIG = s.config.SingleConfig
-
-	// 初始化日志
-	if err := s.initLogger(); err != nil {
-		return fmt.Errorf("failed to init logger: %w", err)
-	}
+	// 注意：全局配置和日志已经由ConfigManager初始化，这里不再重复初始化
 
 	// 初始化数据库
 	if err := s.initDatabase(); err != nil {
@@ -70,12 +62,6 @@ func (s *Server) initOtherComponents() error {
 		return fmt.Errorf("failed to init casbin: %w", err)
 	}
 
-	return nil
-}
-
-// initLogger 初始化日志系统，使用go-core的zap模块
-func (s *Server) initLogger() error {
-	global.LOG = gocoreZap.Zap()
 	return nil
 }
 
@@ -124,9 +110,7 @@ func (s *Server) onConfigChanged(newConfig *config.GatewayConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if global.LOG != nil {
-		global.LOG.Info("配置发生变化，准备热重载")
-	}
+	global.LOGGER.Info("配置发生变化，准备热重载")
 
 	// 更新配置
 	oldConfig := s.config
@@ -138,9 +122,7 @@ func (s *Server) onConfigChanged(newConfig *config.GatewayConfig) {
 	// 这里可以添加其他需要热重载的组件
 	// 比如重新初始化中间件、更新限流配置等
 
-	if global.LOG != nil {
-		global.LOG.Info("配置热重载完成",
-			zap.String("old_version", oldConfig.Gateway.Version),
-			zap.String("new_version", newConfig.Gateway.Version))
-	}
+	global.LOGGER.InfoKV("配置热重载完成",
+		"old_version", oldConfig.Gateway.Version,
+		"new_version", newConfig.Gateway.Version)
 }

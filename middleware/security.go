@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 15:05:41
+ * @LastEditTime: 2025-11-08 03:36:25
  * @FilePath: \go-rpc-gateway\middleware\security.go
  * @Description:
  *
@@ -12,6 +12,8 @@ package middleware
 
 import (
 	"net/http"
+
+	"github.com/kamalyes/go-config/pkg/cors"
 )
 
 // CORSMiddleware CORS 中间件
@@ -41,11 +43,11 @@ type CORSConfig struct {
 }
 
 // DefaultCORSConfig 默认 CORS 配置
-func DefaultCORSConfig() *CORSConfig {
-	return &CORSConfig{
-		AllowOrigins: []string{"*"},
-		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders: []string{
+func DefaultCORSConfig() *cors.Cors {
+	return &cors.Cors{
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+		AllowedHeaders: []string{
 			"Accept",
 			"Content-Type",
 			"Content-Length",
@@ -56,12 +58,12 @@ func DefaultCORSConfig() *CORSConfig {
 			"X-Trace-Id",
 		},
 		AllowCredentials: false,
-		MaxAge:           86400, // 24小时
+		MaxAge:           "86400", // 24小时
 	}
 }
 
 // CORSMiddlewareWithConfig 带配置的 CORS 中间件
-func CORSMiddlewareWithConfig(config *CORSConfig) HTTPMiddleware {
+func CORSMiddlewareWithConfig(config *cors.Cors) HTTPMiddleware {
 	if config == nil {
 		config = DefaultCORSConfig()
 	}
@@ -82,10 +84,10 @@ func CORSMiddlewareWithConfig(config *CORSConfig) HTTPMiddleware {
 }
 
 // setCORSHeaders 设置CORS相关头部
-func setCORSHeaders(w http.ResponseWriter, r *http.Request, config *CORSConfig) {
-	setAllowOrigin(w, r.Header.Get("Origin"), config.AllowOrigins)
-	setAllowMethods(w, config.AllowMethods)
-	setAllowHeaders(w, config.AllowHeaders)
+func setCORSHeaders(w http.ResponseWriter, r *http.Request, config *cors.Cors) {
+	setAllowOrigin(w, r.Header.Get("Origin"), config.AllowedOrigins)
+	setAllowMethods(w, config.AllowedMethods)
+	setAllowHeaders(w, config.AllowedHeaders)
 	setAllowCredentials(w, config.AllowCredentials)
 	setMaxAge(w, config.MaxAge)
 }
@@ -132,9 +134,9 @@ func setAllowCredentials(w http.ResponseWriter, allowCredentials bool) {
 }
 
 // setMaxAge 设置预检请求缓存时间
-func setMaxAge(w http.ResponseWriter, maxAge int) {
-	if maxAge > 0 {
-		w.Header().Set("Access-Control-Max-Age", string(rune(maxAge)))
+func setMaxAge(w http.ResponseWriter, maxAge string) {
+	if maxAge != "" {
+		w.Header().Set("Access-Control-Max-Age", maxAge)
 	}
 }
 

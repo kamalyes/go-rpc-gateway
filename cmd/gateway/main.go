@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 18:38:27
+ * @LastEditTime: 2025-11-10 02:00:25
  * @FilePath: \go-rpc-gateway\cmd\gateway\main.go
  * @Description: Gateway主程序入口
  *
@@ -19,11 +19,10 @@ import (
 
 	"github.com/kamalyes/go-core/pkg/global"
 	gateway "github.com/kamalyes/go-rpc-gateway"
-	"go.uber.org/zap"
 )
 
 var (
-	configFile = flag.String("config", "config.yaml", "配置文件路径")
+	configFile = flag.String("resources", "dev_gateway.yaml", "配置文件路径")
 )
 
 // loadConfigAndCreateGateway 加载配置并创建网关实例
@@ -43,20 +42,20 @@ func main() {
 	// 加载配置
 	gw, err := loadConfigAndCreateGateway(*configFile)
 	if err != nil {
-		global.LOG.Warn("使用配置文件创建Gateway失败，尝试使用默认配置", zap.Error(err), zap.String("config_file", *configFile))
+		global.LOGGER.WarnKV("使用配置文件创建Gateway失败，尝试使用默认配置", "error", err, "config_file", *configFile)
 		if gw, err = gateway.New(); err != nil {
-			global.LOG.Fatal("创建Gateway失败", zap.Error(err))
+			global.LOGGER.WithError(err).FatalMsg("创建Gateway失败")
 		}
 	} else {
-		global.LOG.Info("使用配置文件创建Gateway成功", zap.String("config_file", *configFile))
+		global.LOGGER.InfoKV("使用配置文件创建Gateway成功", "config_file", *configFile)
 	}
 
-	global.LOG.Info("🚀 Starting Go RPC Gateway")
-	global.LOG.Info("Built with go-config and go-core")
+	global.LOGGER.InfoMsg("🚀 Starting Go RPC Gateway")
+	global.LOGGER.InfoMsg("Built with go-config and go-core")
 
-	// 启动Gateway
+	// 启动Gateway（默认显示Banner）
 	if err := gw.Start(); err != nil {
-		global.LOG.Fatal("启动Gateway失败", zap.Error(err))
+		global.LOGGER.WithError(err).FatalMsg("启动Gateway失败")
 	}
 
 	// 等待中断信号
@@ -64,15 +63,14 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	global.LOG.Info("🛑 接收到关闭信号，正在优雅关闭Gateway...")
+	// 打印关闭横幅
+	gw.PrintShutdownInfo()
 
 	// 优雅关闭
 	if err := gw.Stop(); err != nil {
-		global.LOG.Error("Gateway关闭过程中出现错误", zap.Error(err))
+		global.LOGGER.WithError(err).ErrorMsg("Gateway关闭过程中出现错误")
 	} else {
-		global.LOG.Info("✅ Gateway已安全关闭")
+		// 打印关闭完成信息
+		gw.PrintShutdownComplete()
 	}
-
-	// 同步日志
-	global.LOG.Sync()
 }

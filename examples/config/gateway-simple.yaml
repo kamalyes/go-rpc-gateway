@@ -1,0 +1,55 @@
+# go-rpc-gateway 简化配置示例
+# 仅配置必要的 go-config 标准组件
+
+# 基础服务器配置
+server:
+  endpoint: ":8080"
+  server-name: "my-gateway"
+
+# CORS 跨域配置
+cors:
+  allowed-all-origins: true
+  allow-credentials: true
+
+# JWT 认证配置  
+jwt:
+  signing-key: "my-secret-key"
+  expires-time: 7200
+
+# 内存缓存配置
+cache:
+  type: "memory"
+  enabled: true
+  memory:
+    capacity: 500
+
+# 性能分析配置
+pprof:
+  enabled: true
+
+# 日志配置
+zap:
+  level: "info"
+  format: "console"
+  log-in-console: true
+
+# Gateway 基础配置
+gateway:
+  name: "my-gateway"
+  debug: true
+  
+  http:
+    port: 8080
+  
+  grpc:
+    port: 9090
+
+# 简化中间件
+middleware:
+  rate_limit:
+    enabled: true
+    rate: 200
+  
+  access_log:
+    enabled: true
+    format: "json"

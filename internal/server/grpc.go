@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 13:40:31
+ * @LastEditTime: 2025-11-10 01:39:29
  * @FilePath: \go-rpc-gateway\internal\server\grpc.go
  * @Description: gRPC服务器初始化和启动模块
  *
@@ -16,7 +16,6 @@ import (
 	"net"
 
 	"github.com/kamalyes/go-core/pkg/global"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -59,15 +58,15 @@ func (s *Server) startGRPCServer() error {
 		return fmt.Errorf("failed to listen on %s: %w", address, err)
 	}
 
-	global.LOG.Info("Starting gRPC server", zap.String("address", address))
+	global.LOGGER.InfoKV("Starting gRPC server", "address", address)
 	return s.grpcServer.Serve(listener)
 }
 
 // stopGRPCServer 停止gRPC服务器
 func (s *Server) stopGRPCServer() {
 	if s.grpcServer != nil {
-		global.LOG.Info("Stopping gRPC server...")
+		global.LOGGER.Info("Stopping gRPC server...")
 		s.grpcServer.GracefulStop()
-		global.LOG.Info("gRPC server stopped")
+		global.LOGGER.Info("gRPC server stopped")
 	}
 }

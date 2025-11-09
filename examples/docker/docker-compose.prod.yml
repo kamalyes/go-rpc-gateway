@@ -1,0 +1,272 @@
+# 生产环境配置 - Docker Compose Production
+version: '3.8'
+
+# 网关服务完整配置
+services:
+  # 网关主服务
+  gateway:
+    image: go-rpc-gateway:latest
+    container_name: gateway-prod
+    ports:
+      - "80:8080"
+      - "443:8443" 
+      - "9090:9090"
+    environment:
+      - GATEWAY_ENV=production
+      - LOG_LEVEL=warn
+      - PPROF_ENABLED=false
+      - DB_HOST=mysql
+      - REDIS_HOST=redis
+      - MINIO_ENDPOINT=minio:9000
+      - JAEGER_ENDPOINT=jaeger:14268
+      - PROMETHEUS_ENDPOINT=prometheus:9090
+    volumes:
+      - /opt/gateway/logs:/app/logs
+      - /opt/gateway/config/prod.yaml:/app/config.yaml:ro
+      - /opt/gateway/ssl:/app/ssl:ro
+    secrets:
+      - gateway_db_pass
+      - gateway_redis_pass
+      - gateway_jwt_secret
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5' 
+          memory: 512M
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - frontend
+      - backend
+
+  # MySQL集群
+  mysql-master:
+    image: mysql:8.0
+    container_name: mysql-master
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_pass
+      MYSQL_DATABASE: gateway_prod
+      MYSQL_USER: gateway_user
+      MYSQL_PASSWORD_FILE: /run/secrets/gateway_db_pass
+      MYSQL_REPLICATION_USER: repl_user
+      MYSQL_REPLICATION_PASSWORD_FILE: /run/secrets/mysql_repl_pass
+    volumes:
+      - mysql_master_data:/var/lib/mysql
+      - ./mysql/master.cnf:/etc/mysql/conf.d/master.cnf:ro
+      - ./mysql/init-master.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    secrets:
+      - mysql_root_pass
+      - gateway_db_pass
+      - mysql_repl_pass
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+    networks:
+      - backend
+
+  mysql-slave:
+    image: mysql:8.0
+    container_name: mysql-slave
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_pass
+      MYSQL_MASTER_HOST: mysql-master
+      MYSQL_REPLICATION_USER: repl_user
+      MYSQL_REPLICATION_PASSWORD_FILE: /run/secrets/mysql_repl_pass
+    volumes:
+      - mysql_slave_data:/var/lib/mysql
+      - ./mysql/slave.cnf:/etc/mysql/conf.d/slave.cnf:ro
+    secrets:
+      - mysql_root_pass
+      - mysql_repl_pass
+    depends_on:
+      - mysql-master
+    networks:
+      - backend
+
+  # Redis集群
+  redis-master:
+    image: redis:7-alpine
+    container_name: redis-master
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_master_data:/data
+      - ./redis/master.conf:/usr/local/etc/redis/redis.conf:ro
+    secrets:
+      - gateway_redis_pass
+    networks:
+      - backend
+
+  redis-sentinel:
+    image: redis:7-alpine
+    container_name: redis-sentinel
+    command: redis-sentinel /usr/local/etc/redis/sentinel.conf
+    volumes:
+      - ./redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf:ro
+    depends_on:
+      - redis-master
+    deploy:
+      replicas: 3
+    networks:
+      - backend
+
+  # 负载均衡器
+  nginx:
+    image: nginx:alpine
+    container_name: gateway-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - gateway
+    networks:
+      - frontend
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+
+  # 监控栈
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus-prod
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - prometheus_data:/prometheus
+      - ./prometheus/prod.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - monitoring
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana-prod
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/grafana_admin_pass
+      - GF_INSTALL_PLUGINS=redis-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    secrets:
+      - grafana_admin_pass
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring
+      - frontend
+
+  # 日志聚合
+  elasticsearch:
+    image: elasticsearch:8.8.0
+    container_name: elasticsearch-prod
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - logging
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  logstash:
+    image: logstash:8.8.0
+    container_name: logstash-prod
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - /opt/gateway/logs:/var/log/gateway:ro
+    depends_on:
+      - elasticsearch
+    networks:
+      - logging
+
+  kibana:
+    image: kibana:8.8.0
+    container_name: kibana-prod
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - logging
+      - frontend
+
+# 网络配置
+networks:
+  frontend:
+    driver: overlay
+  backend:
+    driver: overlay
+    internal: true
+  monitoring:
+    driver: overlay
+    internal: true
+  logging:
+    driver: overlay
+    internal: true
+
+# 数据卷
+volumes:
+  mysql_master_data:
+    driver: local
+  mysql_slave_data:
+    driver: local
+  redis_master_data:
+    driver: local
+  nginx_logs:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+
+# 敏感信息管理
+secrets:
+  gateway_db_pass:
+    external: true
+  gateway_redis_pass:
+    external: true
+  gateway_jwt_secret:
+    external: true
+  mysql_root_pass:
+    external: true
+  mysql_repl_pass:
+    external: true
+  grafana_admin_pass:
+    external: true

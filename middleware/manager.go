@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 15:02:43
+ * @LastEditTime: 2025-11-08 03:33:56
  * @FilePath: \go-rpc-gateway\middleware\manager.go
  * @Description: 中间件管理器
  *
@@ -15,22 +15,31 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/kamalyes/go-config/pkg/cors"
+	"github.com/kamalyes/go-config/pkg/register"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 )
+
+// PProfConfig 为了向后兼容，保持这个类型别名
+type PProfConfig = register.PProf
 
 // Manager 中间件管理器
 type Manager struct {
 	metricsManager      *MetricsManager
 	tracingManager      *TracingManager
 	loggingConfig       *LoggingConfig
-	corsConfig          *CORSConfig
+	corsConfig          *cors.Cors
 	rateLimitConfig     *RateLimitConfig
 	accessRecordConfig  *AccessRecordConfig
 	signatureConfig     *SignatureConfig
+	pprofConfig         *register.PProf
+	pprofAdapter        *PProfConfigAdapter  // 添加适配器
+	pprofGatewayConfig  *PProfGatewayConfig  // 新增Gateway配置
 	rateLimiter         RateLimiter
 	accessRecordHandler AccessRecordHandler
 	signatureValidator  SignatureValidator
+	pprofScenarios      *PProfScenarios
 }
 
 // NewManager 创建中间件管理器
@@ -39,13 +48,19 @@ func NewManager(metricsConfig *MetricsConfig, tracingConfig *TracingConfig) (*Ma
 
 	manager := &Manager{
 		loggingConfig:       DefaultLoggingConfig(),
-		corsConfig:          DefaultCORSConfig(),
+		corsConfig:          &cors.Cors{}, // 使用默认的cors配置
 		rateLimitConfig:     DefaultRateLimitConfig(),
 		accessRecordConfig:  DefaultAccessRecordConfig(),
 		signatureConfig:     DefaultSignatureConfig(),
+		pprofConfig:         DefaultPProfConfig(),
+		pprofGatewayConfig:  NewPProfGatewayConfig(), // 初始化Gateway配置
 		accessRecordHandler: &LogAccessRecordHandler{},
 		signatureValidator:  &HMACValidator{},
+		pprofScenarios:      NewPProfScenarios(),
 	}
+
+	// 创建pprof适配器
+	manager.pprofAdapter = NewPProfConfigAdapter(manager.pprofConfig)
 
 	// 初始化监控管理器
 	if metricsConfig != nil && metricsConfig.Enabled {
@@ -75,7 +90,7 @@ func (m *Manager) WithLoggingConfig(config *LoggingConfig) *Manager {
 }
 
 // WithCORSConfig 设置 CORS 配置
-func (m *Manager) WithCORSConfig(config *CORSConfig) *Manager {
+func (m *Manager) WithCORSConfig(config *cors.Cors) *Manager {
 	if config != nil {
 		m.corsConfig = config
 	}
@@ -104,6 +119,39 @@ func (m *Manager) WithSignatureConfig(config *SignatureConfig) *Manager {
 		m.signatureConfig = config
 	}
 	return m
+}
+
+// WithPProfConfig 设置pprof配置
+func (m *Manager) WithPProfConfig(config *register.PProf) *Manager {
+	if config != nil {
+		m.pprofConfig = config
+		// 重新创建适配器
+		m.pprofAdapter = NewPProfConfigAdapter(config)
+		// 同步到Gateway配置
+		if m.pprofGatewayConfig != nil {
+			m.pprofGatewayConfig.adapter = m.pprofAdapter
+		}
+		// 注册性能测试场景
+		if m.pprofScenarios != nil {
+			m.pprofScenarios.RegisterScenariosToAdapter(m.pprofAdapter)
+		}
+	}
+	return m
+}
+
+// WithPProfGatewayConfig 设置pprof Gateway配置
+func (m *Manager) WithPProfGatewayConfig(config *PProfGatewayConfig) *Manager {
+	if config != nil {
+		m.pprofGatewayConfig = config
+		m.pprofConfig = config.GetPProfConfig()
+		m.pprofAdapter = config.GetPProfAdapter()
+	}
+	return m
+}
+
+// GetPProfGatewayConfig 获取pprof Gateway配置
+func (m *Manager) GetPProfGatewayConfig() *PProfGatewayConfig {
+	return m.pprofGatewayConfig
 }
 
 // WithRateLimiter 设置限流器
@@ -196,12 +244,25 @@ func (m *Manager) TimestampMiddleware() HTTPMiddleware {
 	return TimestampMiddleware(m.signatureConfig)
 }
 
+// PProfMiddleware pprof性能分析中间件
+func (m *Manager) PProfMiddleware() HTTPMiddleware {
+	return PProfMiddleware(m.pprofAdapter)
+}
+
 // MetricsHandler 返回监控指标处理器
 func (m *Manager) MetricsHandler() http.Handler {
 	if m.metricsManager == nil {
 		return http.NotFoundHandler()
 	}
 	return promhttp.Handler()
+}
+
+// PProfHandler 返回pprof处理器
+func (m *Manager) PProfHandler() http.Handler {
+	if m.pprofConfig == nil || !m.pprofConfig.Enabled {
+		return http.NotFoundHandler()
+	}
+	return CreatePProfHandler(m.pprofAdapter)
 }
 
 // GetDefaultMiddlewares 获取默认中间件链
@@ -277,6 +338,11 @@ func (m *Manager) GetDevelopmentMiddlewares() []HTTPMiddleware {
 		m.RequestIDMiddleware(),
 		m.LoggingMiddleware(),
 		m.CORSMiddleware(),
+	}
+
+	// 在开发环境中启用pprof中间件
+	if m.pprofConfig != nil && (m.pprofConfig.Enabled) {
+		middlewares = append(middlewares, m.PProfMiddleware())
 	}
 
 	// 添加监控中间件（如果启用）

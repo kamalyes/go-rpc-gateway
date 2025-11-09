@@ -21,7 +21,6 @@ import (
 	"github.com/kamalyes/go-core/pkg/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.uber.org/zap"
 )
 
 // initHTTPGateway 初始化HTTP网关
@@ -30,33 +29,33 @@ func (s *Server) initHTTPGateway() error {
 	s.gwMux = runtime.NewServeMux()
 
 	// 创建HTTP多路复用器
-	mux := http.NewServeMux()
+	s.httpMux = http.NewServeMux()
 
-	// 注册网关路由
-	mux.Handle("/", s.gwMux)
+	// 注册网关路由（默认路由到gwMux）
+	s.httpMux.Handle("/", s.gwMux)
 
 	// 注册健康检查
 	if s.config.Gateway.HealthCheck.Enabled {
-		mux.HandleFunc(s.config.Gateway.HealthCheck.Path, s.healthCheckHandler)
-		global.LOG.Info("❤️  健康检查已启用",
-			zap.String("url", fmt.Sprintf("http://%s:%d%s",
+		s.httpMux.HandleFunc(s.config.Gateway.HealthCheck.Path, s.healthCheckHandler)
+		global.LOGGER.InfoKV("❤️  健康检查已启用",
+			"url", fmt.Sprintf("http://%s:%d%s",
 				s.config.Gateway.HTTP.Host,
 				s.config.Gateway.HTTP.Port,
-				s.config.Gateway.HealthCheck.Path)))
+				s.config.Gateway.HealthCheck.Path))
 	}
 
-	// 注册指标路由
+	// 注册监控指标端点
 	if s.config.Monitoring.Metrics.Enabled {
-		mux.Handle(s.config.Monitoring.Metrics.Path, promhttp.Handler())
-		global.LOG.Info("📊 监控指标服务可用",
-			zap.String("url", fmt.Sprintf("http://%s:%d%s",
+		s.httpMux.Handle(s.config.Monitoring.Metrics.Path, promhttp.Handler())
+		global.LOGGER.InfoKV("📊 监控指标服务可用",
+			"url", fmt.Sprintf("http://%s:%d%s",
 				s.config.Gateway.HTTP.Host,
 				s.config.Gateway.HTTP.Port,
-				s.config.Monitoring.Metrics.Path)))
+				s.config.Monitoring.Metrics.Path))
 	}
 
 	// 应用中间件
-	var handler http.Handler = mux
+	var handler http.Handler = s.httpMux
 	if s.middlewareManager != nil {
 		var middlewares []middleware.HTTPMiddleware
 		if s.config.Gateway.Debug {
@@ -82,7 +81,7 @@ func (s *Server) initHTTPGateway() error {
 
 // startHTTPServer 启动HTTP服务器
 func (s *Server) startHTTPServer() error {
-	global.LOG.Info("Starting HTTP server", zap.String("address", s.httpServer.Addr))
+	global.LOGGER.InfoKV("Starting HTTP server", "address", s.httpServer.Addr)
 	return s.httpServer.ListenAndServe()
 }
 
@@ -92,18 +91,18 @@ func (s *Server) stopHTTPServer() error {
 		return nil
 	}
 
-	global.LOG.Info("Stopping HTTP server...")
+	global.LOGGER.InfoMsg("Stopping HTTP server...")
 
 	// 创建30秒超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := s.httpServer.Shutdown(ctx); err != nil {
-		global.LOG.Error("Failed to shutdown HTTP server", zap.Error(err))
+		global.LOGGER.WithError(err).ErrorMsg("Failed to shutdown HTTP server")
 		return err
 	}
 
-	global.LOG.Info("HTTP server stopped")
+	global.LOGGER.InfoMsg("HTTP server stopped")
 	return nil
 }
 
@@ -116,11 +115,24 @@ func (s *Server) healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 // RegisterHTTPRoute 注册HTTP路由
 func (s *Server) RegisterHTTPRoute(pattern string, handler http.Handler) {
-	// 这里需要添加到HTTP服务器的路由中
-	// 由于当前使用的是grpc-gateway的ServeMux，我们需要扩展这个功能
-	// 暂时先记录，实际实现需要根据具体的HTTP服务器来定制
-	global.LOG.Info("注册HTTP路由",
-		zap.String("pattern", pattern),
-		zap.String("handler_type", fmt.Sprintf("%T", handler)),
-	)
+	if s.httpMux == nil {
+		global.LOGGER.ErrorMsg("HTTP multiplexer not initialized")
+		return
+	}
+	
+	s.httpMux.Handle(pattern, handler)
+	global.LOGGER.InfoKV("✅ 注册HTTP路由成功",
+		"pattern", pattern,
+		"handler_type", fmt.Sprintf("%T", handler))
+}
+
+// RegisterHTTPHandlerFunc 注册HTTP处理函数
+func (s *Server) RegisterHTTPHandlerFunc(pattern string, handlerFunc http.HandlerFunc) {
+	if s.httpMux == nil {
+		global.LOGGER.ErrorMsg("HTTP multiplexer not initialized")
+		return
+	}
+	
+	s.httpMux.HandleFunc(pattern, handlerFunc)
+	global.LOGGER.InfoKV("✅ 注册HTTP处理函数成功", "pattern", pattern)
 }

@@ -2,9 +2,9 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2024-11-07 00:00:00
+ * @LastEditTime: 2025-11-10 01:14:03
  * @FilePath: \go-rpc-gateway\internal\config\config.go
- * @Description: Gateway配置结构定义，基于go-config和go-core深度集成
+ * @Description: Gateway配置结构定义，基于go-config、go-core和go-logger深度集成
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
  */
@@ -17,18 +17,15 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	goconfig "github.com/kamalyes/go-config"
-	"github.com/kamalyes/go-config/pkg/captcha"
-	"github.com/kamalyes/go-config/pkg/database"
+	"github.com/kamalyes/go-config/pkg/cache"
+	"github.com/kamalyes/go-config/pkg/cors"
 	"github.com/kamalyes/go-config/pkg/env"
 	"github.com/kamalyes/go-config/pkg/jwt"
-	"github.com/kamalyes/go-config/pkg/oss"
-	"github.com/kamalyes/go-config/pkg/redis"
 	"github.com/kamalyes/go-config/pkg/register"
 	zapconfig "github.com/kamalyes/go-config/pkg/zap"
-	"github.com/kamalyes/go-config/pkg/zero"
 	"github.com/kamalyes/go-core/pkg/global"
+	"github.com/kamalyes/go-logger"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 )
 
 // 常量定义
@@ -38,22 +35,16 @@ const (
 	MetricsPath        = "/metrics"
 )
 
-// GatewayConfig Gateway配置结构
+// GatewayConfig Gateway配置结构，基于go-config简化配置管理
 type GatewayConfig struct {
-	// 基础配置
+	// 基础配置完全使用go-config
 	*goconfig.SingleConfig `mapstructure:",squash" yaml:",inline" json:",inline"`
 
-	// Gateway特有配置
-	Gateway GatewaySettings `mapstructure:"gateway" yaml:"gateway" json:"gateway"`
-
-	// 中间件配置
-	Middleware MiddlewareConfig `mapstructure:"middleware" yaml:"middleware" json:"middleware"`
-
-	// 监控配置
-	Monitoring MonitoringConfig `mapstructure:"monitoring" yaml:"monitoring" json:"monitoring"`
-
-	// 安全配置
-	Security SecurityConfig `mapstructure:"security" yaml:"security" json:"security"`
+	// Gateway特有的扩展配置
+	Gateway    GatewaySettings    `mapstructure:"gateway" yaml:"gateway" json:"gateway"`
+	Middleware MiddlewareConfig   `mapstructure:"middleware" yaml:"middleware" json:"middleware"`
+	Monitoring MonitoringConfig   `mapstructure:"monitoring" yaml:"monitoring" json:"monitoring"`
+	Security   SecurityConfig     `mapstructure:"security" yaml:"security" json:"security"`
 }
 
 // GatewaySettings Gateway基础设置
@@ -104,31 +95,17 @@ type HealthCheckConfig struct {
 
 // MiddlewareConfig 中间件配置
 type MiddlewareConfig struct {
-	// 跨域配置
-	CORS CORSMiddlewareConfig `mapstructure:"cors" yaml:"cors" json:"cors"`
+	// 使用go-config标准的CORS配置，但保持自定义字段名兼容
+	// CORS CORSMiddlewareConfig `mapstructure:"cors" yaml:"cors" json:"cors"`
 
 	// 限流配置
 	RateLimit RateLimitConfig `mapstructure:"rate_limit" yaml:"rate_limit" json:"rate_limit"`
-
-	// 认证配置
-	Auth AuthConfig `mapstructure:"auth" yaml:"auth" json:"auth"`
 
 	// 访问记录
 	AccessLog AccessLogConfig `mapstructure:"access_log" yaml:"access_log" json:"access_log"`
 
 	// 请求签名
 	Signature SignatureConfig `mapstructure:"signature" yaml:"signature" json:"signature"`
-}
-
-// CORSMiddlewareConfig 跨域中间件配置
-type CORSMiddlewareConfig struct {
-	Enabled          bool     `mapstructure:"enabled" yaml:"enabled" json:"enabled"`
-	AllowOrigins     []string `mapstructure:"allow_origins" yaml:"allow_origins" json:"allow_origins"`
-	AllowMethods     []string `mapstructure:"allow_methods" yaml:"allow_methods" json:"allow_methods"`
-	AllowHeaders     []string `mapstructure:"allow_headers" yaml:"allow_headers" json:"allow_headers"`
-	ExposeHeaders    []string `mapstructure:"expose_headers" yaml:"expose_headers" json:"expose_headers"`
-	AllowCredentials bool     `mapstructure:"allow_credentials" yaml:"allow_credentials" json:"allow_credentials"`
-	MaxAge           int      `mapstructure:"max_age" yaml:"max_age" json:"max_age"`
 }
 
 // RateLimitConfig 限流配置
@@ -138,13 +115,6 @@ type RateLimitConfig struct {
 	Rate       int    `mapstructure:"rate" yaml:"rate" json:"rate"`
 	Burst      int    `mapstructure:"burst" yaml:"burst" json:"burst"`
 	WindowSize int    `mapstructure:"window_size" yaml:"window_size" json:"window_size"`
-}
-
-// AuthConfig 认证配置
-type AuthConfig struct {
-	Enabled   bool     `mapstructure:"enabled" yaml:"enabled" json:"enabled"`
-	Type      string   `mapstructure:"type" yaml:"type" json:"type"` // jwt, basic, oauth2
-	SkipPaths []string `mapstructure:"skip_paths" yaml:"skip_paths" json:"skip_paths"`
 }
 
 // AccessLogConfig 访问日志配置
@@ -209,23 +179,81 @@ type SecurityPolicy struct {
 	FrameOptions         string `mapstructure:"frame_options" yaml:"frame_options" json:"frame_options"`
 }
 
-// DefaultGatewayConfig 返回默认Gateway配置
+// DefaultGatewayConfig 返回默认Gateway配置，使用go-config的链式调用风格
 func DefaultGatewayConfig() *GatewayConfig {
+	// 创建go-config的默认单例配置，使用优雅的链式调用
+	defaultSingleConfig := &goconfig.SingleConfig{
+		// Server配置 - 使用链式调用
+		Server: *register.Default().
+			WithModuleName(DefaultServiceName).
+			WithEndpoint(":8080").
+			WithServerName(DefaultServiceName).
+			WithDataDriver("memory").
+			WithContextPath("/").
+			WithLanguage("zh-cn"),
+
+		// CORS配置 - 使用链式调用  
+		Cors: *cors.Default().
+			WithModuleName("cors").
+			WithAllowedOrigins([]string{"*"}).
+			WithAllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}).
+			WithAllowedHeaders([]string{"*"}).
+			WithMaxAge("86400").
+			WithAllowedAllOrigins(true).
+			WithAllowCredentials(true).
+			WithOptionsResponseCode(200),
+
+		// JWT配置 - 使用链式调用
+		JWT: *jwt.Default().
+			WithModuleName("jwt").
+			WithSigningKey("go-rpc-gateway-default-key").
+			WithExpiresTime(3600).
+			WithBufferTime(300).
+			WithUseMultipoint(false),
+
+		// Cache配置 - 使用链式调用
+		Cache: *cache.Default().
+			WithModuleName("cache").
+			WithType(cache.TypeMemory).
+			WithEnabled(true).
+			WithKeyPrefix("gateway:").
+			WithSerializer("json"),
+
+		// PProf配置 - 使用链式调用
+		Pprof: *register.DefaultPProfConfig().
+			WithEnabled(true).
+			WithPathPrefix("/debug/pprof").
+			WithRequireAuth(false),
+
+		// Jaeger配置 - 使用链式调用
+		Jaeger: *register.DefaultJaegerConfig().
+			WithType("const").
+			WithParam(1).
+			WithLogSpans(false).
+			WithEndpoint("http://localhost:14268/api/traces").
+			WithService(DefaultServiceName).
+			WithModuleName("jaeger"),
+
+		// Zap日志配置 - 使用链式调用
+		Zap: *zapconfig.Default().
+			WithModuleName("zap").
+			WithLevel("info").
+			WithFormat("console").
+			WithPrefix("[GO-RPC-GATEWAY]").
+			WithDirector("logs").
+			WithMaxSize(100).
+			WithMaxAge(7).
+			WithMaxBackups(5).
+			WithCompress(true).
+			WithShowLine(true).
+			WithEncodeLevel("LowercaseColorLevelEncoder").
+			WithStacktraceKey("stacktrace").
+			WithLogInConsole(true).
+			WithDevelopment(true),
+	}
+	
 	return &GatewayConfig{
-		SingleConfig: &goconfig.SingleConfig{
-			Server: register.Server{
-				ServerName: DefaultServiceName,
-				Addr:       ":8080",
-				DataDriver: "mysql",
-			},
-			MySQL:      database.MySQL{},
-			Redis:      redis.Redis{},
-			Minio:      oss.Minio{},
-			Zap:        zapconfig.Zap{Level: "info", Format: "console"},
-			JWT:        jwt.JWT{},
-			Captcha:    captcha.Captcha{},
-			ZeroServer: zero.RpcServer{},
-		},
+		SingleConfig: defaultSingleConfig,
 		Gateway: GatewaySettings{
 			Name:        DefaultServiceName,
 			Version:     "v1.0.0",
@@ -258,25 +286,12 @@ func DefaultGatewayConfig() *GatewayConfig {
 			},
 		},
 		Middleware: MiddlewareConfig{
-			CORS: CORSMiddlewareConfig{
-				Enabled:          true,
-				AllowOrigins:     []string{"*"},
-				AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-				AllowHeaders:     []string{"*"},
-				AllowCredentials: true,
-				MaxAge:           86400,
-			},
 			RateLimit: RateLimitConfig{
 				Enabled:    true,
 				Algorithm:  "token_bucket",
 				Rate:       100,
 				Burst:      200,
 				WindowSize: 60,
-			},
-			Auth: AuthConfig{
-				Enabled:   false,
-				Type:      "jwt",
-				SkipPaths: []string{HealthPath, MetricsPath},
 			},
 			AccessLog: AccessLogConfig{
 				Enabled:        true,
@@ -351,7 +366,7 @@ func NewConfigManager(configPath string) (*ConfigManager, error) {
 	return manager, nil
 }
 
-// LoadConfig 加载配置文件
+// LoadConfig 加载配置文件并初始化全局组件
 func (cm *ConfigManager) LoadConfig() error {
 	if cm.configPath != "" && fileExists(cm.configPath) {
 		cm.viper.SetConfigFile(cm.configPath)
@@ -365,19 +380,45 @@ func (cm *ConfigManager) LoadConfig() error {
 			return fmt.Errorf("解析配置失败: %w", err)
 		}
 
-		// 设置全局viper实例
-		global.VP = cm.viper
+		// 初始化全局组件
+		if err := cm.InitGlobalComponents(); err != nil {
+			return fmt.Errorf("初始化全局组件失败: %w", err)
+		}
 
-		// 设置全局配置
-		global.CONFIG = cm.config.SingleConfig
-
-		if global.LOG != nil {
-			global.LOG.Info("配置文件加载成功",
-				zap.String("path", cm.configPath),
-				zap.String("environment", string(cm.environment)))
+		// 使用初始化后的logger记录日志
+		global.LOGGER.InfoKV("配置文件加载成功", 
+			"path", cm.configPath, 
+			"environment", string(cm.environment))
+	} else {
+		// 即使没有配置文件，也要初始化全局组件
+		if err := cm.InitGlobalComponents(); err != nil {
+			return fmt.Errorf("初始化全局组件失败: %w", err)
 		}
 	}
 
+	return nil
+}
+
+// InitGlobalComponents 初始化全局组件，集成go-core和go-logger
+func (cm *ConfigManager) InitGlobalComponents() error {
+	// 1. 设置全局配置到go-core
+	global.VP = cm.viper
+	global.CONFIG = cm.config.SingleConfig
+	
+	// 2. 初始化go-logger实例
+	loggerConfig := logger.DefaultConfig()
+	if cm.config.SingleConfig.Zap.Prefix != "" {
+		loggerConfig.Prefix = cm.config.SingleConfig.Zap.Prefix
+	}
+	if cm.config.SingleConfig.Zap.Level != "" {
+		if level, err := logger.ParseLevel(cm.config.SingleConfig.Zap.Level); err == nil {
+			loggerConfig.Level = level
+		}
+	}
+	
+	// 创建并设置全局logger
+	global.LOGGER = logger.NewLogger(loggerConfig)
+	
 	return nil
 }
 
@@ -399,15 +440,12 @@ func (cm *ConfigManager) WatchConfig(callback func(*GatewayConfig)) {
 
 	cm.viper.WatchConfig()
 	cm.viper.OnConfigChange(func(e fsnotify.Event) {
-		if global.LOG != nil {
-			global.LOG.Info("配置文件发生变化", zap.String("file", e.Name))
-		}
+		// 使用go-logger记录日志
+		global.LOGGER.InfoKV("配置文件发生变化", "file", e.Name)
 
 		// 重新加载配置
 		if err := cm.LoadConfig(); err != nil {
-			if global.LOG != nil {
-				global.LOG.Error("重新加载配置失败", zap.Error(err))
-			}
+			global.LOGGER.WithError(err).ErrorMsg("重新加载配置失败")
 			return
 		}
 

@@ -1,0 +1,224 @@
+# 企业级Go RPC Gateway配置
+# 生产环境推荐配置
+
+# ============================================
+# 应用基础配置
+# ============================================
+app:
+  name: "enterprise-gateway"
+  version: "1.0.0"
+  env: "production"
+  mode: "release"
+
+# ============================================
+# 数据库配置
+# ============================================
+mysql:
+  host: "db.company.internal"
+  port: "3306"
+  config: "charset=utf8mb4&parseTime=True&loc=Local&timeout=30s"
+  dbname: "gateway_prod"
+  username: "gateway_user"
+  password: "${DB_PASSWORD}" # 从环境变量读取
+  max_idle_conns: 20
+  max_open_conns: 200
+  log_level: "warn" # 生产环境减少日志
+
+# ============================================
+# Redis配置
+# ============================================
+redis:
+  db: 0
+  addr: "redis.company.internal:6379"
+  password: "${REDIS_PASSWORD}"
+
+# ============================================
+# 对象存储配置
+# ============================================
+minio:
+  host: "minio.company.internal"
+  port: 9000
+  access_key: "${MINIO_ACCESS_KEY}"
+  secret_key: "${MINIO_SECRET_KEY}"
+
+# ============================================
+# JWT配置
+# ============================================
+jwt:
+  signing_key: "${JWT_SECRET_KEY}"
+  expires_time: "24h" # 生产环境短一点
+  buffer_time: "2h"
+  issuer: "enterprise-gateway"
+
+# ============================================
+# Gateway配置
+# ============================================
+gateway:
+  name: "Enterprise Gateway"
+  version: "1.0.0"
+  environment: "production"
+  debug: false # 生产环境关闭debug
+
+  # HTTP服务器配置
+  http:
+    host: "0.0.0.0"
+    port: 8080
+    read_timeout: 30
+    write_timeout: 30
+    idle_timeout: 120
+    max_header_bytes: 1048576
+
+  # gRPC服务器配置
+  grpc:
+    host: "0.0.0.0"
+    port: 9090
+    max_recv_msg_size: 4194304
+    max_send_msg_size: 4194304
+
+  # 健康检查配置
+  health_check:
+    enabled: true
+    path: "/health"
+
+# ============================================
+# 中间件配置
+# ============================================
+middleware:
+  # CORS配置
+  cors:
+    enabled: true
+    allow_origins: 
+      - "https://app.company.com"
+      - "https://admin.company.com"
+    allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allow_headers: ["Authorization", "Content-Type", "X-Request-ID"]
+    allow_credentials: true
+    max_age: 3600
+
+  # 限流配置
+  rate_limit:
+    enabled: true
+    algorithm: "token_bucket"
+    rate: 2000 # 每秒2000请求
+    burst: 5000 # 突发5000请求
+    window_size: 60
+
+  # 访问日志配置
+  access_log:
+    enabled: true
+    log_requests: true
+    log_responses: false # 生产环境不记录响应体
+
+  # 认证配置
+  auth:
+    enabled: true
+    type: "jwt"
+    skip_paths: 
+      - "/health"
+      - "/metrics"
+      - "/api/v1/auth/login"
+
+  # 签名验证配置
+  signature:
+    enabled: true
+    secret_key: "${SIGNATURE_SECRET}"
+    timestamp_tolerance: 300
+
+# ============================================
+# 监控配置
+# ============================================
+monitoring:
+  # 指标监控
+  metrics:
+    enabled: true
+    path: "/metrics"
+    namespace: "gateway"
+    subsystem: "enterprise"
+
+  # 链路追踪
+  tracing:
+    enabled: true
+    service_name: "enterprise-gateway"
+    endpoint: "http://jaeger.company.internal:14268/api/traces"
+
+# ============================================
+# 日志配置
+# ============================================
+zap:
+  level: "info" # 生产环境使用info级别
+  format: "json" # 生产环境使用json格式便于日志收集
+  prefix: "[ENTERPRISE-GATEWAY]"
+  director: "/var/log/gateway"
+  show_line: false # 生产环境不显示行号
+  encode_level: "LowercaseLevelEncoder"
+  stacktrace_key: "stacktrace"
+  log_in_console: false # 生产环境不输出到控制台
+  log_rotate:
+    enabled: true
+    max_size: 100 # MB
+    max_age: 30   # days
+    max_backups: 10
+
+# ============================================
+# 安全配置
+# ============================================
+security:
+  enable_https: true
+  cert_file: "/etc/ssl/certs/gateway.crt"
+  key_file: "/etc/ssl/private/gateway.key"
+  
+  # 安全头配置
+  security_headers:
+    x_frame_options: "DENY"
+    x_content_type_options: "nosniff"
+    x_xss_protection: "1; mode=block"
+    strict_transport_security: "max-age=31536000; includeSubDomains"
+    
+  # IP白名单
+  allowed_ips:
+    - "10.0.0.0/8"     # 内网
+    - "172.16.0.0/12"  # 内网
+    - "192.168.0.0/16" # 内网
+
+# ============================================
+# 性能配置
+# ============================================
+performance:
+  # 连接池配置
+  connection_pool:
+    max_idle: 100
+    max_open: 200
+    max_lifetime: "1h"
+    
+  # 缓存配置
+  cache:
+    enabled: true
+    ttl: "5m"
+    max_entries: 10000
+    
+  # 压缩配置
+  compression:
+    enabled: true
+    level: 6 # gzip压缩级别
+    min_length: 1024 # 最小压缩长度
+
+# ============================================
+# 报警配置
+# ============================================
+alerting:
+  enabled: true
+  webhook_url: "${ALERT_WEBHOOK_URL}"
+  
+  # 报警规则
+  rules:
+    - name: "high_error_rate"
+      threshold: 5 # 错误率超过5%
+      duration: "5m"
+      
+    - name: "high_response_time"
+      threshold: 1000 # 响应时间超过1000ms
+      duration: "2m"
+      
+    - name: "high_memory_usage"
+      threshold: 80 # 内存使用率超过80%
+      duration: "5m"
