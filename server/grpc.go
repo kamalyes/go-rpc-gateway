@@ -14,9 +14,11 @@ package server
 import (
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/kamalyes/go-core/pkg/global"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -25,6 +27,31 @@ func (s *Server) initGRPCServer() error {
 	opts := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(s.config.Gateway.GRPC.MaxRecvMsgSize),
 		grpc.MaxSendMsgSize(s.config.Gateway.GRPC.MaxSendMsgSize),
+	}
+
+	// 添加Keepalive配置
+	if s.config.Gateway.GRPC.KeepaliveTime > 0 {
+		keepalivePolicy := keepalive.ServerParameters{
+			Time:    time.Duration(s.config.Gateway.GRPC.KeepaliveTime) * time.Second,
+			Timeout: time.Duration(s.config.Gateway.GRPC.KeepaliveTimeout) * time.Second,
+		}
+		opts = append(opts, grpc.KeepaliveParams(keepalivePolicy))
+
+		global.LOGGER.InfoKV("gRPC Keepalive配置已启用",
+			"keepalive_time", s.config.Gateway.GRPC.KeepaliveTime,
+			"keepalive_timeout", s.config.Gateway.GRPC.KeepaliveTimeout)
+	}
+
+	// 添加连接超时配置
+	if s.config.Gateway.GRPC.ConnectionTimeout > 0 {
+		keepaliveEnforcement := keepalive.EnforcementPolicy{
+			MinTime:             time.Duration(s.config.Gateway.GRPC.ConnectionTimeout) * time.Second,
+			PermitWithoutStream: true,
+		}
+		opts = append(opts, grpc.KeepaliveEnforcementPolicy(keepaliveEnforcement))
+
+		global.LOGGER.InfoKV("gRPC连接超时配置已启用",
+			"connection_timeout", s.config.Gateway.GRPC.ConnectionTimeout)
 	}
 
 	// 添加中间件拦截器
@@ -45,7 +72,13 @@ func (s *Server) initGRPCServer() error {
 	// 启用反射
 	if s.config.Gateway.GRPC.EnableReflection {
 		reflection.Register(s.grpcServer)
+		global.LOGGER.InfoMsg("gRPC反射服务已启用")
 	}
+
+	global.LOGGER.InfoKV("gRPC服务器初始化完成",
+		"max_recv_size", s.config.Gateway.GRPC.MaxRecvMsgSize,
+		"max_send_size", s.config.Gateway.GRPC.MaxSendMsgSize,
+		"reflection_enabled", s.config.Gateway.GRPC.EnableReflection)
 
 	return nil
 }

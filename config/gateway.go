@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 01:14:03
+ * @LastEditTime: 2025-11-10 01:15:03
  * @FilePath: \go-rpc-gateway\config\gateway.go
  * @Description: Gateway主配置文件，集成go-config、go-core和go-logger
  *

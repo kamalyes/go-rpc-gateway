@@ -4,9 +4,9 @@
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-10 11:36:42
  * @FilePath: \go-rpc-gateway\config\banner.go
- * @Description: 
- * 
- * Copyright (c) 2025 by kamalyes, All Rights Reserved. 
+ * @Description:
+ *
+ * Copyright (c) 2025 by kamalyes, All Rights Reserved.
  */
 package config
 
@@ -23,9 +23,9 @@ type BannerConfig struct {
 
 // BannerColorConfig 横幅颜色配置
 type BannerColorConfig struct {
-	Enabled bool   `mapstructure:"enabled" yaml:"enabled" json:"enabled"`
-	Title   string `mapstructure:"title" yaml:"title" json:"title"`
-	Info    string `mapstructure:"info" yaml:"info" json:"info"`
-	Warning string `mapstructure:"warning" yaml:"warning" json:"warning"`
-	Error   string `mapstructure:"error" yaml:"error" json:"error"`
+	DisEnabled bool   `mapstructure:"disenabled" yaml:"disenabled" json:"disenabled"`
+	Title      string `mapstructure:"title" yaml:"title" json:"title"`
+	Info       string `mapstructure:"info" yaml:"info" json:"info"`
+	Warning    string `mapstructure:"warning" yaml:"warning" json:"warning"`
+	Error      string `mapstructure:"error" yaml:"error" json:"error"`
 }

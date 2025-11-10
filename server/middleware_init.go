@@ -20,27 +20,8 @@ import (
 
 // initMiddleware 初始化中间件管理器
 func (s *Server) initMiddleware() error {
-	var metricsConfig *middleware.MetricsConfig
-	var tracingConfig *middleware.TracingConfig
-
-	// 配置监控中间件
-	if s.config.Monitoring.Metrics.Enabled {
-		metricsConfig = &middleware.MetricsConfig{
-			Enabled:   true,
-			Namespace: s.config.Monitoring.Metrics.Namespace,
-			Subsystem: s.config.Monitoring.Metrics.Subsystem,
-		}
-	}
-
-	// 配置链路追踪中间件
-	if s.config.Monitoring.Tracing.Enabled {
-		tracingConfig = &middleware.TracingConfig{
-			Enabled:     true,
-			ServiceName: s.config.Monitoring.Tracing.Resource.ServiceName,
-		}
-	}
-
-	manager, err := middleware.NewManager(metricsConfig, tracingConfig)
+	// 使用统一的配置系统创建中间件管理器
+	manager, err := middleware.NewManager(&s.config.Middleware)
 	if err != nil {
 		return fmt.Errorf("failed to create middleware manager: %w", err)
 	}

@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-08 00:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-08 00:30:00
+ * @LastEditTime: 2025-11-10 13:05:35
  * @FilePath: \go-rpc-gateway\middleware\pprof_gateway.go
  * @Description: pprof网关集成功能 - Gateway的pprof相关便捷方法和Web界面
  *
@@ -17,24 +17,25 @@ import (
 	"os"
 
 	"github.com/kamalyes/go-config/pkg/register"
+	"github.com/kamalyes/go-rpc-gateway/constants"
 )
 
 // PProfOptions pprof配置选项
 type PProfOptions struct {
-	Enabled      bool     `json:"enabled"`       // 是否启用pprof
-	AuthToken    string   `json:"auth_token"`    // 认证令牌
-	AllowedIPs   []string `json:"allowed_ips"`   // 允许的IP列表
-	PathPrefix   string   `json:"path_prefix"`   // 路径前缀
-	DevModeOnly  bool     `json:"dev_mode_only"` // 是否只在开发模式启用
-	EnableLogging bool    `json:"enable_logging"` // 是否启用日志
-	Timeout      int      `json:"timeout"`       // 超时时间(秒)
+	Enabled       bool     `json:"enabled"`        // 是否启用pprof
+	AuthToken     string   `json:"auth_token"`     // 认证令牌
+	AllowedIPs    []string `json:"allowed_ips"`    // 允许的IP列表
+	PathPrefix    string   `json:"path_prefix"`    // 路径前缀
+	DevModeOnly   bool     `json:"dev_mode_only"`  // 是否只在开发模式启用
+	EnableLogging bool     `json:"enable_logging"` // 是否启用日志
+	Timeout       int      `json:"timeout"`        // 超时时间(秒)
 }
 
 // PProfGatewayConfig Gateway的pprof配置
 type PProfGatewayConfig struct {
-	adapter        *PProfConfigAdapter
-	scenarios      *PProfScenarios
-	enabled        bool
+	adapter                *PProfConfigAdapter
+	scenarios              *PProfScenarios
+	enabled                bool
 	webInterfaceRegistered bool
 }
 
@@ -42,9 +43,9 @@ type PProfGatewayConfig struct {
 func NewPProfGatewayConfig() *PProfGatewayConfig {
 	defaultConfig := DefaultPProfConfig()
 	return &PProfGatewayConfig{
-		adapter:   NewPProfConfigAdapter(defaultConfig),
-		scenarios: NewPProfScenarios(),
-		enabled:   false,
+		adapter:                NewPProfConfigAdapter(defaultConfig),
+		scenarios:              NewPProfScenarios(),
+		enabled:                false,
 		webInterfaceRegistered: false,
 	}
 }
@@ -61,13 +62,13 @@ func getEnvOrDefault(key, defaultValue string) string {
 // 这是一个简化的API，使用默认配置启用pprof
 func (cfg *PProfGatewayConfig) EnablePProf() *PProfGatewayConfig {
 	return cfg.EnablePProfWithOptions(PProfOptions{
-		Enabled:     true,
-		AuthToken:   getEnvOrDefault("PPROF_TOKEN", "gateway-pprof-2024"),
-		PathPrefix:  "/debug/pprof",
-		DevModeOnly: false,
-		AllowedIPs:  []string{}, // 默认允许所有IP
+		Enabled:       true,
+		AuthToken:     getEnvOrDefault("PPROF_TOKEN", constants.PProfDefaultAuthToken),
+		PathPrefix:    constants.PProfBasePath,
+		DevModeOnly:   false,
+		AllowedIPs:    []string{}, // 默认允许所有IP
 		EnableLogging: true,
-		Timeout:     30,
+		Timeout:       30,
 	})
 }
 
@@ -98,25 +99,25 @@ func (cfg *PProfGatewayConfig) EnablePProfWithOptions(options PProfOptions) *PPr
 // EnablePProfWithToken 使用指定token启用pprof (便捷方法)
 func (cfg *PProfGatewayConfig) EnablePProfWithToken(token string) *PProfGatewayConfig {
 	return cfg.EnablePProfWithOptions(PProfOptions{
-		Enabled:    true,
-		AuthToken:  token,
-		PathPrefix: "/debug/pprof",
-		AllowedIPs: []string{},
+		Enabled:       true,
+		AuthToken:     token,
+		PathPrefix:    constants.PProfBasePath,
+		AllowedIPs:    []string{},
 		EnableLogging: true,
-		Timeout:    30,
+		Timeout:       30,
 	})
 }
 
 // EnablePProfForDevelopment 启用开发环境pprof (便捷方法)
 func (cfg *PProfGatewayConfig) EnablePProfForDevelopment() *PProfGatewayConfig {
 	return cfg.EnablePProfWithOptions(PProfOptions{
-		Enabled:     true,
-		AuthToken:   "dev-debug-token",
-		PathPrefix:  "/debug/pprof",
-		DevModeOnly: true,
-		AllowedIPs:  []string{"127.0.0.1", "::1"},
+		Enabled:       true,
+		AuthToken:     "dev-debug-token",
+		PathPrefix:    constants.PProfBasePath,
+		DevModeOnly:   true,
+		AllowedIPs:    []string{"127.0.0.1", "::1"},
 		EnableLogging: true,
-		Timeout:     30,
+		Timeout:       30,
 	})
 }
 
@@ -151,18 +152,18 @@ func (cfg *PProfGatewayConfig) CreatePProfStatusAPIHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		
+
 		statusJSON := fmt.Sprintf(`{
 			"pprof_enabled": %t,
 			"pprof_path": "%s",
 			"auth_required": %t,
 			"endpoints_count": %d
-		}`, 
-			cfg.IsPProfEnabled(), 
+		}`,
+			cfg.IsPProfEnabled(),
 			cfg.adapter.PProf.PathPrefix,
 			cfg.adapter.PProf.RequireAuth,
 			len(cfg.GetPProfEndpoints()))
-		
+
 		w.Write([]byte(statusJSON))
 	}
 }
@@ -340,13 +341,6 @@ go tool pprof -http=:8081 cpu.prof</code></pre>
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(html))
-	}
-}
-
-// UpdateManagerConfig 更新中间件管理器的pprof配置
-func (cfg *PProfGatewayConfig) UpdateManagerConfig(manager *Manager) {
-	if manager != nil && cfg.adapter != nil {
-		manager.WithPProfConfig(cfg.adapter.PProf)
 	}
 }
 

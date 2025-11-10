@@ -1,0 +1,332 @@
+# Go RPC Gateway 完整配置示例
+# 这个文件展示了所有可用配置参数的灵活使用
+
+# ===== 基础 go-config 配置 =====
+server:
+  module_name: "go-rpc-gateway"
+  endpoint: ":8080"
+  server_name: "Gateway服务器"
+  data_driver: "memory"
+  context_path: "/"
+  language: "zh-cn"
+
+cors:
+  module_name: "cors"
+  allowed_origins: ["*"]
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  allowed_headers: ["*"]
+  max_age: "86400"
+  allowed_all_origins: true
+  allow_credentials: true
+  options_response_code: 200
+
+jwt:
+  module_name: "jwt"
+  secret_key: "your-secret-key-here"
+  expires: "24h"
+  issuer: "go-rpc-gateway"
+
+zap:
+  level: "info"        # Environment 配置会自动调整
+  prefix: "[Gateway]"
+  format: "console"
+  director: "logs"
+  max_age: 7
+  show_line: true
+  encode_level: "LowercaseColorLevelEncoder"
+  stacktrace_key: "stacktrace"
+  log_in_console: true
+  development: false   # Environment 配置会自动调整
+
+# ===== Gateway 特有配置 =====
+gateway:
+  name: "Go RPC Gateway"
+  version: "v1.0.0"
+  environment: "development"  # dev/test/staging/production - 核心环境配置
+  debug: true                 # Environment 配置会自动调整
+
+  # HTTP 服务器配置 - 完整参数使用
+  http:
+    host: "0.0.0.0"
+    port: 8080
+    read_timeout: 30          # 读取超时(秒) - Environment 适配
+    write_timeout: 30         # 写入超时(秒) - Environment 适配  
+    idle_timeout: 60          # 空闲超时(秒) - Environment 适配
+    max_header_bytes: 1048576 # 1MB 最大请求头 - 安全防护
+    enable_gzip_compress: true # Gzip压缩 - 生产环境自动启用
+
+  # gRPC 服务器配置 - 完整参数使用
+  grpc:
+    host: "0.0.0.0"
+    port: 9090
+    network: "tcp"
+    max_recv_msg_size: 4194304    # 4MB
+    max_send_msg_size: 4194304    # 4MB
+    connection_timeout: 30         # 连接超时(秒)
+    keepalive_time: 60            # Keepalive时间(秒)
+    keepalive_timeout: 20         # Keepalive超时(秒)
+    enable_reflection: true       # gRPC反射 - Environment 适配
+
+  # 健康检查配置 - 多组件支持
+  health_check:
+    enabled: true
+    path: "/health"
+    
+    # Redis 健康检查
+    redis:
+      enabled: false  # 根据实际Redis配置启用
+      host: "localhost"
+      port: 6379
+      timeout: 5
+      
+    # MySQL 健康检查  
+    mysql:
+      enabled: false  # 根据实际MySQL配置启用
+      host: "localhost"
+      port: 3306
+      database: "gateway"
+      timeout: 5
+
+# ===== 中间件配置 - 完整功能展示 =====
+middleware:
+  # 安全中间件
+  security:
+    enabled: true              # Environment 配置会自动调整
+    xss_protection: true       # XSS防护
+    content_type_nosniff: true # MIME类型嗅探防护
+    frame_options: "DENY"      # 点击劫持防护
+    content_security_policy: "default-src 'self'"
+    referrer_policy: "strict-origin-when-cross-origin"
+    hsts_max_age: 31536000     # HSTS 1年
+    headers:                   # 自定义安全头
+      X-Custom-Header: "Gateway-Security"
+
+  # 签名验证
+  signature:
+    enabled: false
+    algorithm: "HMAC-SHA256"
+    secret: "your-signature-secret"
+    tolerance: 300
+
+  # 限流中间件
+  rate_limit:
+    enabled: true
+    requests_per_second: 100
+    burst_size: 200
+    ip_whitelist: ["127.0.0.1"]
+    
+  # 恢复中间件
+  recovery:
+    enabled: true
+    stack_trace: true
+    panic_log: true
+    
+  # 请求ID
+  request_id:
+    enabled: true
+    header_name: "X-Request-ID"
+    generator: "uuid"  # uuid, snowflake, custom
+
+  # 指标监控
+  metrics:
+    enabled: true
+    path: "/metrics"
+    include_paths: ["/api"]
+    exclude_paths: ["/health", "/metrics"]
+    
+  # 访问日志
+  logging:
+    enabled: true
+    level: "info"
+    format: "json"
+    outputs:
+      - type: "stdout"
+        enabled: true
+      - type: "file"
+        enabled: true
+        path: "logs/access.log"
+    fields:
+      request_id: true
+      user_agent: true
+      remote_ip: true
+      method: true
+      path: true
+      status_code: true
+      latency: true
+    filters:
+      exclude_paths: ["/health", "/metrics"]
+      exclude_headers: ["Authorization", "Cookie"]
+    custom_fields:
+      service: "go-rpc-gateway"
+      version: "v1.0.0"
+
+  # 链路追踪
+  tracing:
+    enabled: true
+    sampler_ratio: 0.1
+    max_tags: 50
+    
+  # 健康检查
+  health:
+    enabled: true
+    endpoints: ["/health", "/health/ready", "/health/live"]
+    
+  # 国际化
+  i18n:
+    enabled: true
+    default_language: "zh-cn"
+    languages: ["en", "zh-cn", "zh-tw", "ja", "ko"]
+    resource_path: "locales"
+    
+  # 性能分析
+  pprof:
+    enabled: true              # 开发环境自动启用
+    prefix: "/debug/pprof"
+    
+  # 启动横幅
+  banner:
+    enabled: true
+    template: "default"
+    show_system_info: true     # Environment 配置会自动调整
+    show_middleware: true      # Environment 配置会自动调整
+    show_routes: true
+    colors:
+      enabled: true
+      title: "cyan"
+      info: "green"
+      warning: "yellow"
+      error: "red"
+    custom_fields:
+      company: "Your Company"
+      environment: "Development"
+
+# ===== 监控配置 - 高级功能 =====
+monitoring:
+  # Prometheus 指标
+  metrics:
+    enabled: true              # Environment 配置会自动调整
+    path: "/metrics"
+    port: 8080
+    namespace: "gateway"       # 指标命名空间
+    subsystem: "http"          # 指标子系统
+    labels: ["service", "version", "environment"]  # 自定义标签
+    path_mapping:              # 路径映射规则
+      "/api/v1/users": "/api/users"
+      "/api/v1/orders": "/api/orders"
+    builtin_metrics:           # 内置指标配置
+      requests_total: true
+      request_duration: true
+      request_size: true
+      response_size: true
+      active_requests: true
+      
+  # OpenTelemetry 链路追踪
+  tracing:
+    enabled: true              # Environment 配置会自动调整
+    exporter:
+      type: "jaeger"          # jaeger, zipkin, otlp
+      endpoint: "http://localhost:14268/api/traces"
+      timeout: 10
+      compression: "gzip"
+    sampler:
+      type: "probability"     # always, never, probability, rate_limiting
+      param: 0.1
+    resource:
+      service_name: "go-rpc-gateway"
+      service_version: "v1.0.0"
+      environment: "development"
+
+# ===== 安全配置 - 完整安全策略 =====
+security:
+  # TLS/HTTPS 配置
+  tls:
+    enabled: false             # 生产环境自动启用
+    cert_file: "certs/server.crt"
+    key_file: "certs/server.key"
+    ca_file: "certs/ca.crt"
+    
+  # 安全策略
+  policy:
+    enabled: true              # Environment 配置会自动调整
+    enable_csrf_protection: true
+    enable_xss_protection: true
+    content_type_no_sniff: true
+    frame_options: "DENY"
+    content_security_policy: "default-src 'self'; script-src 'self' 'unsafe-inline'"
+    referrer_policy: "strict-origin-when-cross-origin"
+    hsts_max_age: 31536000     # 1年
+    headers:
+      X-Content-Type-Options: "nosniff"
+      X-Frame-Options: "DENY"
+      X-XSS-Protection: "1; mode=block"
+
+# ===== go-core 组件配置 =====
+# 这些配置会被 go-core 自动加载和使用
+
+# 数据库配置
+mysql:
+  host: "localhost"
+  port: 3306
+  config: "charset=utf8mb4&parseTime=True&loc=Local"
+  db_name: "gateway"
+  username: "gateway"
+  password: "gateway123"
+  max_idle_conns: 10
+  max_open_conns: 100
+  log_mode: "info"
+  log_zap: true
+
+# Redis 配置
+redis:
+  host: "localhost"
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+  min_idle_conns: 5
+
+# MinIO 对象存储
+minio:
+  endpoint: "localhost:9000"
+  access_key_id: "minioadmin"
+  secret_access_key: "minioadmin"
+  use_ssl: false
+  bucket_name: "gateway"
+
+# Consul 服务发现
+consul:
+  host: "localhost"
+  port: 8500
+  scheme: "http"
+
+# ===== 示例环境配置差异 =====
+# 开发环境 (environment: "development"):
+#   - debug: true
+#   - zap.level: "debug"
+#   - zap.development: true
+#   - grpc.enable_reflection: true
+#   - pprof.enabled: true
+#   - banner.show_system_info: true
+#   - 宽松的超时配置
+
+# 测试环境 (environment: "test"):
+#   - debug: false  
+#   - zap.level: "info"
+#   - 禁用非必要功能
+#   - 较短的超时时间
+
+# 生产环境 (environment: "production"):
+#   - debug: false
+#   - zap.level: "info"
+#   - zap.show_line: false
+#   - security.tls.enabled: true
+#   - security.policy.enabled: true
+#   - http.enable_gzip_compress: true
+#   - 优化的超时配置
+#   - 禁用调试工具
+
+# 预发布环境 (environment: "staging"):
+#   - 生产配置 + 部分调试功能
+#   - debug: true
+#   - zap.level: "debug"
+#   - pprof.enabled: true

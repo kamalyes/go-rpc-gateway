@@ -11,9 +11,16 @@
 package middleware
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/kamalyes/go-config/pkg/cors"
+	"github.com/kamalyes/go-core/pkg/global"
+	"github.com/kamalyes/go-rpc-gateway/config"
+	"github.com/kamalyes/go-rpc-gateway/constants"
 )
 
 // CORSMiddleware CORS 中间件
@@ -71,7 +78,7 @@ func CORSMiddlewareWithConfig(config *cors.Cors) HTTPMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			setCORSHeaders(w, r, config)
-			
+
 			// 处理预检请求
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusNoContent)
@@ -97,7 +104,7 @@ func setAllowOrigin(w http.ResponseWriter, origin string, allowOrigins []string)
 	if len(allowOrigins) == 0 {
 		return
 	}
-	
+
 	for _, allowedOrigin := range allowOrigins {
 		if allowedOrigin == "*" || allowedOrigin == origin {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -111,7 +118,7 @@ func setAllowMethods(w http.ResponseWriter, methods []string) {
 	if len(methods) == 0 {
 		return
 	}
-	
+
 	value := joinStrings(methods, ", ")
 	w.Header().Set("Access-Control-Allow-Methods", value)
 }
@@ -121,7 +128,7 @@ func setAllowHeaders(w http.ResponseWriter, headers []string) {
 	if len(headers) == 0 {
 		return
 	}
-	
+
 	value := joinStrings(headers, ", ")
 	w.Header().Set("Access-Control-Allow-Headers", value)
 }
@@ -145,7 +152,7 @@ func joinStrings(strs []string, sep string) string {
 	if len(strs) == 0 {
 		return ""
 	}
-	
+
 	result := strs[0]
 	for i := 1; i < len(strs); i++ {
 		result += sep + strs[i]
@@ -153,11 +160,11 @@ func joinStrings(strs []string, sep string) string {
 	return result
 }
 
-// SecurityMiddleware 安全中间件
+// SecurityMiddleware 安全中间件 - 使用默认配置
 func SecurityMiddleware() HTTPMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 设置安全头部
+			// 设置基础安全头部
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("X-Frame-Options", "DENY")
 			w.Header().Set("X-XSS-Protection", "1; mode=block")
@@ -168,4 +175,182 @@ func SecurityMiddleware() HTTPMiddleware {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// ConfigurableSecurityMiddleware 可配置的安全中间件
+func ConfigurableSecurityMiddleware(securityConfig *config.SecurityMiddlewareConfig) HTTPMiddleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !securityConfig.Enabled {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// XSS 防护
+			if securityConfig.XSSProtection {
+				w.Header().Set("X-XSS-Protection", "1; mode=block")
+			}
+
+			// Content Type 防嗅探
+			if securityConfig.ContentTypeNoSniff {
+				w.Header().Set("X-Content-Type-Options", "nosniff")
+			}
+
+			// Frame Options 防点击劫持
+			if securityConfig.FrameOptions != "" {
+				w.Header().Set("X-Frame-Options", securityConfig.FrameOptions)
+			}
+
+			// Content Security Policy
+			if securityConfig.ContentSecurityPolicy != "" {
+				w.Header().Set("Content-Security-Policy", securityConfig.ContentSecurityPolicy)
+			}
+
+			// Referrer Policy
+			if securityConfig.ReferrerPolicy != "" {
+				w.Header().Set("Referrer-Policy", securityConfig.ReferrerPolicy)
+			}
+
+			// HSTS (HTTP Strict Transport Security)
+			if securityConfig.HSTSMaxAge > 0 {
+				hstsValue := fmt.Sprintf("max-age=%d; includeSubDomains", securityConfig.HSTSMaxAge)
+				w.Header().Set("Strict-Transport-Security", hstsValue)
+			}
+
+			// 自定义安全头
+			for key, value := range securityConfig.Headers {
+				w.Header().Set(key, value)
+			}
+
+			// 记录安全策略应用（调试模式）
+			if global.LOGGER != nil {
+				global.LOGGER.DebugKV("安全中间件已应用",
+					"path", r.URL.Path,
+					"method", r.Method,
+					"remote_addr", getClientIP(r))
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// CSRFProtectionMiddleware CSRF防护中间件
+func CSRFProtectionMiddleware(enabled bool) HTTPMiddleware {
+	tokens := make(map[string]time.Time)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !enabled {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// 只对状态改变的请求进行CSRF检查
+			if r.Method == "GET" || r.Method == "HEAD" || r.Method == "OPTIONS" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// 检查CSRF token
+			token := r.Header.Get("X-CSRF-Token")
+			if token == "" {
+				token = r.FormValue("_csrf_token")
+			}
+
+			if !validateCSRFToken(token, tokens) {
+				if global.LOGGER != nil {
+					global.LOGGER.WarnKV("CSRF token验证失败",
+						"method", r.Method,
+						"path", r.URL.Path,
+						"remote_addr", getClientIP(r))
+				}
+
+				http.Error(w, "CSRF token validation failed", http.StatusForbidden)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// IPWhitelistMiddleware IP白名单中间件
+func IPWhitelistMiddleware(allowedIPs []string) HTTPMiddleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if len(allowedIPs) == 0 {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			clientIP := getClientIP(r)
+
+			if !isIPAllowed(clientIP, allowedIPs) {
+				if global.LOGGER != nil {
+					global.LOGGER.WarnKV("IP访问被拒绝",
+						"client_ip", clientIP,
+						"path", r.URL.Path,
+						"user_agent", r.Header.Get(constants.HeaderUserAgent))
+				}
+
+				http.Error(w, "Access Denied", http.StatusForbidden)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// isIPAllowed 检查IP是否在允许列表中
+func isIPAllowed(clientIP string, allowedIPs []string) bool {
+	for _, allowedIP := range allowedIPs {
+		if clientIP == allowedIP || allowedIP == "*" {
+			return true
+		}
+		// TODO: 支持CIDR格式的IP范围
+	}
+	return false
+}
+
+// generateCSRFToken 生成CSRF token
+func generateCSRFToken() string {
+	timestamp := time.Now().Unix()
+	data := fmt.Sprintf("%d:%s", timestamp, "csrf-secret")
+
+	hash := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(hash[:])
+}
+
+// validateCSRFToken 验证CSRF token
+func validateCSRFToken(token string, tokens map[string]time.Time) bool {
+	if token == "" {
+		return false
+	}
+
+	// 检查token是否存在且未过期
+	expiry, exists := tokens[token]
+	if !exists {
+		return false
+	}
+
+	if time.Now().After(expiry) {
+		// 清理过期token
+		delete(tokens, token)
+		return false
+	}
+
+	return true
+}
+
+// CSRFTokenHandler 提供CSRF token的端点
+func CSRFTokenHandler(w http.ResponseWriter, r *http.Request) {
+	token := generateCSRFToken()
+
+	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
+	w.WriteHeader(http.StatusOK)
+
+	response := fmt.Sprintf(`{"csrf_token": "%s"}`, token)
+	w.Write([]byte(response))
 }

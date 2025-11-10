@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 07:16:13
+ * @LastEditTime: 2025-11-10 15:15:59
  * @FilePath: \go-rpc-gateway\gateway.go
  * @Description: Gateway主入口，基于go-config和go-core重构
  *
@@ -32,21 +32,20 @@ import (
 // Gateway 是主要的网关服务器
 type Gateway struct {
 	*server.Server
-	pprofEnabled     bool
-	pprofConfig      *register.PProf
-	pprofAdapter     *middleware.PProfConfigAdapter
+	pprofEnabled       bool
+	pprofConfig        *register.PProf
+	pprofAdapter       *middleware.PProfConfigAdapter
 	pprofGatewayConfig *middleware.PProfGatewayConfig
 }
 
 // PProfOptions pprof配置选项
 type PProfOptions struct {
-	Enabled      bool     `json:"enabled"`      // 是否启用pprof
-	AuthToken    string   `json:"auth_token"`   // 认证令牌
-	AllowedIPs   []string `json:"allowed_ips"`  // 允许的IP列表
-	PathPrefix   string   `json:"path_prefix"`  // 路径前缀
-	DevModeOnly  bool     `json:"dev_mode_only"` // 是否只在开发模式启用
+	Enabled     bool     `json:"enabled"`       // 是否启用pprof
+	AuthToken   string   `json:"auth_token"`    // 认证令牌
+	AllowedIPs  []string `json:"allowed_ips"`   // 允许的IP列表
+	PathPrefix  string   `json:"path_prefix"`   // 路径前缀
+	DevModeOnly bool     `json:"dev_mode_only"` // 是否只在开发模式启用
 }
-
 
 // ServiceRegisterFunc gRPC服务注册函数类型
 type ServiceRegisterFunc func(*grpc.Server)
@@ -156,7 +155,7 @@ func (g *Gateway) StartWithBanner() error {
 	if err := g.Server.Start(); err != nil {
 		return err
 	}
-	
+
 	// 显示启动banner
 	g.PrintStartupInfo()
 	return nil
@@ -166,8 +165,6 @@ func (g *Gateway) StartWithBanner() error {
 func (g *Gateway) Stop() error {
 	return g.Server.Stop()
 }
-
-
 
 // EnablePProf 启用pprof性能分析功能
 // 这是一个简化的API，使用默认配置启用pprof
@@ -190,11 +187,6 @@ func (g *Gateway) EnablePProfWithOptions(options middleware.PProfOptions) *Gatew
 	g.pprofConfig = g.pprofGatewayConfig.GetPProfConfig()
 	g.pprofAdapter = g.pprofGatewayConfig.GetPProfAdapter()
 	g.pprofEnabled = g.pprofGatewayConfig.IsPProfEnabled()
-
-	// 应用配置到中间件管理器
-	if manager := g.Server.GetMiddlewareManager(); manager != nil {
-		g.pprofGatewayConfig.UpdateManagerConfig(manager)
-	}
 
 	// 自动注册pprof相关的Web界面路由
 	if g.pprofEnabled {
@@ -266,39 +258,39 @@ func (g *Gateway) PrintFeatureStatus() {
 	} else {
 		global.LOGGER.InfoMsg("   ❌ 性能分析 (PProf) - 未启用")
 	}
-	
+
 	// 中间件状态
 	if manager := g.GetMiddlewareManager(); manager != nil {
 		global.LOGGER.InfoMsg("   ✅ 中间件链 - 已配置")
-		
+
 		// CORS状态 - 使用go-config的配置
 		if config.SingleConfig.Cors.AllowedAllOrigins || len(config.SingleConfig.Cors.AllowedOrigins) > 0 {
 			global.LOGGER.InfoKV("     • CORS - 已启用", "allow_origins", config.SingleConfig.Cors.AllowedOrigins)
 		} else {
 			global.LOGGER.InfoMsg("     • CORS - 未启用")
 		}
-		
+
 		// 限流状态
 		if config.Middleware.RateLimit.Enabled {
 			global.LOGGER.InfoKV("     • 限流控制 - 已启用", "rate", config.Middleware.RateLimit.Rate, "unit", "req/s")
 		} else {
 			global.LOGGER.InfoMsg("     • 限流控制 - 未启用")
 		}
-		
+
 		// 访问日志状态
 		if config.Middleware.AccessLog.Enabled {
 			global.LOGGER.InfoMsg("     • 访问日志 - 已启用")
 		} else {
 			global.LOGGER.InfoMsg("     • 访问日志 - 未启用")
 		}
-		
+
 		// 认证状态 - 使用go-config的JWT配置
 		if config.SingleConfig.JWT.SigningKey != "" {
 			global.LOGGER.InfoKV("     • 认证控制 - 已启用", "type", "JWT")
 		} else {
 			global.LOGGER.InfoMsg("     • 认证控制 - 未启用")
 		}
-		
+
 		// 签名验证状态
 		if config.Middleware.Signature.Enabled {
 			global.LOGGER.InfoMsg("     • 签名验证 - 已启用")
@@ -308,27 +300,27 @@ func (g *Gateway) PrintFeatureStatus() {
 	} else {
 		global.LOGGER.InfoMsg("   ❌ 中间件链 - 未初始化")
 	}
-	
+
 	// 安全控制状态
 	if config.Security.TLS.Enabled {
 		global.LOGGER.InfoMsg("   ✅ 安全控制 - HTTPS已启用")
 	} else {
 		global.LOGGER.InfoMsg("   ⚠️  安全控制 - 仅HTTP (建议启用HTTPS)")
 	}
-	
+
 	// 监控功能状态
 	if config.Monitoring.Metrics.Enabled {
 		global.LOGGER.InfoKV("   ✅ 监控指标 - 已启用", "path", config.Monitoring.Metrics.Path)
 	} else {
 		global.LOGGER.InfoMsg("   ❌ 监控指标 - 未启用")
 	}
-	
+
 	// 链路追踪状态 - 使用go-config的Jaeger配置
 	if config.SingleConfig.Jaeger.Service != "" {
 		global.LOGGER.InfoKV("   ✅ 链路追踪 - 已启用", "service_name", config.SingleConfig.Jaeger.Service)
 	} else {
 		global.LOGGER.InfoMsg("   ❌ 链路追踪 - 未启用")
-	}	// 健康检查状态
+	} // 健康检查状态
 	if config.Gateway.HealthCheck.Enabled {
 		global.LOGGER.InfoKV("   ✅ 健康检查 - 已启用", "path", config.Gateway.HealthCheck.Path)
 	} else {
@@ -341,15 +333,15 @@ func (g *Gateway) PrintStartupInfo() {
 	// 使用专门的BannerManager来打印启动信息
 	if bannerManager := g.Server.GetBannerManager(); bannerManager != nil {
 		bannerManager.PrintStartupBanner()
-		
+
 		// 如果启用了pprof，打印pprof信息
 		if g.IsPProfEnabled() {
 			bannerManager.PrintPProfInfo(g.pprofGatewayConfig)
 		}
-		
+
 		// 打印中间件状态
 		bannerManager.PrintMiddlewareStatus()
-		
+
 		// 打印使用指南
 		bannerManager.PrintUsageGuide()
 	}

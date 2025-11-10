@@ -16,6 +16,7 @@ const (
 	// 标准请求头
 	HeaderContentType     = "Content-Type"
 	HeaderContentLanguage = "Content-Language"
+	HeaderContentLength   = "Content-Length"
 	HeaderAuthorization   = "Authorization"
 	HeaderUserAgent       = "User-Agent"
 	HeaderAccept          = "Accept"

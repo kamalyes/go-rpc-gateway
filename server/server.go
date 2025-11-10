@@ -67,6 +67,13 @@ func NewServer(cfg *config.GatewayConfig) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
+	// 记录环境配置应用情况
+	global.LOGGER.InfoKV("服务器启动配置",
+		"environment", cfg.Gateway.Environment,
+		"debug", cfg.Gateway.Debug,
+		"tls_enabled", cfg.Security.TLS.Enabled,
+		"metrics_enabled", cfg.Monitoring.Metrics.Enabled)
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	server := &Server{
