@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 07:15:15
+ * @LastEditTime: 2025-11-10 20:09:12
  * @FilePath: \go-rpc-gateway\config\defaults.go
  * @Description: 默认配置和配置管理器
  *
@@ -146,6 +146,13 @@ func DefaultGatewayConfig() *GatewayConfig {
 				Algorithm: "hmac-sha256",
 				SkipPaths: []string{constants.DefaultHealthPath, constants.DefaultMetricsPath},
 				TTL:       300,
+			},
+			Swagger: SwaggerConfig{
+				Enabled:     false,
+				JSONPath:    "",
+				UIPath:      "/swagger",
+				Title:       "API Documentation",
+				Description: "API Documentation powered by Swagger UI",
 			},
 		},
 		Monitoring: MonitoringConfig{

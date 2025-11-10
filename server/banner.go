@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-08 00:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 10:33:16
+ * @LastEditTime: 2025-11-10 20:11:02
  * @FilePath: \go-rpc-gateway\server\banner.go
  * @Description: Gateway启动横幅和信息展示
  *
@@ -116,6 +116,11 @@ func (b *BannerManager) printFeatures() {
 		"配置热重载",
 		"优雅关闭",
 		"I18n国际化支持",
+		"请求ID生成",
+		"异常恢复",
+		"安全头设置",
+		"日志记录与管理",
+		"Swagger文档支持",
 	}
 
 	for _, feature := range baseFeatures {
@@ -252,6 +257,7 @@ func (b *BannerManager) PrintMiddlewareStatus() {
 		enabled bool
 		desc    string
 	}{
+		{"Swagger", b.config.Middleware.Swagger.Enabled, "Swagger文档"},
 		{"Recovery", true, "异常恢复"},
 		{"RequestID", true, "请求ID生成"},
 		{"I18n", true, "国际化支持"},

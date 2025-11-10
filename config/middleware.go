@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 01:15:03
+ * @LastEditTime: 2025-11-10 20:08:06
  * @FilePath: \go-rpc-gateway\config\middleware.go
  * @Description: 中间件配置模块 - 集成 go-config、go-core、go-logger、go-toolbox
  *
@@ -33,8 +33,9 @@ type MiddlewareConfig struct {
 	AccessLog AccessLogConfig `mapstructure:"access_log" yaml:"access_log" json:"access_log"`
 
 	// 开发类中间件
-	PProf  PProfConfig  `mapstructure:"pprof" yaml:"pprof" json:"pprof"`
-	Banner BannerConfig `mapstructure:"banner" yaml:"banner" json:"banner"`
+	PProf   PProfConfig   `mapstructure:"pprof" yaml:"pprof" json:"pprof"`
+	Banner  BannerConfig  `mapstructure:"banner" yaml:"banner" json:"banner"`
+	Swagger SwaggerConfig `mapstructure:"swagger" yaml:"swagger" json:"swagger"`
 }
 
 // SecurityMiddlewareConfig 安全中间件配置 (避免与security.go中的SecurityConfig冲突)

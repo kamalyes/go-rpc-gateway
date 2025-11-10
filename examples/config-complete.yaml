@@ -69,19 +69,20 @@ gateway:
 
   # 健康检查配置 - 多组件支持
   health_check:
-    enabled: true
-    path: "/health"
+    enabled: true                    # ⚠️ 必须显式设置为 true
+    path: "/health"                  # 健康检查端点路径
+    interval: 30                     # 检查间隔（秒）
     
     # Redis 健康检查
     redis:
-      enabled: false  # 根据实际Redis配置启用
+      enabled: false                 # 根据实际Redis配置启用
       host: "localhost"
       port: 6379
       timeout: 5
       
     # MySQL 健康检查  
     mysql:
-      enabled: false  # 根据实际MySQL配置启用
+      enabled: false                 # 根据实际MySQL配置启用
       host: "localhost"
       port: 3306
       database: "gateway"
@@ -162,7 +163,7 @@ middleware:
 
   # 链路追踪
   tracing:
-    enabled: true
+    enabled: false
     sampler_ratio: 0.1
     max_tags: 50
     
@@ -222,7 +223,7 @@ monitoring:
       
   # OpenTelemetry 链路追踪
   tracing:
-    enabled: true              # Environment 配置会自动调整
+    enabled: false              # Environment 配置会自动调整
     exporter:
       type: "jaeger"          # jaeger, zipkin, otlp
       endpoint: "http://localhost:14268/api/traces"

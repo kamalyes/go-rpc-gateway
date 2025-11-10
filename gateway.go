@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 15:15:59
+ * @LastEditTime: 2025-11-10 20:08:44
  * @FilePath: \go-rpc-gateway\gateway.go
  * @Description: Gateway主入口，基于go-config和go-core重构
  *
@@ -132,6 +132,75 @@ func (g *Gateway) RegisterHTTPRoutes(routes map[string]http.HandlerFunc) {
 	for pattern, handler := range routes {
 		g.RegisterHTTPRoute(pattern, handler)
 	}
+}
+
+// EnableSwagger 启用Swagger文档服务
+// [EN] Enable Swagger documentation service
+func (g *Gateway) EnableSwagger(jsonPath string) *Gateway {
+	return g.EnableSwaggerWithOptions(config.SwaggerConfig{
+		Enabled:     true,
+		JSONPath:    jsonPath,
+		UIPath:      "/swagger",
+		Title:       "API Documentation",
+		Description: "API Documentation powered by Swagger UI",
+	})
+}
+
+// EnableSwaggerWithOptions 使用自定义选项启用Swagger
+// [EN] Enable Swagger with custom options
+func (g *Gateway) EnableSwaggerWithOptions(options config.SwaggerConfig) *Gateway {
+	// 更新配置
+	// [EN] Update configuration
+	g.Server.GetConfig().Middleware.Swagger = options
+
+	// 转换为中间件配置
+	// [EN] Convert to middleware configuration
+	middlewareConfig := &middleware.SwaggerConfig{
+		Enabled:     options.Enabled,
+		JSONPath:    options.JSONPath,
+		UIPath:      options.UIPath,
+		Title:       options.Title,
+		Description: options.Description,
+	}
+
+	// 创建Swagger中间件
+	// [EN] Create Swagger middleware
+	swaggerMiddleware := middleware.NewSwaggerMiddleware(middlewareConfig)
+
+	// 直接创建处理函数
+	// [EN] Create handler functions directly
+	swaggerHandler := func(w http.ResponseWriter, r *http.Request) {
+		// 创建一个虚拟的下一个处理器，用于满足中间件接口
+		// [EN] Create a dummy next handler to satisfy middleware interface
+		nextHandler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			// 这个处理器不会被调用，因为Swagger中间件会直接处理请求
+			// [EN] This handler won't be called as Swagger middleware handles requests directly
+		})
+		handler := swaggerMiddleware.Handler()(nextHandler)
+		handler.ServeHTTP(w, r)
+	}
+
+	// 注册Swagger路由
+	// [EN] Register Swagger routes
+	g.RegisterHTTPRoute(options.UIPath+"/", swaggerHandler)
+	g.RegisterHTTPRoute(options.UIPath+"/index.html", swaggerHandler)
+	g.RegisterHTTPRoute(options.UIPath+"/swagger.json", swaggerHandler)
+
+	return g
+}
+
+// SetSwaggerJSON 设置Swagger JSON数据
+// [EN] Set Swagger JSON data
+func (g *Gateway) SetSwaggerJSON(jsonData []byte) error {
+	// 查找现有的Swagger中间件
+	// [EN] Find existing Swagger middleware
+	if middlewareManager := g.Server.GetMiddlewareManager(); middlewareManager != nil {
+		// 这里需要实现中间件管理器中的查找和更新功能
+		// [EN] Need to implement find and update functionality in middleware manager
+		// 暂时返回nil，后续可以扩展
+		// [EN] Return nil for now, can be extended later
+	}
+	return nil
 }
 
 // GetConfig 获取网关配置
