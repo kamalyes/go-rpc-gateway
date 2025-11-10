@@ -34,12 +34,14 @@ type Manager struct {
 	accessRecordConfig  *AccessRecordConfig
 	signatureConfig     *SignatureConfig
 	pprofConfig         *register.PProf
-	pprofAdapter        *PProfConfigAdapter  // 添加适配器
-	pprofGatewayConfig  *PProfGatewayConfig  // 新增Gateway配置
+	pprofAdapter        *PProfConfigAdapter // 添加适配器
+	pprofGatewayConfig  *PProfGatewayConfig // 新增Gateway配置
+	i18nConfig          *I18nConfig         // i18n国际化配置
 	rateLimiter         RateLimiter
 	accessRecordHandler AccessRecordHandler
 	signatureValidator  SignatureValidator
 	pprofScenarios      *PProfScenarios
+	i18nManager         *I18nManager // i18n管理器
 }
 
 // NewManager 创建中间件管理器
@@ -54,6 +56,7 @@ func NewManager(metricsConfig *MetricsConfig, tracingConfig *TracingConfig) (*Ma
 		signatureConfig:     DefaultSignatureConfig(),
 		pprofConfig:         DefaultPProfConfig(),
 		pprofGatewayConfig:  NewPProfGatewayConfig(), // 初始化Gateway配置
+		i18nConfig:          DefaultI18nConfig(),     // 初始化i18n配置
 		accessRecordHandler: &LogAccessRecordHandler{},
 		signatureValidator:  &HMACValidator{},
 		pprofScenarios:      NewPProfScenarios(),
@@ -75,6 +78,14 @@ func NewManager(metricsConfig *MetricsConfig, tracingConfig *TracingConfig) (*Ma
 		manager.tracingManager, err = NewTracingManager(tracingConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init tracing manager: %w", err)
+		}
+	}
+
+	// 初始化i18n管理器
+	if manager.i18nConfig != nil {
+		manager.i18nManager, err = NewI18nManager(manager.i18nConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init i18n manager: %w", err)
 		}
 	}
 
@@ -117,6 +128,18 @@ func (m *Manager) WithAccessRecordConfig(config *AccessRecordConfig) *Manager {
 func (m *Manager) WithSignatureConfig(config *SignatureConfig) *Manager {
 	if config != nil {
 		m.signatureConfig = config
+	}
+	return m
+}
+
+// WithI18nConfig 设置i18n配置
+func (m *Manager) WithI18nConfig(config *I18nConfig) *Manager {
+	if config != nil {
+		m.i18nConfig = config
+		// 重新创建i18n管理器
+		if manager, err := NewI18nManager(config); err == nil {
+			m.i18nManager = manager
+		}
 	}
 	return m
 }
@@ -244,6 +267,14 @@ func (m *Manager) TimestampMiddleware() HTTPMiddleware {
 	return TimestampMiddleware(m.signatureConfig)
 }
 
+// I18nMiddleware 国际化中间件
+func (m *Manager) I18nMiddleware() HTTPMiddleware {
+	if m.i18nManager != nil {
+		return HTTPMiddleware(I18nWithManager(m.i18nManager))
+	}
+	return HTTPMiddleware(I18n()) // 使用默认配置
+}
+
 // PProfMiddleware pprof性能分析中间件
 func (m *Manager) PProfMiddleware() HTTPMiddleware {
 	return PProfMiddleware(m.pprofAdapter)
@@ -270,6 +301,7 @@ func (m *Manager) GetDefaultMiddlewares() []HTTPMiddleware {
 	middlewares := []HTTPMiddleware{
 		m.RecoveryMiddleware(),
 		m.RequestIDMiddleware(),
+		m.I18nMiddleware(), // 添加国际化中间件
 	}
 
 	// 添加限流中间件（如果启用）

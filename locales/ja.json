@@ -1,0 +1,20 @@
+{
+  "welcome": "ようこそ",
+  "error.not_found": "リソースが見つかりません",
+  "error.bad_request": "無効なリクエスト",
+  "error.internal": "サーバー内部エラー",
+  "success": "成功",
+  "hello": "こんにちは",
+  "goodbye": "さようなら",
+  "user.created": "ユーザーが正常に作成されました",
+  "user.updated": "ユーザーが正常に更新されました",
+  "user.deleted": "ユーザーが正常に削除されました",
+  "validation.required": "この項目は必須です",
+  "validation.email": "有効なメールアドレスを入力してください",
+  "validation.min_length": "最小文字数は %d 文字です",
+  "validation.max_length": "最大文字数は %d 文字です",
+  "auth.login_success": "ログイン成功",
+  "auth.login_failed": "ログイン失敗",
+  "auth.unauthorized": "認証されていません",
+  "auth.token_expired": "トークンの有効期限が切れています"
+}

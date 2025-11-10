@@ -19,6 +19,11 @@ const (
 	DefaultDebugPath   = "/debug"
 )
 
+// 上下文键常量
+const (
+	ContextKeyI18n = "i18n"
+)
+
 // JSON 响应模板
 const (
 	JSONSuccessTemplate = `{"success": true, "message": "%s", "data": %s}`
