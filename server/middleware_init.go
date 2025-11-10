@@ -13,6 +13,7 @@ package server
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 )
@@ -35,7 +36,7 @@ func (s *Server) initMiddleware() error {
 	if s.config.Monitoring.Tracing.Enabled {
 		tracingConfig = &middleware.TracingConfig{
 			Enabled:     true,
-			ServiceName: s.config.Monitoring.Tracing.ServiceName,
+			ServiceName: s.config.Monitoring.Tracing.Resource.ServiceName,
 		}
 	}
 
@@ -45,6 +46,47 @@ func (s *Server) initMiddleware() error {
 	}
 
 	s.middlewareManager = manager
+
+	// 初始化健康检查管理器
+	if err := s.initHealthManager(); err != nil {
+		return fmt.Errorf("failed to create health manager: %w", err)
+	}
+
+	return nil
+}
+
+// initHealthManager 初始化健康检查管理器
+func (s *Server) initHealthManager() error {
+	serviceName := s.config.Gateway.Name
+	if serviceName == "" {
+		serviceName = "go-rpc-gateway"
+	}
+
+	serviceVersion := s.config.Gateway.Version
+	if serviceVersion == "" {
+		serviceVersion = "1.0.0"
+	}
+
+	// 创建健康检查管理器
+	healthManager := middleware.NewHealthManager(serviceName, serviceVersion)
+
+	// 添加Redis健康检查
+	if s.config.Gateway.HealthCheck.Redis.Enabled {
+		redisChecker := middleware.NewRedisChecker(
+			time.Duration(s.config.Gateway.HealthCheck.Redis.Timeout) * time.Second,
+		)
+		healthManager.RegisterChecker(redisChecker)
+	}
+
+	// 添加MySQL健康检查
+	if s.config.Gateway.HealthCheck.MySQL.Enabled {
+		mysqlChecker := middleware.NewMySQLChecker(
+			time.Duration(s.config.Gateway.HealthCheck.MySQL.Timeout) * time.Second,
+		)
+		healthManager.RegisterChecker(mysqlChecker)
+	}
+
+	s.healthManager = healthManager
 	return nil
 }
 

@@ -32,8 +32,9 @@ func main() {
 ```
 
 就这么简单！现在你可以访问：
-- 🌐 **Web界面**: http://localhost:8080/
-- 📊 **PProf**: http://localhost:8080/debug/pprof/
+
+- 🌐 **Web界面**: <http://localhost:8080/>
+- 📊 **PProf**: <http://localhost:8080/debug/pprof/>
 - 🔐 **认证token**: `gateway-pprof-2024` (默认)
 
 ## 💡 使用方式
@@ -78,6 +79,7 @@ gw.EnablePProfWithOptions(gateway.PProfOptions{
 基于你原始的pprof代码，我们内置了丰富的性能测试场景：
 
 ### GC 测试场景
+
 - **小对象GC** - 创建10万个小对象，测试小对象GC性能
 - **大对象GC** - 创建1000个1MB对象，测试大对象GC性能  
 - **高CPU GC** - 多goroutine密集计算，测试高CPU使用下的GC
@@ -87,6 +89,7 @@ gw.EnablePProfWithOptions(gateway.PProfOptions{
 - **并发GC** - 多goroutine并发创建对象的GC测试
 
 ### 其他测试场景
+
 - **内存分配测试** - 各种大小内存块的分配测试
 - **CPU密集测试** - CPU密集型计算和递归测试
 - **Goroutine测试** - 大量goroutine创建和管理测试
@@ -124,7 +127,8 @@ go tool pprof -http=:8081 cpu.prof
 
 ### 3. 实时性能测试
 
-访问 http://localhost:8080/ 在Web界面中：
+访问 <http://localhost:8080/> 在Web界面中：
+
 1. 运行内置的性能测试场景
 2. 立即查看对应的pprof数据
 3. 使用go tool pprof分析结果
@@ -160,16 +164,19 @@ gw.Start()
 ## 📈 最佳实践
 
 ### 开发环境
+
 ```go
 gw.EnablePProfForDevelopment()
 ```
 
 ### 测试环境  
+
 ```go
 gw.EnablePProfWithToken(os.Getenv("PPROF_TOKEN"))
 ```
 
 ### 生产环境
+
 ```go
 // 默认禁用，需要时临时启用
 if os.Getenv("ENABLE_PPROF") == "true" {

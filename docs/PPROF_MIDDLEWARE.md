@@ -33,6 +33,7 @@ PProf 中间件为 go-rpc-gateway 提供了强大的性能分析功能，集成�
 ## 内置性能测试场景
 
 ### GC 测试场景
+
 - `/debug/pprof/gc/small-objects` - 大量小对象 GC 测试
 - `/debug/pprof/gc/large-objects` - 大对象 GC 测试  
 - `/debug/pprof/gc/high-cpu` - 高 CPU 使用率 GC 测试
@@ -43,20 +44,24 @@ PProf 中间件为 go-rpc-gateway 提供了强大的性能分析功能，集成�
 - `/debug/pprof/gc/concurrent` - 并发 GC 测试
 
 ### 内存测试场景
+
 - `/debug/pprof/memory/allocate` - 内存分配测试
 - `/debug/pprof/memory/leak` - 内存泄漏模拟
 - `/debug/pprof/memory/fragmentation` - 内存碎片化测试
 
 ### CPU 测试场景  
+
 - `/debug/pprof/cpu/intensive` - CPU 密集型计算
 - `/debug/pprof/cpu/recursive` - 递归计算测试
 
 ### 并发测试场景
+
 - `/debug/pprof/goroutine/spawn` - 大量 Goroutine 创建
 - `/debug/pprof/goroutine/leak` - Goroutine 泄漏模拟
 - `/debug/pprof/mutex/contention` - 互斥锁竞争测试
 
 ### 清理场景
+
 - `/debug/pprof/cleanup/all` - 清理所有持有对象并触发 GC
 
 ## 基础使用
@@ -176,12 +181,14 @@ func productionPProfConfig() *middleware.PProfConfig {
 ## 认证方式
 
 ### 1. Bearer Token (推荐)
+
 ```bash
 curl -H "Authorization: Bearer your-secret-token" \
      http://localhost:8080/debug/pprof/
 ```
 
 ### 2. Query Parameter
+
 ```bash
 curl http://localhost:8080/debug/pprof/?token=your-secret-token
 ```

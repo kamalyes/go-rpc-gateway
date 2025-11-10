@@ -18,6 +18,8 @@ import (
 	"sync"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/kamalyes/go-core/pkg/global"
+	logger "github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/config"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"google.golang.org/grpc"
@@ -33,11 +35,14 @@ type Server struct {
 	grpcServer *grpc.Server
 	httpServer *http.Server
 	gwMux      *runtime.ServeMux
-	httpMux    *http.ServeMux  // 添加HTTP路由管理器
+	httpMux    *http.ServeMux // 添加HTTP路由管理器
 
 	// 中间件管理器
 	middlewareManager *middleware.Manager
-	
+
+	// 健康检查管理器
+	healthManager *middleware.HealthManager
+
 	// Banner管理器
 	bannerManager *BannerManager
 
@@ -55,6 +60,11 @@ type Server struct {
 func NewServer(cfg *config.GatewayConfig) (*Server, error) {
 	if cfg == nil {
 		cfg = config.DefaultGatewayConfig()
+	}
+
+	// 确保全局日志器被初始化
+	if err := ensureLoggerInitialized(cfg); err != nil {
+		return nil, fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -130,4 +140,40 @@ func (s *Server) RegisterHTTPHandler(ctx context.Context, registerFunc func(cont
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
 	return registerFunc(ctx, s.gwMux, grpcAddress, opts)
+}
+
+// ensureLoggerInitialized 确保全局日志器被正确初始化
+func ensureLoggerInitialized(cfg *config.GatewayConfig) error {
+	// 如果全局日志器已经初始化，直接返回
+	if global.LOGGER != nil {
+		return nil
+	}
+
+	// 使用 go-logger 创建一个新的日志器实例
+	// 根据配置设置日志级别
+	level := logger.INFO
+	if cfg.SingleConfig != nil && cfg.SingleConfig.Zap.Level != "" {
+		switch cfg.SingleConfig.Zap.Level {
+		case "debug":
+			level = logger.DEBUG
+		case "info":
+			level = logger.INFO
+		case "warn":
+			level = logger.WARN
+		case "error":
+			level = logger.ERROR
+		}
+	}
+
+	// 创建一个简单的 logger 实例
+	newLogger := logger.CreateSimpleLogger(level)
+	if newLogger == nil {
+		return fmt.Errorf("failed to create logger instance")
+	}
+
+	// 将新创建的 logger 赋值给全局变量
+	global.LOGGER = newLogger
+
+	fmt.Println("[INFO] Logger initialized successfully with go-logger")
+	return nil
 }

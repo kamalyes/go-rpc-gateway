@@ -21,10 +21,10 @@ type GatewayConfig struct {
 	*goconfig.SingleConfig `mapstructure:",squash" yaml:",inline" json:",inline"`
 
 	// Gateway特有的扩展配置
-	Gateway    GatewaySettings    `mapstructure:"gateway" yaml:"gateway" json:"gateway"`
-	Middleware MiddlewareConfig   `mapstructure:"middleware" yaml:"middleware" json:"middleware"`
-	Monitoring MonitoringConfig   `mapstructure:"monitoring" yaml:"monitoring" json:"monitoring"`
-	Security   SecurityConfig     `mapstructure:"security" yaml:"security" json:"security"`
+	Gateway    GatewaySettings  `mapstructure:"gateway" yaml:"gateway" json:"gateway"`
+	Middleware MiddlewareConfig `mapstructure:"middleware" yaml:"middleware" json:"middleware"`
+	Monitoring MonitoringConfig `mapstructure:"monitoring" yaml:"monitoring" json:"monitoring"`
+	Security   SecurityConfig   `mapstructure:"security" yaml:"security" json:"security"`
 }
 
 // GatewaySettings Gateway基础设置
@@ -64,11 +64,4 @@ type GRPCConfig struct {
 	KeepaliveTime     int    `mapstructure:"keepalive_time" yaml:"keepalive_time" json:"keepalive_time"`
 	KeepaliveTimeout  int    `mapstructure:"keepalive_timeout" yaml:"keepalive_timeout" json:"keepalive_timeout"`
 	EnableReflection  bool   `mapstructure:"enable_reflection" yaml:"enable_reflection" json:"enable_reflection"`
-}
-
-// HealthCheckConfig 健康检查配置
-type HealthCheckConfig struct {
-	Enabled  bool   `mapstructure:"enabled" yaml:"enabled" json:"enabled"`
-	Path     string `mapstructure:"path" yaml:"path" json:"path"`
-	Interval int    `mapstructure:"interval" yaml:"interval" json:"interval"`
 }

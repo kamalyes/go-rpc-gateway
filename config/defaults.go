@@ -34,7 +34,7 @@ func DefaultGatewayConfig() *GatewayConfig {
 			WithContextPath("/").
 			WithLanguage("zh-cn"),
 
-		// CORS配置 - 使用链式调用  
+		// CORS配置 - 使用链式调用
 		Cors: *cors.Default().
 			WithModuleName("cors").
 			WithAllowedOrigins([]string{"*"}).
@@ -93,7 +93,7 @@ func DefaultGatewayConfig() *GatewayConfig {
 			WithLogInConsole(true).
 			WithDevelopment(true),
 	}
-	
+
 	return &GatewayConfig{
 		SingleConfig: defaultSingleConfig,
 		Gateway: GatewaySettings{
@@ -157,9 +157,20 @@ func DefaultGatewayConfig() *GatewayConfig {
 				Subsystem: "rpc",
 			},
 			Tracing: TracingConfig{
-				Enabled:     false,
-				ServiceName: constants.DefaultServiceName,
-				SampleRate:  0.1,
+				Enabled: false,
+				Exporter: TracingExporterConfig{
+					Type:     "jaeger",
+					Endpoint: "http://localhost:14268/api/traces",
+				},
+				Sampler: TracingSamplerConfig{
+					Type:        "probability",
+					Probability: 0.1,
+				},
+				Resource: TracingResourceConfig{
+					ServiceName:    constants.DefaultServiceName,
+					ServiceVersion: "v1.0.0",
+					Environment:    "development",
+				},
 			},
 		},
 		Security: SecurityConfig{

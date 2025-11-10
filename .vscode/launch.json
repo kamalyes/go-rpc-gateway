@@ -5,12 +5,12 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "go-rpc-gateway",
+      "name": "complete-integration",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "cwd": "${workspaceFolder}/cmd/gateway",
-      "program": "${workspaceFolder}/cmd/gateway/main.go",
+      "cwd": "${workspaceFolder}/examples/complete-integration",
+      "program": "${workspaceFolder}/examples/complete-integration/main.go",
       "windows": {
         "env": {
           "GOARCH": "amd64",
@@ -25,32 +25,12 @@
       }
     },
     {
-      "name": "simple-gateway",
+      "name": "integration-demo",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "cwd": "${workspaceFolder}/cmd/simple-gateway",
-      "program": "${workspaceFolder}/cmd/simple-gateway/main.go",
-      "windows": {
-        "env": {
-          "GOARCH": "amd64",
-          "GOOS": "windows"
-        }
-      },
-      "osx": {
-        "env": {
-          "GOARCH": "arm64",
-          "GOOS": "darwin"
-        }
-      }
-    },
-    {
-      "name": "test-adapter",
-      "type": "go",
-      "request": "launch",
-      "mode": "auto",
-      "cwd": "${workspaceFolder}/cmd/test-adapter",
-      "program": "${workspaceFolder}/cmd/test-adapter/main.go",
+      "cwd": "${workspaceFolder}/examples/integration-demo",
+      "program": "${workspaceFolder}/examples/integration-demo/main.go",
       "windows": {
         "env": {
           "GOARCH": "amd64",

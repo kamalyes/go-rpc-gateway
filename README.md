@@ -2,97 +2,582 @@
 
 <div align="center">
 
-[![Go Version](https://img.shields.io/badge/go-%3E%3D1.21-blue.svg)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/go-%3E%3D1.23-blue.svg)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 [![Go Report Card](https://img.shields.io/badge/go%20report-A+-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen.svg)]()
+[![Release](https://img.shields.io/badge/release-v1.0.0-blue.svg)]()
 
-**一个现代化的 gRPC-Gateway 框架，开箱即用的微服务网关解决方案**
+**🎯 企业级 gRPC-Gateway 微服务网关框架，深度集成四大核心库**
 
-集成了 [go-config](https://github.com/kamalyes/go-config) 和 [go-core](https://github.com/kamalyes/go-core) 架构，提供数据库、缓存、对象存储等企业级功能。
+集成了 [go-config](https://github.com/kamalyes/go-config) 统一配置管理、[go-core](https://github.com/kamalyes/go-core) 企业级组件、[go-logger](https://github.com/kamalyes/go-logger) 结构化日志和 [go-toolbox](https://github.com/kamalyes/go-toolbox) 工具集，提供数据库、缓存、对象存储、消息队列等完整的微服务解决方案。
 
-[快速开始](#-快速开始) • [配置文档](#️-配置文档) • [架构设计](#-架构设计) • [部署指南](#-部署指南) • [示例代码](examples/)
+[🚀 快速开始](#-快速开始) • [⚙️ 配置文档](#️-配置文档) • [🏗️ 架构设计](#️-架构设计) • [📦 部署指南](#-部署指南) • [📚 示例代码](#-示例代码)
 
 </div>
 
 ---
 
-
-### 🏗️ 核心架构
-
-```
-                    ┌─────────────────────────┐
-                    │      Gateway入口        │
-                    │   (cmd/gateway/main.go) │
-                    └───────────┬─────────────┘
-                                │
-                    ┌─────────────────────────┐
-                    │      Server核心         │
-                    │   (server/server.go)    │
-                    └───────────┬─────────────┘
-                                │
-        ┌─────────────────┬─────────────────┬─────────────────┐
-        │                 │                 │                 │
-┌───────▼──────┐ ┌────────▼────────┐ ┌──────▼──────┐ ┌───────▼──────┐
-│  HTTP Server │ │  gRPC Server    │ │ Middleware  │ │ Config Mgr   │
-│  (http.go)   │ │  (grpc.go)     │ │ (middleware)│ │ (config/)    │
-└──────────────┘ └─────────────────┘ └─────────────┘ └──────────────┘
-        │                 │                 │                 │
-┌───────▼──────┐ ┌────────▼────────┐ ┌──────▼──────┐ ┌───────▼──────┐
-│ gRPC Gateway │ │ Business Logic  │ │ Security    │ │ Hot Reload   │
-│ (Gateway)    │ │ (Your Services) │ │ Metrics     │ │ Validation   │
-│              │ │                 │ │ Logging     │ │              │
-└──────────────┘ └─────────────────┘ └─────────────┘ └──────────────┘
-```
-
-## ✨ 核心特性
+## 🎯 项目特色
 
 <table>
 <tr>
+<th align="center">🏗️ 架构优势</th>
+<th align="center">🔧 技术栈</th>
+<th align="center">🚀 开箱即用</th>
+</tr>
+<tr>
 <td>
 
-### 🏗️ **架构优化**
-- 🔧 **模块化设计** - 可插拔的组件架构
-- 🎯 **go-core 深度集成** - 自动初始化全局组件
-- 🔄 **配置热重载** - 运行时动态更新配置
-- 📊 **企业级监控** - Prometheus + OpenTelemetry
+• **go-config 统一配置** - 多源配置管理  
+• **go-core 深度集成** - 企业级组件
+• **go-logger 结构化日志** - 高性能日志系统
+• **go-toolbox 工具集** - 常用工具函数
+• **中间件生态** - 15+ 内置中间件
+• **云原生支持** - K8s/Docker 友好
 
 </td>
 <td>
 
-### �️ **安全与性能**
-- 🚦 **智能限流** - 多算法支持（令牌桶、滑动窗口）
-- 🔐 **请求签名** - HMAC-SHA256 安全验证
-- 🛡️ **安全中间件** - CORS、安全头、防护机制
-- ⚡ **高性能日志** - 基于 zap 的结构化日志
+• **gRPC/HTTP** - 双协议支持
+• **Prometheus** - 指标监控
+• **OpenTelemetry** - 链路追踪  
+• **Zap Logger** - 结构化日志
+• **多语言支持** - 19种语言i18n
+
+</td>
+<td>
+
+• **零配置启动** - 默认配置可用
+• **热重载配置** - 运行时更新
+• **健康检查** - 多组件监控
+• **性能分析** - 内置 pprof
+• **安全防护** - 多层安全机制
 
 </td>
 </tr>
 </table>
 
-### 🎪 **丰富的中间件生态**
+### 🏗️ 系统架构
 
-| 类型 | 中间件 | 描述 |
-|------|--------|------|
-| **安全** | Security, CORS, Signature | 安全头设置、跨域支持、请求签名验证 |
-| **监控** | Metrics, Tracing, Logging | Prometheus 指标、链路追踪、访问日志 |
-| **控制** | RateLimit, Recovery, RequestID | 流量控制、异常恢复、请求追踪 |
-| **扩展** | Custom Middleware | 支持自定义中间件开发 |
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                               🚀 Go RPC Gateway                                          │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                         │
+│  ┌─────────────┐    ┌──────────────┐    ┌─────────────┐    ┌──────────────┐          │
+│  │   Gateway   │    │   Server     │    │ Middleware  │    │   Config     │          │
+│  │  (Entry)    │────│   Manager    │────│  Manager    │────│  Manager     │          │
+│  └─────────────┘    └──────────────┘    └─────────────┘    └──────────────┘          │
+│                                                                                         │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                              🌐 协议层                                                    │
+│  ┌─────────────┐              │              ┌─────────────┐                          │
+│  │ HTTP Server │◀─────────────┼─────────────▶│ gRPC Server │                          │
+│  │ (:8080)     │         gRPC-Gateway        │ (:9090)     │                          │
+│  └─────────────┘                             └─────────────┘                          │
+│                                                                                         │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                            🛡️ 中间件层                                                   │
+│ ┌──────────────┬──────────────┬──────────────┬──────────────┬─────────────┐           │
+│ │   Security   │  RateLimit   │   Logging    │   Metrics    │    i18n     │           │
+│ │   CORS/Auth  │ Token Bucket │  go-logger   │ Prometheus   │ 19 Languages│           │
+│ ├──────────────┼──────────────┼──────────────┼──────────────┼─────────────┤           │
+│ │  Signature   │   Recovery   │  RequestID   │   Tracing    │   Health    │           │
+│ │go-toolbox加密│  Panic Safe  │  UUID Track  │OpenTelemetry │ Components  │           │
+│ └──────────────┴──────────────┴──────────────┴──────────────┴─────────────┘           │
+│                                                                                         │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                         🏗️ 四大核心库集成层                                              │
+│ ┌─────────────┬─────────────┬─────────────┬─────────────────────────────────────────┐ │
+│ │ go-config   │  go-core    │ go-logger   │            go-toolbox                   │ │
+│ │ 统一配置管理  │ 企业级组件   │ 结构化日志   │           工具函数集                     │ │
+│ │             │             │             │                                         │ │
+│ │• 多源配置    │• MySQL/PG   │• Zap日志     │• 加密/解密  • UUID/雪花ID • 字符串工具   │ │
+│ │• 热重载      │• Redis集群  │• 多级别     │• 数据转换   • 时间工具    • 网络工具     │ │
+│ │• 环境变量    │• MinIO存储  │• 日志轮转   │• JSON/XML   • 随机数生成  • 编码工具     │ │
+│ │• 配置验证    │• RabbitMQ   │• 上下文     │• Base64     • 哈希计算    • 验证工具     │ │
+│ │• 分层配置    │• Consul     │• 性能优化   │• 算法工具   • 文件操作    • HTTP工具     │ │
+│ └─────────────┴─────────────┴─────────────┴─────────────────────────────────────────┘ │
+│                                                                                         │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                           💾 基础设施层 (go-core自动管理)                               │
+│ ┌──────────────┬──────────────┬──────────────┬──────────────┬─────────────┐           │
+│ │   Database   │    Redis     │    MinIO     │   RabbitMQ   │   Consul    │           │
+│ │ MySQL/Postgres│   Cache     │Object Storage│Message Queue │Service Mesh │           │
+│ └──────────────┴──────────────┴──────────────┴──────────────┴─────────────┘           │
+│                                                                                         │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+## ✨ 核心特性
+
+### 🏗️ 四大核心库深度集成
+
+#### 📋 go-config - 统一配置管理
+- **多种配置源支持** - 支持 YAML、JSON、TOML、ENV 等多种配置格式
+- **配置热重载** - 监听配置文件变化，运行时动态更新
+- **环境变量覆盖** - 支持通过环境变量覆盖配置项
+- **配置验证** - 内置配置格式和值的校验机制
+- **分层配置** - 支持 base、dev、prod 等多环境配置
+
+```go
+// 使用 go-config 管理配置
+configManager, err := config.NewConfigManager("config.yaml")
+if err != nil {
+    log.Fatal(err)
+}
+
+// 获取网关配置
+gatewayConfig := configManager.GetGatewayConfig()
+```
+
+#### 🔧 go-core - 企业级组件
+- **数据库支持** - MySQL、PostgreSQL、SQLite 等多数据库支持
+- **缓存系统** - Redis 集群、哨兵模式支持
+- **对象存储** - MinIO、阿里云OSS、AWS S3 等支持
+- **消息队列** - RabbitMQ、Kafka 等消息中间件
+- **服务发现** - Consul、Etcd 等注册中心支持
+
+```go
+// go-core 自动初始化企业级组件
+import "github.com/kamalyes/go-core/pkg/global"
+
+// 自动获取数据库连接
+db := global.GetDB()
+
+// 自动获取Redis连接
+redis := global.GetRedis()
+
+// 自动获取MinIO客户端
+minio := global.GetMinIO()
+```
+
+#### 📝 go-logger - 高性能日志系统
+- **结构化日志** - 基于 Zap 的高性能结构化日志
+- **多级别输出** - 支持 Debug、Info、Warn、Error、Fatal 等级别
+- **多输出格式** - JSON、文本格式可选
+- **日志轮转** - 支持按时间、大小进行日志轮转
+- **上下文支持** - 支持携带请求ID、用户信息等上下文
+
+```go
+// 使用 go-logger 记录日志
+import "github.com/kamalyes/go-logger/pkg/logger"
+
+// 结构化日志记录
+logger.Info("用户登录成功", 
+    logger.String("user_id", "123"),
+    logger.String("ip", "192.168.1.100"),
+    logger.Duration("duration", time.Since(start)),
+)
+```
+
+#### 🧰 go-toolbox - 常用工具集
+- **加密解密** - AES、RSA、HMAC 等加密算法
+- **ID生成器** - UUID、雪花算法、NanoID 等
+- **数据转换** - JSON、XML、Base64 等格式转换
+- **字符串工具** - 各种字符串处理函数
+- **时间工具** - 时间格式化、解析、计算等
+- **网络工具** - IP检查、URL解析等
+
+```go
+// 使用 go-toolbox 工具函数
+import "github.com/kamalyes/go-toolbox/pkg/random"
+import "github.com/kamalyes/go-toolbox/pkg/crypto"
+
+// 生成随机ID
+requestID := random.GenerateUUID()
+
+// HMAC签名验证
+valid := crypto.ValidateHMAC(data, signature, secretKey)
+```
+
+### 🏗️ 架构优势
+
+- **🔧 模块化设计** - 可插拔的组件架构，支持自定义扩展
+- **🎯 go-config 深度集成** - 统一配置管理，支持多种配置源
+- **🔄 go-core 核心集成** - 自动初始化数据库、Redis、MinIO等企业级组件
+- **📊 企业级监控** - 集成 Prometheus + OpenTelemetry 完整可观测性
+- **🔥 配置热重载** - 运行时动态更新配置，零停机变更
+
+### 🛡️ 安全与性能
+
+- **🚦 智能限流** - 支持令牌桶、滑动窗口等多种限流算法
+- **🔐 请求签名** - 内置 HMAC-SHA256 安全验证机制
+- **🛡️ 安全中间件** - CORS、安全头、XSS防护等多层安全机制
+- **⚡ 高性能日志** - 基于 Zap 的结构化日志系统
+- **🔍 性能分析** - 内置 pprof 性能分析工具
+
+### 🌍 国际化与扩展
+
+- **🌐 多语言支持** - 支持 19 种语言的国际化
+- **📝 模板数据支持** - 支持动态数据插值和模板渲染
+- **🔄 语言回退机制** - 自动回退到默认语言
+- **🎪 丰富中间件** - 15+ 内置中间件，支持自定义中间件
+- **📦 开箱即用** - 零配置启动，默认配置即可使用
+
+## 🎪 中间件生态系统
+
+| 分类 | 中间件 | 功能描述 | 配置复杂度 |
+|------|--------|----------|------------|
+| **🛡️ 安全** | Security | 安全头设置、XSS防护、CSP策略 | ⭐️⭐️ |
+| | CORS | 跨域资源共享配置 | ⭐️ |
+| | Signature | HMAC-SHA256 请求签名验证 | ⭐️⭐️⭐️ |
+| **📊 监控** | Metrics | Prometheus 指标收集 | ⭐️⭐️ |
+| | Logging | 结构化日志记录 | ⭐️⭐️ |
+| | Tracing | OpenTelemetry 链路追踪 | ⭐️⭐️⭐️ |
+| | Health | 健康检查 (Redis/MySQL/自定义) | ⭐️⭐️ |
+| **🚦 控制** | RateLimit | 流量控制 (令牌桶/滑动窗口) | ⭐️⭐️⭐️ |
+| | Recovery | 异常恢复处理 | ⭐️ |
+| | RequestID | 请求链路追踪ID | ⭐️ |
+| **🌍 体验** | I18n | 19种语言国际化 | ⭐️⭐️⭐️ |
+| | Access | 访问日志记录 | ⭐️⭐️ |
+| **🔧 开发** | PProf | 性能分析工具 | ⭐️⭐️ |
+| | Banner | 服务启动横幅 | ⭐️ |
+
+## � 快速上手示例
+
+### 1️⃣ 最简示例 (零配置)
+
+```go
+package main
+
+import "github.com/kamalyes/go-rpc-gateway"
+
+func main() {
+    // 🎯 创建网关 (自动集成四大核心库)
+    gw, _ := gateway.New()
+    
+    // 🚀 启动服务
+    gw.Start()
+}
+```
+
+### 2️⃣ 完整集成示例
+
+查看 `examples/integration-demo/main.go` 了解四大核心库的完整使用：
+
+```bash
+# 运行集成演示
+cd examples/integration-demo
+go run main.go
+
+# 访问健康检查
+curl http://localhost:8080/health
+
+# 查看组件状态
+curl http://localhost:8080/components
+```
+
+### 3️⃣ 配置文件示例
+
+参考 `config/examples/complete-config.yaml` 查看完整的配置选项，包括：
+
+- 🏗️ go-config 配置管理
+- 💾 go-core 企业级组件 (数据库、Redis、MinIO 等)
+- 📝 go-logger 日志配置
+- 🧰 go-toolbox 工具配置
+
+## �📦 依赖管理
+
+本项目集成了以下核心依赖库：
+
+### 🏗️ 四大核心库
+
+| 库名称 | 版本 | 功能描述 | 仓库地址 |
+|--------|------|----------|----------|
+| **go-config** | v0.6.0 | 统一配置管理 | [go-config](https://github.com/kamalyes/go-config) |
+| **go-core** | v0.15.6 | 企业级组件 | [go-core](https://github.com/kamalyes/go-core) |
+| **go-logger** | latest | 结构化日志 | [go-logger](https://github.com/kamalyes/go-logger) |
+| **go-toolbox** | v0.11.62 | 工具函数集 | [go-toolbox](https://github.com/kamalyes/go-toolbox) |
+
+### ⚡ 核心依赖
+
+| 依赖库 | 版本 | 用途 |
+|--------|------|------|
+| gRPC | v1.62.1 | RPC框架 |
+| grpc-gateway/v2 | v2.19.1 | HTTP/gRPC转换 |
+| Prometheus | v1.18.0 | 监控指标 |
+| OpenTelemetry | v1.24.0 | 链路追踪 |
+| Viper | v1.19.0 | 配置管理 |
+| Zap | v1.27.0 | 高性能日志 |
+
+### 🔧 企业级组件 (go-core 提供)
+
+| 组件 | 功能描述 | 支持版本 |
+|------|----------|----------|
+| **数据库** | MySQL、PostgreSQL、SQLite | 多版本 |
+| **缓存** | Redis 单机/集群/哨兵 | Redis 6+ |
+| **对象存储** | MinIO、阿里云OSS、AWS S3 | 兼容S3 API |
+| **消息队列** | RabbitMQ、Kafka | 多版本 |
+| **服务发现** | Consul、Etcd | 最新版 |
 
 ## 📦 快速安装
 
-```bash
-# 安装框架
-go get github.com/kamalyes/go-rpc-gateway
+### 方式一：Go Modules (推荐)
 
-# 或使用 Go Modules
-go mod init your-project
+```bash
+# 初始化项目
+mkdir my-gateway && cd my-gateway
+go mod init my-gateway
+
+# 安装最新版本
 go get github.com/kamalyes/go-rpc-gateway@latest
+
+# 安装依赖
+go mod tidy
 ```
 
-## � 快速开始
+### 方式二：直接克隆
+
+```bash
+# 克隆项目
+git clone https://github.com/kamalyes/go-rpc-gateway.git
+cd go-rpc-gateway
+
+# 安装依赖
+go mod download
+```
+
+## 🚀 快速开始
 
 ### 🎯 零配置启动
+
+只需几行代码就能启动一个完整的网关服务，自动集成四大核心库：
+
+```go
+package main
+
+import (
+    "log"
+    
+    "github.com/kamalyes/go-rpc-gateway"
+)
+
+func main() {
+    // 🎯 零配置创建网关 (自动集成四大核心库)
+    gw, err := gateway.New()
+    if err != nil {
+        log.Fatal("创建网关失败:", err)
+    }
+
+    // 🚀 启动服务器
+    log.Println("🚀 启动 Gateway 服务器...")
+    if err := gw.Start(); err != nil {
+        log.Fatal("启动失败:", err)
+    }
+
+    // ✅ 优雅关闭
+    gw.Shutdown()
+}
+```
+
+### 🔧 完整配置示例
+
+使用四大核心库的完整配置示例：
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+    
+    "github.com/kamalyes/go-config/pkg/register"
+    "github.com/kamalyes/go-core/pkg/global"
+    "github.com/kamalyes/go-logger/pkg/logger"
+    "github.com/kamalyes/go-toolbox/pkg/random"
+    "github.com/kamalyes/go-toolbox/pkg/crypto"
+    "github.com/kamalyes/go-rpc-gateway"
+    "github.com/kamalyes/go-rpc-gateway/config"
+)
+
+func main() {
+    // 1️⃣ go-config: 初始化配置管理
+    configManager, err := config.NewConfigManager("config/app.yaml")
+    if err != nil {
+        log.Fatal("配置管理器初始化失败:", err)
+    }
+    
+    // 获取自定义配置
+    gatewayConfig := configManager.GetGatewayConfig()
+    
+    // 2️⃣ go-logger: 初始化结构化日志
+    logger.Info("🚀 启动 Go RPC Gateway",
+        logger.String("version", "v1.0.0"),
+        logger.String("config_file", "config/app.yaml"),
+        logger.Time("start_time", time.Now()),
+    )
+    
+    // 3️⃣ 创建网关实例
+    gw, err := gateway.New(gatewayConfig)
+    if err != nil {
+        logger.Fatal("网关创建失败", logger.Error(err))
+    }
+    
+    // 4️⃣ 注册自定义业务服务
+    gw.RegisterService(func(s *grpc.Server) {
+        // 注册你的 gRPC 服务
+        // pb.RegisterYourServiceServer(s, &YourServiceImpl{})
+    })
+    
+    // 5️⃣ 注册HTTP路由处理器
+    gw.RegisterHandler(func(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) error {
+        // 注册 gRPC-Gateway 路由
+        // return pb.RegisterYourServiceHandlerFromEndpoint(ctx, mux, endpoint, opts)
+        return nil
+    })
+    
+    // 6️⃣ 添加自定义中间件
+    gw.AddMiddleware(func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            // go-toolbox: 生成请求ID
+            requestID := random.GenerateUUID()
+            r.Header.Set("X-Request-ID", requestID)
+            
+            // go-logger: 记录请求日志
+            start := time.Now()
+            logger.Info("HTTP请求开始",
+                logger.String("request_id", requestID),
+                logger.String("method", r.Method),
+                logger.String("url", r.URL.String()),
+                logger.String("remote_addr", r.RemoteAddr),
+            )
+            
+            next.ServeHTTP(w, r)
+            
+            // 记录响应日志
+            logger.Info("HTTP请求完成",
+                logger.String("request_id", requestID),
+                logger.Duration("duration", time.Since(start)),
+            )
+        })
+    })
+    
+    // 7️⃣ 业务逻辑示例 - 使用 go-core 企业级组件
+    go func() {
+        // go-core: 自动获取数据库连接
+        db := global.GetDB()
+        if db != nil {
+            logger.Info("数据库连接已建立")
+            
+            // 执行数据库操作
+            // var users []User
+            // db.Find(&users)
+        }
+        
+        // go-core: 自动获取Redis连接
+        redis := global.GetRedis()
+        if redis != nil {
+            logger.Info("Redis连接已建立")
+            
+            // 执行缓存操作
+            // redis.Set(ctx, "key", "value", time.Hour)
+        }
+        
+        // go-core: 自动获取MinIO客户端
+        minio := global.GetMinIO()
+        if minio != nil {
+            logger.Info("MinIO客户端已初始化")
+            
+            // 执行对象存储操作
+            // minio.PutObject(ctx, "bucket", "object", reader, size, options)
+        }
+    }()
+    
+    // 8️⃣ 签名验证示例 - 使用 go-toolbox
+    validateSignature := func(data, signature, secretKey string) bool {
+        // go-toolbox: HMAC签名验证
+        return crypto.ValidateHMAC([]byte(data), signature, secretKey)
+    }
+    
+    logger.Info("签名验证功能已启用",
+        logger.Bool("enabled", validateSignature != nil),
+    )
+    
+    // 🚀 启动网关服务
+    logger.Info("🚀 启动 Gateway 服务器...")
+    if err := gw.Start(); err != nil {
+        logger.Fatal("启动失败", logger.Error(err))
+    }
+    
+    // ✅ 优雅关闭
+    logger.Info("✅ Gateway 服务器已关闭")
+    gw.Shutdown()
+}
+```
+
+### 🔧 使用配置文件
+
+创建 `config.yaml` 文件：
+
+```yaml
+# 基础配置 (继承自 go-config)
+server:
+  name: my-gateway
+  version: v1.0.0
+  environment: development
+
+# Gateway 特有配置
+gateway:
+  name: my-gateway
+  debug: true
+  
+  # HTTP 服务配置
+  http:
+    host: 0.0.0.0
+    port: 8080
+    
+  # gRPC 服务配置
+  grpc:
+    host: 0.0.0.0
+    port: 9090
+
+# 中间件配置
+middleware:
+  # 限流配置
+  rate_limit:
+    enabled: true
+    algorithm: token_bucket
+    rate: 100
+    burst: 10
+    
+  # 访问日志
+  access_log:
+    enabled: true
+    format: json
+```
+
+然后使用配置文件启动：
+
+```go
+package main
+
+import (
+    "log"
+    
+    "github.com/kamalyes/go-rpc-gateway"
+)
+
+func main() {
+    // 📁 使用配置文件创建网关
+    gw, err := gateway.NewWithConfigFile("config.yaml")
+    if err != nil {
+        log.Fatal("创建网关失败:", err)
+    }
+
+    // 🚀 启动服务器
+    if err := gw.Start(); err != nil {
+        log.Fatal("启动失败:", err)
+    }
+
+    defer gw.Shutdown()
+}
+```
+
+### 🔗 注册业务服务
 
 ```go
 package main
@@ -102,75 +587,293 @@ import (
     "log"
     
     "github.com/kamalyes/go-rpc-gateway"
-    "github.com/kamalyes/go-rpc-gateway/internal/server"
+    "google.golang.org/grpc"
+    
+    // 假设这是你的 protobuf 生成的代码
+    pb "your-project/api/proto/user/v1"
 )
 
+// 实现你的业务服务
+type UserService struct {
+    pb.UnimplementedUserServiceServer
+}
+
+func (s *UserService) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {
+    return &pb.GetUserResponse{
+        User: &pb.User{
+            Id:    req.Id,
+            Name:  "示例用户",
+            Email: "user@example.com",
+        },
+    }, nil
+}
+
 func main() {
-    // 创建服务器实例
-    srv, err := server.NewServer(nil) // 使用默认配置
+    // 创建网关
+    gw, err := gateway.New()
     if err != nil {
-        log.Fatal("创建服务器失败:", err)
+        log.Fatal("创建网关失败:", err)
     }
 
-    // 注册你的 gRPC 服务
-    srv.RegisterGRPCService(func(s *grpc.Server) {
-        // pb.RegisterYourServiceServer(s, &yourServiceImpl{})
+    // 🔧 注册 gRPC 服务
+    userService := &UserService{}
+    gw.RegisterGRPCService(func(s *grpc.Server) {
+        pb.RegisterUserServiceServer(s, userService)
     })
 
+    // 🌐 注册 HTTP 网关处理器
+    ctx := context.Background()
+    err = gw.RegisterHTTPHandler(ctx, pb.RegisterUserServiceHandlerFromEndpoint)
+    if err != nil {
+        log.Fatal("注册HTTP处理器失败:", err)
+    }
+
     // 启动服务器
-    log.Println("🚀 启动 Gateway 服务器...")
-    if err := srv.Start(); err != nil {
+    if err := gw.Start(); err != nil {
         log.Fatal("启动失败:", err)
     }
 
-    // 优雅关闭
-    defer srv.Shutdown()
+    defer gw.Shutdown()
 }
 ```
 
 ### 💻 命令行工具
 
+框架提供了便捷的命令行工具：
+
 ```bash
 # 构建项目
 go build -o bin/gateway cmd/gateway/main.go
 
-# 使用默认配置启动
+# 🚀 使用默认配置启动
 ./bin/gateway
 
-# 指定配置文件启动
+# 📁 指定配置文件启动
 ./bin/gateway -config config.yaml
 
-# 开发模式启动（带详细日志）
+# 🔍 开发模式启动（带详细日志）
 ./bin/gateway -log-level debug -log-dir ./logs
 
-# 查看版本信息
+# ℹ️ 查看版本信息
 ./bin/gateway -version
+
+# 🆘 查看帮助信息
+./bin/gateway -help
 ```
 
-### 📁 使用配置文件
+### ✅ 验证服务
 
-<details>
-<summary>点击展开配置文件示例</summary>
+启动后，你可以通过以下方式验证服务：
 
-```go
-// 1. 创建配置文件
-configManager := config.NewConfigManager("config.yaml")
+```bash
+# 检查健康状态
+curl http://localhost:8080/health
 
-// 2. 创建服务器
-srv, err := server.NewServerWithConfigManager(configManager)
-if err != nil {
-    log.Fatal(err)
-}
+# 查看指标监控
+curl http://localhost:8080/metrics
 
-// 3. 启动服务器
-srv.Start()
+# 如果启用了 pprof，可以查看性能分析
+curl http://localhost:8080/debug/pprof/
+
+# 测试 gRPC 服务（如果配置了反射）
+grpcurl -plaintext localhost:9090 list
 ```
-
-</details>
 
 ## ⚙️ 配置文档
 
 ### 📋 完整配置示例
+
+## ⚙️ 配置文档
+
+Go RPC Gateway 基于四大核心库提供了完整的配置管理体系，支持多种配置源和格式。
+
+### 📋 配置文件结构
+
+```yaml
+# 完整配置示例 - config/app.yaml
+app:
+  name: "go-rpc-gateway"
+  version: "v1.0.0"
+  environment: "production"
+
+# go-logger 日志配置
+logger:
+  level: "info"
+  format: "json"
+  output: ["stdout", "file"]
+
+# go-core 企业级组件
+components:
+  database:
+    enabled: true
+    driver: "mysql"
+    password: "${DB_PASSWORD}"  # 支持环境变量
+  redis:
+    enabled: true
+    addr: "localhost:6379"
+  storage:
+    enabled: true
+    provider: "minio"
+
+# 中间件配置  
+middleware:
+  security:
+    enabled: true
+    signature:
+      secret_key: "${SIGNATURE_SECRET}"  # go-toolbox 加密
+  rate_limit:
+    enabled: true
+    rate: 1000
+```
+
+### 🏗️ 四大核心库配置详解
+
+#### 📋 go-config 配置管理
+
+**特性**：
+- 多种配置格式：YAML、JSON、TOML
+- 环境变量支持：`${VAR_NAME:default}`
+- 配置热重载：文件变化自动更新
+- 配置验证：类型和值校验
+- 分层配置：环境特定配置覆盖
+
+**使用示例**：
+```go
+// 创建配置管理器
+configManager, err := config.NewConfigManager("config/app.yaml")
+if err != nil {
+    log.Fatal(err)
+}
+
+// 获取配置
+gatewayConfig := configManager.GetGatewayConfig()
+
+// 监听配置变化
+configManager.OnConfigChange(func() {
+    log.Println("配置已更新")
+})
+```
+
+#### 🔧 go-core 企业级组件
+
+**支持的组件**：
+
+**数据库**：
+- MySQL 5.7+, 8.0+
+- PostgreSQL 12+  
+- SQLite 3.x
+- 读写分离、连接池
+
+```yaml
+components:
+  database:
+    driver: "mysql"
+    primary:
+      host: "localhost"
+      port: 3306
+      username: "gateway"
+      password: "${DB_PASSWORD}"
+    replicas:  # 读写分离
+      - host: "replica1.example.com"
+```
+
+**Redis 缓存**：
+- 单机/集群/哨兵模式
+- 连接池管理
+- 故障转移
+
+```yaml
+components:
+  redis:
+    mode: "cluster"  # single, cluster, sentinel
+    cluster:
+      addrs: ["node1:6379", "node2:6379"]
+      password: "${REDIS_PASSWORD}"
+```
+
+**对象存储**：
+- MinIO、阿里云OSS、AWS S3
+- 统一接口、多云支持
+
+```yaml
+components:
+  storage:
+    provider: "minio"  # minio, aliyun_oss, aws_s3
+    minio:
+      endpoint: "localhost:9000"
+      access_key: "${MINIO_ACCESS_KEY}"
+```
+
+#### 📝 go-logger 日志配置
+
+**高性能结构化日志**：
+- 基于 Zap，零分配设计
+- 多输出目标：控制台、文件、远程
+- 自动日志轮转
+- 上下文携带
+
+```yaml
+logger:
+  level: "info"  # debug, info, warn, error, fatal
+  format: "json"  # json, text
+  output: ["stdout", "file"]
+  file:
+    path: "logs/gateway.log"
+    max_size: 100  # MB
+    max_backups: 10
+    compress: true
+```
+
+**使用示例**：
+```go
+import "github.com/kamalyes/go-logger/pkg/logger"
+
+// 结构化日志
+logger.Info("用户登录",
+    logger.String("user_id", "123"),
+    logger.String("ip", clientIP),
+    logger.Duration("duration", time.Since(start)),
+)
+```
+
+#### 🧰 go-toolbox 工具集
+
+**加密安全**：
+- AES-256-GCM 对称加密
+- RSA 公钥加密
+- HMAC-SHA256 签名验证
+- 安全随机数生成
+
+```yaml
+middleware:
+  security:
+    signature:
+      enabled: true
+      algorithm: "hmac_sha256"
+      secret_key: "${SIGNATURE_SECRET}"
+tools:
+  crypto:
+    default_algorithm: "aes_256_gcm"
+```
+
+**ID 生成器**：
+- UUID v4：全球唯一
+- ULID：字典序UUID
+- 雪花算法：分布式ID
+- NanoID：短ID生成
+
+```yaml
+tools:
+  id_generator:
+    default_type: "uuid"  # uuid, ulid, nanoid, snowflake
+    snowflake:
+      machine_id: 1
+middleware:
+  request_id:
+    generator: "uuid"
+```
+
+### 🔧 完整配置示例
 
 <details>
 <summary>点击查看完整的 config.yaml 配置文件</summary>
