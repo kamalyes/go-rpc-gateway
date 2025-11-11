@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-10 11:40:02
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 13:47:55
+ * @LastEditTime: 2025-11-10 13:25:55
  * @FilePath: \go-rpc-gateway\middleware\tracing.go
  * @Description: 链路追踪中间件 - 集成OpenTelemetry
  *
@@ -14,7 +14,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/kamalyes/go-rpc-gateway/config"
+	"github.com/kamalyes/go-config/pkg/tracing"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -29,33 +29,32 @@ import (
 
 // TracingManager 链路追踪管理器
 type TracingManager struct {
-	config   *config.TracingMiddlewareConfig
+	config   *tracing.Tracing
 	tracer   oteltrace.Tracer
 	provider *sdktrace.TracerProvider
 }
 
 // NewTracingManager 创建链路追踪管理器
-func NewTracingManager(cfg *config.TracingMiddlewareConfig) (*TracingManager, error) {
+func NewTracingManager(cfg *tracing.Tracing) (*TracingManager, error) {
 	if cfg == nil || !cfg.Enabled {
 		return &TracingManager{config: cfg}, nil
 	}
 
-	// 设置默认值
-	setTracingDefaults(cfg)
+	// go-config 的 Default() 已经设置了所有默认值，无需再次设置
 
 	// 创建资源
-	res, err := createResource(cfg.Resource)
+	res, err := createResource(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	// 创建导出器
-	exporter, err := createExporter(cfg.Exporter)
+	exporter, err := createExporter(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	sampler := createSampler(cfg.Sampler)
+	sampler := createSampler(cfg)
 
 	// 创建TracerProvider
 	opts := []sdktrace.TracerProviderOption{
@@ -77,7 +76,7 @@ func NewTracingManager(cfg *config.TracingMiddlewareConfig) (*TracingManager, er
 	))
 
 	// 创建tracer
-	tracer := tp.Tracer(cfg.Resource.ServiceName)
+	tracer := tp.Tracer(cfg.ServiceName)
 
 	return &TracingManager{
 		config:   cfg,
@@ -94,41 +93,8 @@ func (m *TracingManager) GetTracer() oteltrace.Tracer {
 	return m.tracer
 }
 
-// setTracingDefaults 设置默认配置值
-func setTracingDefaults(cfg *config.TracingMiddlewareConfig) {
-	if cfg.Exporter.Type == "" {
-		cfg.Exporter.Type = constants.TracingDefaultExporterType
-	}
-	if cfg.Exporter.Endpoint == "" {
-		switch cfg.Exporter.Type {
-		case constants.TracingExporterZipkin:
-			cfg.Exporter.Endpoint = constants.TracingDefaultZipkinEndpoint
-		case constants.TracingExporterOTLP:
-			cfg.Exporter.Endpoint = constants.TracingDefaultOTLPEndpoint
-		}
-	}
-	if cfg.Sampler.Type == "" {
-		cfg.Sampler.Type = constants.TracingDefaultSamplerType
-	}
-	if cfg.Sampler.Probability <= 0 {
-		cfg.Sampler.Probability = constants.TracingDefaultSamplerProbability
-	}
-	if cfg.Sampler.Rate <= 0 {
-		cfg.Sampler.Rate = constants.TracingDefaultSamplerRate
-	}
-	if cfg.Resource.ServiceName == "" {
-		cfg.Resource.ServiceName = constants.TracingDefaultServiceName
-	}
-	if cfg.Resource.ServiceVersion == "" {
-		cfg.Resource.ServiceVersion = constants.TracingDefaultServiceVersion
-	}
-	if cfg.Resource.Environment == "" {
-		cfg.Resource.Environment = constants.TracingDefaultEnvironment
-	}
-}
-
 // createResource 创建OpenTelemetry资源
-func createResource(cfg config.TracingResourceConfig) (*resource.Resource, error) {
+func createResource(cfg *tracing.Tracing) (*resource.Resource, error) {
 	attrs := []attribute.KeyValue{
 		semconv.ServiceNameKey.String(cfg.ServiceName),
 		semconv.ServiceVersionKey.String(cfg.ServiceVersion),
@@ -150,14 +116,14 @@ func createResource(cfg config.TracingResourceConfig) (*resource.Resource, error
 }
 
 // createExporter 创建导出器
-func createExporter(cfg config.TracingExporterConfig) (sdktrace.SpanExporter, error) {
-	switch cfg.Type {
+func createExporter(cfg *tracing.Tracing) (sdktrace.SpanExporter, error) {
+	switch cfg.ExporterType {
 	case constants.TracingExporterZipkin:
-		return zipkin.New(cfg.Endpoint)
+		return zipkin.New(cfg.ExporterEndpoint)
 	case constants.TracingExporterOTLP:
 		return otlptracehttp.New(
 			context.Background(),
-			otlptracehttp.WithEndpoint(cfg.Endpoint),
+			otlptracehttp.WithEndpoint(cfg.ExporterEndpoint),
 			otlptracehttp.WithInsecure(),
 		)
 	case constants.TracingExporterConsole, constants.TracingExporterNoop:
@@ -168,16 +134,16 @@ func createExporter(cfg config.TracingExporterConfig) (sdktrace.SpanExporter, er
 }
 
 // createSampler 创建采样器
-func createSampler(cfg config.TracingSamplerConfig) sdktrace.Sampler {
-	switch cfg.Type {
+func createSampler(cfg *tracing.Tracing) sdktrace.Sampler {
+	switch cfg.SamplerType {
 	case constants.TracingSamplerAlways:
 		return sdktrace.AlwaysSample()
 	case constants.TracingSamplerNever:
 		return sdktrace.NeverSample()
 	case constants.TracingSamplerProbability:
-		return sdktrace.TraceIDRatioBased(cfg.Probability)
+		return sdktrace.TraceIDRatioBased(cfg.SamplerProbability)
 	case constants.TracingSamplerParentBased:
-		return sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.Probability))
+		return sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.SamplerProbability))
 	default:
 		return sdktrace.TraceIDRatioBased(constants.TracingDefaultSamplerProbability)
 	}

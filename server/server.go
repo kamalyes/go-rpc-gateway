@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 13:40:31
+ * @LastEditTime: 2025-11-12 02:45:23
  * @FilePath: \go-rpc-gateway\server\server.go
  * @Description: Gateway服务器核心结构定义
  *
@@ -28,8 +28,7 @@ import (
 
 // Server Gateway服务器
 type Server struct {
-	config        *config.GatewayConfig
-	configManager *config.ConfigManager
+	config *config.GatewayConfig
 
 	// 服务器组件
 	grpcServer *grpc.Server
@@ -46,6 +45,9 @@ type Server struct {
 	// Banner管理器
 	bannerManager *BannerManager
 
+	// 功能管理器
+	featureManager *FeatureManager
+
 	// 状态管理
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -54,6 +56,11 @@ type Server struct {
 	// 运行状态
 	running bool
 	mu      sync.RWMutex
+}
+
+// GetGatewayMux 获取 Gateway Mux（用于高级路由注册）
+func (s *Server) GetGatewayMux() *runtime.ServeMux {
+	return s.gwMux
 }
 
 // NewServer 创建新的Gateway服务器
@@ -71,8 +78,7 @@ func NewServer(cfg *config.GatewayConfig) (*Server, error) {
 	global.LOGGER.InfoKV("服务器启动配置",
 		"environment", cfg.Gateway.Environment,
 		"debug", cfg.Gateway.Debug,
-		"tls_enabled", cfg.Security.TLS.Enabled,
-		"metrics_enabled", cfg.Monitoring.Metrics.Enabled)
+		"metrics_enabled", cfg.Gateway.Monitoring.Enabled)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -82,6 +88,9 @@ func NewServer(cfg *config.GatewayConfig) (*Server, error) {
 		cancel:        cancel,
 		bannerManager: NewBannerManager(cfg),
 	}
+
+	// 初始化功能管理器
+	server.featureManager = NewFeatureManager(server)
 
 	// 初始化全局配置和核心组件
 	if err := server.initCore(); err != nil {
@@ -104,19 +113,15 @@ func NewServer(cfg *config.GatewayConfig) (*Server, error) {
 	return server, nil
 }
 
-// NewServerWithConfigManager 使用配置管理器创建服务器
-func NewServerWithConfigManager(configManager *config.ConfigManager) (*Server, error) {
-	server, err := NewServer(configManager.GetConfig())
+// NewServerWithConfigFile 使用配置文件创建服务器
+func NewServerWithConfigFile(configPath string) (*Server, error) {
+	loader := config.NewLoader()
+	cfg, err := loader.LoadFromFile(configPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
-	server.configManager = configManager
-
-	// 启用配置热重载
-	configManager.WatchConfig(server.onConfigChanged)
-
-	return server, nil
+	return NewServer(cfg)
 }
 
 // GetConfig 获取配置
@@ -134,6 +139,26 @@ func (s *Server) GetBannerManager() *BannerManager {
 	return s.bannerManager
 }
 
+// GetFeatureManager 获取功能管理器
+func (s *Server) GetFeatureManager() *FeatureManager {
+	return s.featureManager
+}
+
+// EnableFeature 启用指定功能（使用配置中的默认设置）
+func (s *Server) EnableFeature(feature FeatureType) error {
+	return s.featureManager.Enable(feature)
+}
+
+// EnableFeatureWithConfig 使用自定义配置启用功能
+func (s *Server) EnableFeatureWithConfig(feature FeatureType, config interface{}) error {
+	return s.featureManager.EnableWithConfig(feature, config)
+}
+
+// IsFeatureEnabled 检查功能是否已启用
+func (s *Server) IsFeatureEnabled(feature FeatureType) bool {
+	return s.featureManager.IsEnabled(feature)
+}
+
 // RegisterGRPCService 注册gRPC服务
 func (s *Server) RegisterGRPCService(registerFunc func(*grpc.Server)) {
 	if s.grpcServer != nil {
@@ -143,7 +168,7 @@ func (s *Server) RegisterGRPCService(registerFunc func(*grpc.Server)) {
 
 // RegisterHTTPHandler 注册HTTP处理器到网关
 func (s *Server) RegisterHTTPHandler(ctx context.Context, registerFunc func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error) error {
-	grpcAddress := fmt.Sprintf("%s:%d", s.config.Gateway.GRPC.Host, s.config.Gateway.GRPC.Port)
+	grpcAddress := s.config.Gateway.GRPC.Server.GetEndpoint()
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
 	return registerFunc(ctx, s.gwMux, grpcAddress, opts)
@@ -159,8 +184,8 @@ func ensureLoggerInitialized(cfg *config.GatewayConfig) error {
 	// 使用 go-logger 创建一个新的日志器实例
 	// 根据配置设置日志级别
 	level := logger.INFO
-	if cfg.SingleConfig != nil && cfg.SingleConfig.Zap.Level != "" {
-		switch cfg.SingleConfig.Zap.Level {
+	if cfg.Zap.Level != "" {
+		switch cfg.Zap.Level {
 		case "debug":
 			level = logger.DEBUG
 		case "info":

@@ -3,18 +3,20 @@ module github.com/kamalyes/go-rpc-gateway
 go 1.23.0
 
 require (
-	github.com/fsnotify/fsnotify v1.7.0
+	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0
+	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
-	github.com/kamalyes/go-config v0.6.0
+	github.com/kamalyes/go-config v0.6.1
 	github.com/kamalyes/go-core v0.15.6
 	github.com/kamalyes/go-logger v0.0.0-20251109052836-c53bbb5942bf
 	github.com/kamalyes/go-toolbox v0.11.62
 	github.com/mssola/user_agent v0.6.0
 	github.com/prometheus/client_golang v1.18.0
 	github.com/redis/go-redis/v9 v9.16.0
-	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.11.1
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0
 	go.opentelemetry.io/otel v1.38.0
+	go.opentelemetry.io/otel/exporters/jaeger v1.17.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.38.0
 	go.opentelemetry.io/otel/exporters/zipkin v1.38.0
 	go.opentelemetry.io/otel/sdk v1.38.0
@@ -24,7 +26,23 @@ require (
 	gorm.io/gorm v1.25.11
 )
 
-require github.com/jpillora/backoff v1.0.0 // indirect
+replace github.com/kamalyes/go-config => ./go-config
+
+replace github.com/kamalyes/go-core => ./go-core
+
+replace github.com/kamalyes/go-logger => ./go-logger
+
+replace github.com/kamalyes/go-toolbox => ./go-toolbox
+
+replace github.com/kamalyes/go-wsc => ./go-wsc
+
+replace github.com/kamalyes/go-cachex => ./go-cachex
+
+require (
+	github.com/fsnotify/fsnotify v1.7.0 // indirect
+	github.com/jpillora/backoff v1.0.0 // indirect
+	github.com/spf13/viper v1.19.0 // indirect
+)
 
 require (
 	github.com/alibabacloud-go/alibabacloud-gateway-spi v0.0.4 // indirect
@@ -132,7 +150,7 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
-	golang.org/x/exp v0.0.0-20230905200255-921286631fa9 // indirect
+	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect

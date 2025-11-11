@@ -21,7 +21,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kamalyes/go-rpc-gateway/config"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 )
 
@@ -734,6 +733,8 @@ func (j *JSONMessageLoader) LoadMessages(language string) (map[string]string, er
 }
 
 // ConfigurableI18nMiddleware 可配置的国际化中间件
+// TODO: 重构为使用 go-config 的 i18n.I18N 配置
+/*
 func ConfigurableI18nMiddleware(i18nConfig *config.I18nConfig) HTTPMiddleware {
 	if i18nConfig == nil || !i18nConfig.Enabled {
 		return func(next http.Handler) http.Handler {
@@ -776,3 +777,4 @@ func ConfigurableI18nMiddleware(i18nConfig *config.I18nConfig) HTTPMiddleware {
 
 	return HTTPMiddleware(I18nWithManager(manager))
 }
+*/

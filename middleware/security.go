@@ -19,7 +19,6 @@ import (
 
 	"github.com/kamalyes/go-config/pkg/cors"
 	"github.com/kamalyes/go-core/pkg/global"
-	"github.com/kamalyes/go-rpc-gateway/config"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 )
 
@@ -178,6 +177,8 @@ func SecurityMiddleware() HTTPMiddleware {
 }
 
 // ConfigurableSecurityMiddleware 可配置的安全中间件
+// TODO: 重构为使用 go-config 的 security.Security 配置
+/*
 func ConfigurableSecurityMiddleware(securityConfig *config.SecurityMiddlewareConfig) HTTPMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -234,6 +235,7 @@ func ConfigurableSecurityMiddleware(securityConfig *config.SecurityMiddlewareCon
 		})
 	}
 }
+*/
 
 // CSRFProtectionMiddleware CSRF防护中间件
 func CSRFProtectionMiddleware(enabled bool) HTTPMiddleware {

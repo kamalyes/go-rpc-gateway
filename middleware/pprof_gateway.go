@@ -16,7 +16,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/kamalyes/go-config/pkg/register"
+	gopprof "github.com/kamalyes/go-config/pkg/pprof"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 )
 
@@ -75,15 +75,15 @@ func (cfg *PProfGatewayConfig) EnablePProf() *PProfGatewayConfig {
 // EnablePProfWithOptions 使用自定义选项启用pprof
 func (cfg *PProfGatewayConfig) EnablePProfWithOptions(options PProfOptions) *PProfGatewayConfig {
 	// 更新pprof配置
-	cfg.adapter.PProf.Enabled = options.Enabled
-	cfg.adapter.PProf.AuthToken = options.AuthToken
-	cfg.adapter.PProf.AllowedIPs = options.AllowedIPs
-	cfg.adapter.PProf.RequireAuth = options.AuthToken != ""
-	cfg.adapter.PProf.EnableLogging = options.EnableLogging
-	cfg.adapter.PProf.Timeout = options.Timeout
+	cfg.adapter.Enabled = options.Enabled
+	cfg.adapter.AuthToken = options.AuthToken
+	cfg.adapter.AllowedIPs = options.AllowedIPs
+	cfg.adapter.RequireAuth = options.AuthToken != ""
+	cfg.adapter.EnableLogging = options.EnableLogging
+	cfg.adapter.Timeout = options.Timeout
 
 	if options.PathPrefix != "" {
-		cfg.adapter.PProf.PathPrefix = options.PathPrefix
+		cfg.adapter.PathPrefix = options.PathPrefix
 	}
 
 	cfg.enabled = options.Enabled
@@ -122,7 +122,7 @@ func (cfg *PProfGatewayConfig) EnablePProfForDevelopment() *PProfGatewayConfig {
 }
 
 // GetPProfConfig 获取pprof配置
-func (cfg *PProfGatewayConfig) GetPProfConfig() *register.PProf {
+func (cfg *PProfGatewayConfig) GetPProfConfig() *gopprof.PProf {
 	if cfg.adapter != nil {
 		return cfg.adapter.PProf
 	}
@@ -136,7 +136,7 @@ func (cfg *PProfGatewayConfig) GetPProfAdapter() *PProfConfigAdapter {
 
 // IsPProfEnabled 检查pprof是否启用
 func (cfg *PProfGatewayConfig) IsPProfEnabled() bool {
-	return cfg.enabled && cfg.adapter != nil && cfg.adapter.PProf.Enabled
+	return cfg.enabled && cfg.adapter != nil && cfg.adapter.Enabled
 }
 
 // GetPProfEndpoints 获取所有可用的pprof端点信息
@@ -160,8 +160,8 @@ func (cfg *PProfGatewayConfig) CreatePProfStatusAPIHandler() http.HandlerFunc {
 			"endpoints_count": %d
 		}`,
 			cfg.IsPProfEnabled(),
-			cfg.adapter.PProf.PathPrefix,
-			cfg.adapter.PProf.RequireAuth,
+			cfg.adapter.PathPrefix,
+			cfg.adapter.RequireAuth,
 			len(cfg.GetPProfEndpoints()))
 
 		w.Write([]byte(statusJSON))
@@ -178,7 +178,7 @@ func (cfg *PProfGatewayConfig) CreatePProfWebInterface() http.HandlerFunc {
 
 		endpoints := cfg.GetPProfEndpoints()
 		authInfo := ""
-		if cfg.adapter.PProf.RequireAuth {
+		if cfg.adapter.RequireAuth {
 			authInfo = fmt.Sprintf(`
 			<div class="auth-info">
 				<h3>🔐 认证信息</h3>
@@ -187,7 +187,7 @@ func (cfg *PProfGatewayConfig) CreatePProfWebInterface() http.HandlerFunc {
 					<li><strong>Header:</strong> <code>Authorization: Bearer %s</code></li>
 					<li><strong>Query:</strong> <code>?token=%s</code></li>
 				</ul>
-			</div>`, cfg.adapter.PProf.AuthToken, cfg.adapter.PProf.AuthToken)
+			</div>`, cfg.adapter.AuthToken, cfg.adapter.AuthToken)
 		}
 
 		html := fmt.Sprintf(`<!DOCTYPE html>
@@ -236,10 +236,10 @@ func (cfg *PProfGatewayConfig) CreatePProfWebInterface() http.HandlerFunc {
 				<div class="card-body">`, authInfo)
 
 		for _, endpoint := range endpoints {
-			if endpoint.Path == cfg.adapter.PProf.PathPrefix+"/" {
+			if endpoint.Path == cfg.adapter.PathPrefix+"/" {
 				tokenParam := ""
-				if cfg.adapter.PProf.RequireAuth {
-					tokenParam = "?token=" + cfg.adapter.PProf.AuthToken
+				if cfg.adapter.RequireAuth {
+					tokenParam = "?token=" + cfg.adapter.AuthToken
 				}
 				html += fmt.Sprintf(`<div class="endpoint">
 					<strong>%s <a href="%s%s">%s</a></strong><br>
@@ -255,8 +255,8 @@ func (cfg *PProfGatewayConfig) CreatePProfWebInterface() http.HandlerFunc {
 
 		// 如果启用认证，生成带token的测试场景链接
 		tokenParam := ""
-		if cfg.adapter.PProf.RequireAuth {
-			tokenParam = "?token=" + cfg.adapter.PProf.AuthToken
+		if cfg.adapter.RequireAuth {
+			tokenParam = "?token=" + cfg.adapter.AuthToken
 		}
 
 		html += fmt.Sprintf(`
@@ -317,26 +317,26 @@ go tool pprof -http=:8081 cpu.prof</code></pre>
 </body>
 </html>`,
 			// GC测试场景链接
-			cfg.adapter.PProf.PathPrefix, tokenParam,
-			cfg.adapter.PProf.PathPrefix, tokenParam,
-			cfg.adapter.PProf.PathPrefix, tokenParam,
-			cfg.adapter.PProf.PathPrefix, tokenParam,
-			cfg.adapter.PProf.PathPrefix, tokenParam,
-			cfg.adapter.PProf.PathPrefix, tokenParam,
-			cfg.adapter.PProf.PathPrefix, tokenParam,
-			cfg.adapter.PProf.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
 			// 其他测试场景链接
-			cfg.adapter.PProf.PathPrefix, tokenParam,
-			cfg.adapter.PProf.PathPrefix, tokenParam,
-			cfg.adapter.PProf.PathPrefix, tokenParam,
-			cfg.adapter.PProf.PathPrefix, tokenParam,
-			cfg.adapter.PProf.PathPrefix, tokenParam,
-			cfg.adapter.PProf.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
+			cfg.adapter.PathPrefix, tokenParam,
 			// 使用指南
-			cfg.adapter.PProf.AuthToken, cfg.adapter.PProf.PathPrefix,
-			cfg.adapter.PProf.AuthToken, cfg.adapter.PProf.PathPrefix,
+			cfg.adapter.AuthToken, cfg.adapter.PathPrefix,
+			cfg.adapter.AuthToken, cfg.adapter.PathPrefix,
 			// footer
-			cfg.adapter.PProf.PathPrefix, tokenParam)
+			cfg.adapter.PathPrefix, tokenParam)
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)

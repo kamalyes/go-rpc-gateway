@@ -342,341 +342,149 @@ go mod download
 
 ## 🚀 快速开始
 
-### 🎯 零配置启动
+### 1️⃣ 极简启动 (30秒上手)
 
-只需几行代码就能启动一个完整的网关服务，自动集成四大核心库：
+创建 `main.go`:
 
 ```go
 package main
 
-import (
-    "log"
-    
-    "github.com/kamalyes/go-rpc-gateway"
-)
+import "github.com/kamalyes/go-rpc-gateway"
 
 func main() {
-    // 🎯 零配置创建网关 (自动集成四大核心库)
-    gw, err := gateway.New()
-    if err != nil {
-        log.Fatal("创建网关失败:", err)
-    }
-
-    // 🚀 启动服务器
-    log.Println("🚀 启动 Gateway 服务器...")
-    if err := gw.Start(); err != nil {
-        log.Fatal("启动失败:", err)
-    }
-
-    // ✅ 优雅关闭
-    gw.Shutdown()
+    gw, _ := gateway.New()
+    gw.Start()
 }
 ```
 
-### 🔧 完整配置示例
+运行:
+```bash
+go run main.go
+```
 
-使用四大核心库的完整配置示例：
+访问:
+- HTTP: http://localhost:8080
+- gRPC: localhost:9090
+- 健康检查: http://localhost:8080/health
+- 指标监控: http://localhost:8080/metrics
 
+### 2️⃣ 使用配置文件
+
+创建 `config.yaml`:
+```yaml
+gateway:
+  http:
+    port: 8080
+  grpc:
+    port: 9090
+
+# 启用数据库 (可选)
+mysql:
+  host: "localhost"
+  port: 3306
+  username: "root"
+  password: "password"
+  dbname: "mydb"
+
+# 启用 Redis (可选)  
+redis:
+  host: "localhost"
+  port: 6379
+```
+
+创建 `main.go`:
 ```go
 package main
 
 import (
-    "context"
-    "log"
-    "time"
-    
-    "github.com/kamalyes/go-config/pkg/register"
-    "github.com/kamalyes/go-core/pkg/global"
-    "github.com/kamalyes/go-logger/pkg/logger"
-    "github.com/kamalyes/go-toolbox/pkg/random"
-    "github.com/kamalyes/go-toolbox/pkg/crypto"
-    "github.com/kamalyes/go-rpc-gateway"
+    gateway "github.com/kamalyes/go-rpc-gateway"
     "github.com/kamalyes/go-rpc-gateway/config"
 )
 
 func main() {
-    // 1️⃣ go-config: 初始化配置管理
-    configManager, err := config.NewConfigManager("config/app.yaml")
+    // 加载配置
+    configManager, err := config.NewConfigManager("config.yaml")
     if err != nil {
-        log.Fatal("配置管理器初始化失败:", err)
+        panic(err)
     }
     
-    // 获取自定义配置
-    gatewayConfig := configManager.GetGatewayConfig()
+    cfg := configManager.GetGatewayConfig()
     
-    // 2️⃣ go-logger: 初始化结构化日志
-    logger.Info("🚀 启动 Go RPC Gateway",
-        logger.String("version", "v1.0.0"),
-        logger.String("config_file", "config/app.yaml"),
-        logger.Time("start_time", time.Now()),
-    )
-    
-    // 3️⃣ 创建网关实例
-    gw, err := gateway.New(gatewayConfig)
+    // 创建网关
+    gw, err := gateway.New(cfg)
     if err != nil {
-        logger.Fatal("网关创建失败", logger.Error(err))
+        panic(err)
     }
     
-    // 4️⃣ 注册自定义业务服务
-    gw.RegisterService(func(s *grpc.Server) {
-        // 注册你的 gRPC 服务
-        // pb.RegisterYourServiceServer(s, &YourServiceImpl{})
-    })
-    
-    // 5️⃣ 注册HTTP路由处理器
-    gw.RegisterHandler(func(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) error {
-        // 注册 gRPC-Gateway 路由
-        // return pb.RegisterYourServiceHandlerFromEndpoint(ctx, mux, endpoint, opts)
-        return nil
-    })
-    
-    // 6️⃣ 添加自定义中间件
-    gw.AddMiddleware(func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            // go-toolbox: 生成请求ID
-            requestID := random.GenerateUUID()
-            r.Header.Set("X-Request-ID", requestID)
-            
-            // go-logger: 记录请求日志
-            start := time.Now()
-            logger.Info("HTTP请求开始",
-                logger.String("request_id", requestID),
-                logger.String("method", r.Method),
-                logger.String("url", r.URL.String()),
-                logger.String("remote_addr", r.RemoteAddr),
-            )
-            
-            next.ServeHTTP(w, r)
-            
-            // 记录响应日志
-            logger.Info("HTTP请求完成",
-                logger.String("request_id", requestID),
-                logger.Duration("duration", time.Since(start)),
-            )
-        })
-    })
-    
-    // 7️⃣ 业务逻辑示例 - 使用 go-core 企业级组件
-    go func() {
-        // go-core: 自动获取数据库连接
-        db := global.GetDB()
-        if db != nil {
-            logger.Info("数据库连接已建立")
-            
-            // 执行数据库操作
-            // var users []User
-            // db.Find(&users)
-        }
-        
-        // go-core: 自动获取Redis连接
-        redis := global.GetRedis()
-        if redis != nil {
-            logger.Info("Redis连接已建立")
-            
-            // 执行缓存操作
-            // redis.Set(ctx, "key", "value", time.Hour)
-        }
-        
-        // go-core: 自动获取MinIO客户端
-        minio := global.GetMinIO()
-        if minio != nil {
-            logger.Info("MinIO客户端已初始化")
-            
-            // 执行对象存储操作
-            // minio.PutObject(ctx, "bucket", "object", reader, size, options)
-        }
-    }()
-    
-    // 8️⃣ 签名验证示例 - 使用 go-toolbox
-    validateSignature := func(data, signature, secretKey string) bool {
-        // go-toolbox: HMAC签名验证
-        return crypto.ValidateHMAC([]byte(data), signature, secretKey)
-    }
-    
-    logger.Info("签名验证功能已启用",
-        logger.Bool("enabled", validateSignature != nil),
-    )
-    
-    // 🚀 启动网关服务
-    logger.Info("🚀 启动 Gateway 服务器...")
-    if err := gw.Start(); err != nil {
-        logger.Fatal("启动失败", logger.Error(err))
-    }
-    
-    // ✅ 优雅关闭
-    logger.Info("✅ Gateway 服务器已关闭")
-    gw.Shutdown()
+    gw.Start()
 }
 ```
 
-### 🔧 使用配置文件
-
-创建 `config.yaml` 文件：
-
-```yaml
-# 基础配置 (继承自 go-config)
-server:
-  name: my-gateway
-  version: v1.0.0
-  environment: development
-
-# Gateway 特有配置
-gateway:
-  name: my-gateway
-  debug: true
-  
-  # HTTP 服务配置
-  http:
-    host: 0.0.0.0
-    port: 8080
-    
-  # gRPC 服务配置
-  grpc:
-    host: 0.0.0.0
-    port: 9090
-
-# 中间件配置
-middleware:
-  # 限流配置
-  rate_limit:
-    enabled: true
-    algorithm: token_bucket
-    rate: 100
-    burst: 10
-    
-  # 访问日志
-  access_log:
-    enabled: true
-    format: json
-```
-
-然后使用配置文件启动：
-
-```go
-package main
-
-import (
-    "log"
-    
-    "github.com/kamalyes/go-rpc-gateway"
-)
-
-func main() {
-    // 📁 使用配置文件创建网关
-    gw, err := gateway.NewWithConfigFile("config.yaml")
-    if err != nil {
-        log.Fatal("创建网关失败:", err)
-    }
-
-    // 🚀 启动服务器
-    if err := gw.Start(); err != nil {
-        log.Fatal("启动失败:", err)
-    }
-
-    defer gw.Shutdown()
-}
-```
-
-### 🔗 注册业务服务
+### 3️⃣ 完整功能示例
 
 ```go
 package main
 
 import (
     "context"
-    "log"
+    "net/http"
     
-    "github.com/kamalyes/go-rpc-gateway"
+    gateway "github.com/kamalyes/go-rpc-gateway"
+    "github.com/kamalyes/go-core/pkg/global"
     "google.golang.org/grpc"
-    
-    // 假设这是你的 protobuf 生成的代码
-    pb "your-project/api/proto/user/v1"
 )
 
-// 实现你的业务服务
-type UserService struct {
-    pb.UnimplementedUserServiceServer
-}
-
-func (s *UserService) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {
-    return &pb.GetUserResponse{
-        User: &pb.User{
-            Id:    req.Id,
-            Name:  "示例用户",
-            Email: "user@example.com",
-        },
-    }, nil
-}
-
 func main() {
-    // 创建网关
+    // 1. 创建网关
     gw, err := gateway.New()
     if err != nil {
-        log.Fatal("创建网关失败:", err)
+        panic(err)
     }
-
-    // 🔧 注册 gRPC 服务
-    userService := &UserService{}
-    gw.RegisterGRPCService(func(s *grpc.Server) {
-        pb.RegisterUserServiceServer(s, userService)
+    
+    // 2. 注册 gRPC 服务
+    gw.RegisterService(func(s *grpc.Server) {
+        // pb.RegisterYourServiceServer(s, &yourService{})
     })
-
-    // 🌐 注册 HTTP 网关处理器
-    ctx := context.Background()
-    err = gw.RegisterHTTPHandler(ctx, pb.RegisterUserServiceHandlerFromEndpoint)
-    if err != nil {
-        log.Fatal("注册HTTP处理器失败:", err)
-    }
-
-    // 启动服务器
+    
+    // 3. 注册 HTTP 路由
+    gw.RegisterHTTPRoute("/api/hello", func(w http.ResponseWriter, r *http.Request) {
+        w.Write([]byte(`{"message":"Hello World"}`))
+    })
+    
+    // 4. 批量注册路由
+    gw.RegisterHTTPRoutes(map[string]http.HandlerFunc{
+        "/api/status": statusHandler,
+        "/api/info":   infoHandler,
+    })
+    
+    // 5. 启用功能特性
+    gw.EnablePProf()      // 性能分析
+    gw.EnableMonitoring() // 监控指标
+    gw.EnableTracing()    // 链路追踪
+    
+    // 6. 启动服务
     if err := gw.Start(); err != nil {
-        log.Fatal("启动失败:", err)
+        panic(err)
     }
-
-    defer gw.Shutdown()
 }
-```
 
-### 💻 命令行工具
+func statusHandler(w http.ResponseWriter, r *http.Request) {
+    // 使用全局组件
+    if global.DB != nil {
+        // 数据库操作
+    }
+    
+    if global.REDIS != nil {
+        // Redis 操作
+        global.REDIS.Ping(r.Context())
+    }
+    
+    w.Write([]byte(`{"status":"ok"}`))
+}
 
-框架提供了便捷的命令行工具：
-
-```bash
-# 构建项目
-go build -o bin/gateway cmd/gateway/main.go
-
-# 🚀 使用默认配置启动
-./bin/gateway
-
-# 📁 指定配置文件启动
-./bin/gateway -config config.yaml
-
-# 🔍 开发模式启动（带详细日志）
-./bin/gateway -log-level debug -log-dir ./logs
-
-# ℹ️ 查看版本信息
-./bin/gateway -version
-
-# 🆘 查看帮助信息
-./bin/gateway -help
-```
-
-### ✅ 验证服务
-
-启动后，你可以通过以下方式验证服务：
-
-```bash
-# 检查健康状态
-curl http://localhost:8080/health
-
-# 查看指标监控
-curl http://localhost:8080/metrics
-
-# 如果启用了 pprof，可以查看性能分析
-curl http://localhost:8080/debug/pprof/
-
-# 测试 gRPC 服务（如果配置了反射）
-grpcurl -plaintext localhost:9090 list
+func infoHandler(w http.ResponseWriter, r *http.Request) {
+    w.Write([]byte(`{"service":"my-service","version":"1.0.0"}`))
+}
 ```
 
 ## ⚙️ 配置文档

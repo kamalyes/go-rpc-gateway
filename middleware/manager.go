@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-08 03:33:56
+ * @LastEditTime: 2025-11-12 00:37:06
  * @FilePath: \go-rpc-gateway\middleware\manager.go
  * @Description: 中间件管理器
  *
@@ -15,24 +15,19 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/kamalyes/go-config/pkg/register"
+	"github.com/kamalyes/go-config/pkg/middleware"
 	"github.com/kamalyes/go-rpc-gateway/config"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 )
 
-// PProfConfig 为了向后兼容，保持这个类型别名
-type PProfConfig = register.PProf
-
-// Manager 中间件管理器 - 统一使用config包配置
+// Manager 中间件管理器 - 使用 go-config 的 middleware 配置
 type Manager struct {
 	// 监控管理器
 	metricsManager *MetricsManager
 	tracingManager *TracingManager
-
-	// 统一配置 - 全部使用config包
-	middlewareConfig *config.MiddlewareConfig
-
+	// 统一配置 - 使用 go-config 的 Middleware
+	cfg *config.GatewayConfig
 	// 功能组件
 	rateLimiter         RateLimiter
 	accessRecordHandler AccessRecordHandler
@@ -42,39 +37,39 @@ type Manager struct {
 	i18nManager         *I18nManager
 }
 
-// NewManager 创建中间件管理器 - 使用统一配置
-func NewManager(middlewareConfig *config.MiddlewareConfig) (*Manager, error) {
+// NewManager 创建中间件管理器 - 使用 GatewayConfig
+func NewManager(cfg *config.GatewayConfig) (*Manager, error) {
 	var err error
 
 	// 如果没有提供配置，使用默认配置
-	if middlewareConfig == nil {
-		middlewareConfig = &config.MiddlewareConfig{
-			// 这里可以设置一些默认值，或者从defaults.go获取
-		}
+	if cfg == nil {
+		cfg = config.DefaultGatewayConfig()
+	}
+
+	// 确保 Middleware 配置存在
+	if cfg.Middleware == (middleware.Middleware{}) {
+		cfg.Middleware = *middleware.Default()
 	}
 
 	manager := &Manager{
-		middlewareConfig:    middlewareConfig,
+		cfg:                 cfg,
 		accessRecordHandler: &LogAccessRecordHandler{},
 		signatureValidator:  &HMACValidator{},
 		pprofScenarios:      NewPProfScenarios(),
 	}
 
 	// 创建pprof适配器
-	if middlewareConfig.PProf.Enabled {
-		pprofConfig := &register.PProf{
-			Enabled: middlewareConfig.PProf.Enabled,
-		}
-		manager.pprofAdapter = NewPProfConfigAdapter(pprofConfig)
+	if cfg.Middleware.PProf != nil && cfg.Middleware.PProf.Enabled {
+		manager.pprofAdapter = NewPProfConfigAdapter(cfg.Middleware.PProf)
 	}
 
 	// 初始化监控管理器
-	if middlewareConfig.Metrics.Enabled {
+	if cfg.Middleware.Metrics != nil && cfg.Middleware.Metrics.Enabled {
 		metricsConfig := &MetricsConfig{
-			Enabled:   middlewareConfig.Metrics.Enabled,
-			Path:      middlewareConfig.Metrics.Path,
-			Namespace: middlewareConfig.Metrics.Namespace,
-			Subsystem: middlewareConfig.Metrics.Subsystem,
+			Enabled:   cfg.Middleware.Metrics.Enabled,
+			Path:      cfg.Middleware.Metrics.Path,
+			Namespace: "", // go-config 没有 Namespace 字段，使用空字符串或默认值
+			Subsystem: cfg.Middleware.Metrics.Subsystem,
 		}
 		manager.metricsManager, err = NewMetricsManager(metricsConfig)
 		if err != nil {
@@ -83,23 +78,23 @@ func NewManager(middlewareConfig *config.MiddlewareConfig) (*Manager, error) {
 	}
 
 	// 初始化链路追踪管理器
-	if middlewareConfig.Tracing.Enabled {
-		manager.tracingManager, err = NewTracingManager(&middlewareConfig.Tracing)
+	if cfg.Middleware.Tracing != nil && cfg.Middleware.Tracing.Enabled {
+		manager.tracingManager, err = NewTracingManager(cfg.Middleware.Tracing)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init tracing manager: %w", err)
 		}
 	}
 
 	// 初始化i18n管理器
-	if middlewareConfig.I18n.Enabled {
+	if cfg.Middleware.I18N != nil && cfg.Middleware.I18N.Enabled {
 		i18nConfig := &I18nConfig{
-			DefaultLanguage:    middlewareConfig.I18n.DefaultLanguage,
-			SupportedLanguages: middlewareConfig.I18n.SupportedLanguages,
-			DetectionOrder:     middlewareConfig.I18n.Detection.Sources,
-			LanguageParam:      middlewareConfig.I18n.Detection.QueryParam,
-			LanguageHeader:     middlewareConfig.I18n.Detection.HeaderName,
-			MessagesPath:       middlewareConfig.I18n.Translations.Path,
-			EnableFallback:     middlewareConfig.I18n.Translations.Fallback,
+			DefaultLanguage:    cfg.Middleware.I18N.DefaultLanguage,
+			SupportedLanguages: cfg.Middleware.I18N.SupportedLanguages,
+			DetectionOrder:     []string{}, // go-config 没有 DetectionOrder，使用默认值
+			LanguageParam:      cfg.Middleware.I18N.QueryParam,
+			LanguageHeader:     cfg.Middleware.I18N.HeaderName,
+			MessagesPath:       cfg.Middleware.I18N.LocaleDir,
+			EnableFallback:     true, // go-config 没有此字段，默认启用
 		}
 		manager.i18nManager, err = NewI18nManager(i18nConfig)
 		if err != nil {
@@ -110,10 +105,10 @@ func NewManager(middlewareConfig *config.MiddlewareConfig) (*Manager, error) {
 	return manager, nil
 }
 
-// SetMiddlewareConfig 设置中间件配置
-func (m *Manager) SetMiddlewareConfig(config *config.MiddlewareConfig) *Manager {
-	if config != nil {
-		m.middlewareConfig = config
+// SetConfig 设置配置
+func (m *Manager) SetConfig(cfg *config.GatewayConfig) *Manager {
+	if cfg != nil {
+		m.cfg = cfg
 	}
 	return m
 }
@@ -161,10 +156,11 @@ func (m *Manager) GRPCTracingInterceptor() GRPCInterceptor {
 }
 
 // LoggingMiddleware 日志中间件
+// TODO: 重构为使用 go-config 的 logging.Logging 配置
 func (m *Manager) LoggingMiddleware() MiddlewareFunc {
-	if m.middlewareConfig != nil && m.middlewareConfig.Logging.Enabled {
-		return MiddlewareFunc(ConfigurableLoggingMiddleware(&m.middlewareConfig.Logging))
-	}
+	// if m.cfg.Middleware.Logging != nil && m.cfg.Middleware.Logging.Enabled {
+	// 	return MiddlewareFunc(ConfigurableLoggingMiddleware(m.cfg.Middleware.Logging))
+	// }
 	return MiddlewareFunc(LoggingMiddleware(nil)) // 回退到默认实现
 }
 
@@ -176,33 +172,36 @@ func (m *Manager) CORSMiddleware() MiddlewareFunc {
 
 // RecoveryMiddleware 恢复中间件
 func (m *Manager) RecoveryMiddleware() MiddlewareFunc {
-	if m.middlewareConfig != nil && m.middlewareConfig.Recovery.Enabled {
-		return MiddlewareFunc(RecoveryMiddleware())
-	}
+	// if m.cfg.Middleware.Recovery != nil && m.cfg.Middleware.Recovery.Enabled {
+	// 	return MiddlewareFunc(RecoveryMiddleware())
+	// }
 	return MiddlewareFunc(RecoveryMiddleware()) // 恢复中间件通常总是启用
 }
 
 // RequestIDMiddleware 请求 ID 中间件
+// TODO: 重构为使用 go-config 的 requestid.RequestID 配置
 func (m *Manager) RequestIDMiddleware() MiddlewareFunc {
-	if m.middlewareConfig != nil && m.middlewareConfig.RequestID.Enabled {
-		return MiddlewareFunc(ConfigurableRequestIDMiddleware(&m.middlewareConfig.RequestID))
-	}
+	// if m.cfg.Middleware.RequestID != nil && m.cfg.Middleware.RequestID.Enabled {
+	// 	return MiddlewareFunc(ConfigurableRequestIDMiddleware(m.cfg.Middleware.RequestID))
+	// }
 	return RequestID() // 回退到默认实现
 }
 
 // SecurityMiddleware 安全中间件
+// TODO: 重构为使用 go-config 的 security.Security 配置
 func (m *Manager) SecurityMiddleware() MiddlewareFunc {
-	if m.middlewareConfig != nil && m.middlewareConfig.Security.Enabled {
-		return MiddlewareFunc(ConfigurableSecurityMiddleware(&m.middlewareConfig.Security))
-	}
+	// if m.cfg.Middleware.Security != nil && m.cfg.Middleware.Security.Enabled {
+	// 	return MiddlewareFunc(ConfigurableSecurityMiddleware(m.cfg.Middleware.Security))
+	// }
 	return MiddlewareFunc(SecurityMiddleware()) // 回退到默认安全中间件
 }
 
 // RateLimitMiddleware 限流中间件
+// TODO: 重构为使用 go-config 的 security.RateLimit 配置
 func (m *Manager) RateLimitMiddleware() MiddlewareFunc {
-	if m.middlewareConfig != nil && m.middlewareConfig.RateLimit.Enabled {
-		return MiddlewareFunc(ConfigurableRateLimitMiddleware(&m.middlewareConfig.RateLimit))
-	}
+	// if m.cfg.Security.RateLimit != nil && m.cfg.Security.RateLimit.Enabled {
+	// 	return MiddlewareFunc(ConfigurableRateLimitMiddleware(m.cfg.Security.RateLimit))
+	// }
 	// 使用自定义限流器
 	if m.rateLimiter != nil {
 		return MiddlewareFunc(RateLimitMiddleware(m.rateLimiter))
@@ -211,43 +210,35 @@ func (m *Manager) RateLimitMiddleware() MiddlewareFunc {
 }
 
 // AccessRecordMiddleware 访问记录中间件
+// TODO: 实现访问日志配置
 func (m *Manager) AccessRecordMiddleware() MiddlewareFunc {
-	if m.middlewareConfig != nil && m.middlewareConfig.AccessLog.Enabled {
-		// 这里需要实现AccessLog配置的中间件，暂时返回空实现
-		return func(next http.Handler) http.Handler { return next }
-	}
 	return func(next http.Handler) http.Handler { return next }
 }
 
 // SignatureMiddleware 签名验证中间件
+// TODO: 实现签名配置
 func (m *Manager) SignatureMiddleware() MiddlewareFunc {
-	if m.middlewareConfig != nil && m.middlewareConfig.Signature.Enabled {
-		// 这里需要实现Signature配置的中间件，暂时返回空实现
-		return func(next http.Handler) http.Handler { return next }
-	}
 	return func(next http.Handler) http.Handler { return next }
 }
 
 // TimestampMiddleware 时间戳验证中间件
+// TODO: 实现时间戳验证配置
 func (m *Manager) TimestampMiddleware() MiddlewareFunc {
-	if m.middlewareConfig != nil && m.middlewareConfig.Signature.Enabled {
-		// 简化的时间戳验证中间件实现
-		return func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// 时间戳验证逻辑可以在这里实现
-				// 目前暂时直接通过
-				next.ServeHTTP(w, r)
-			})
-		}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// 时间戳验证逻辑可以在这里实现
+			// 目前暂时直接通过
+			next.ServeHTTP(w, r)
+		})
 	}
-	return func(next http.Handler) http.Handler { return next }
 }
 
 // I18nMiddleware 国际化中间件
+// TODO: 重构为使用 go-config 的 i18n.I18N 配置
 func (m *Manager) I18nMiddleware() MiddlewareFunc {
-	if m.middlewareConfig != nil && m.middlewareConfig.I18n.Enabled {
-		return MiddlewareFunc(ConfigurableI18nMiddleware(&m.middlewareConfig.I18n))
-	}
+	// if m.cfg.Middleware.I18N != nil && m.cfg.Middleware.I18N.Enabled {
+	// 	return MiddlewareFunc(ConfigurableI18nMiddleware(m.cfg.Middleware.I18N))
+	// }
 	// 使用内部 i18n 管理器
 	if m.i18nManager != nil {
 		return I18nWithManager(m.i18nManager)
@@ -257,7 +248,7 @@ func (m *Manager) I18nMiddleware() MiddlewareFunc {
 
 // PProfMiddleware pprof性能分析中间件
 func (m *Manager) PProfMiddleware() MiddlewareFunc {
-	if m.middlewareConfig != nil && m.middlewareConfig.PProf.Enabled {
+	if m.cfg != nil && m.cfg.Middleware.PProf != nil && m.cfg.Middleware.PProf.Enabled {
 		return MiddlewareFunc(PProfMiddleware(m.pprofAdapter))
 	}
 	return func(next http.Handler) http.Handler { return next }
@@ -273,7 +264,7 @@ func (m *Manager) MetricsHandler() http.Handler {
 
 // PProfHandler 返回pprof处理器
 func (m *Manager) PProfHandler() http.Handler {
-	if m.middlewareConfig == nil || !m.middlewareConfig.PProf.Enabled {
+	if m.cfg == nil || m.cfg.Middleware.PProf == nil || !m.cfg.Middleware.PProf.Enabled {
 		return http.NotFoundHandler()
 	}
 	return CreatePProfHandler(m.pprofAdapter)
@@ -288,13 +279,8 @@ func (m *Manager) GetDefaultMiddlewares() []MiddlewareFunc {
 	}
 
 	// 添加限流中间件（如果启用）
-	if m.middlewareConfig != nil && m.middlewareConfig.RateLimit.Enabled {
+	if m.rateLimiter != nil {
 		middlewares = append(middlewares, m.RateLimitMiddleware())
-	}
-
-	// 添加签名验证中间件（如果启用）
-	if m.middlewareConfig != nil && m.middlewareConfig.Signature.Enabled {
-		middlewares = append(middlewares, m.SignatureMiddleware())
 	}
 
 	middlewares = append(middlewares,
@@ -303,10 +289,8 @@ func (m *Manager) GetDefaultMiddlewares() []MiddlewareFunc {
 		m.SecurityMiddleware(),
 	)
 
-	// 添加访问记录中间件（如果启用）
-	if m.middlewareConfig != nil && m.middlewareConfig.AccessLog.Enabled {
-		middlewares = append(middlewares, m.AccessRecordMiddleware())
-	}
+	// 添加访问记录中间件
+	middlewares = append(middlewares, m.AccessRecordMiddleware())
 
 	// 添加监控中间件（如果启用）
 	if m.metricsManager != nil {
@@ -356,7 +340,7 @@ func (m *Manager) GetDevelopmentMiddlewares() []MiddlewareFunc {
 	}
 
 	// 在开发环境中启用pprof中间件
-	if m.middlewareConfig != nil && m.middlewareConfig.PProf.Enabled {
+	if m.cfg != nil && m.cfg.Middleware.PProf != nil && m.cfg.Middleware.PProf.Enabled {
 		middlewares = append(middlewares, m.PProfMiddleware())
 	}
 

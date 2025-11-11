@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 18:06:52
+ * @LastEditTime: 2025-11-12 01:07:24
  * @FilePath: \go-rpc-gateway\middleware\requestid.go
  * @Description: 请求ID中间件
  *
@@ -19,8 +19,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kamalyes/go-config/pkg/requestid"
 	"github.com/kamalyes/go-core/pkg/global"
-	"github.com/kamalyes/go-rpc-gateway/config"
 )
 
 // RequestID 请求ID中间件
@@ -48,7 +48,7 @@ func RequestIDWithConfig(config RequestIDConfig) MiddlewareFunc {
 }
 
 // ConfigurableRequestIDMiddleware 可配置的请求ID中间件
-func ConfigurableRequestIDMiddleware(config *config.RequestIDConfig) HTTPMiddleware {
+func ConfigurableRequestIDMiddleware(config *requestid.RequestID) HTTPMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !config.Enabled {
@@ -57,7 +57,7 @@ func ConfigurableRequestIDMiddleware(config *config.RequestIDConfig) HTTPMiddlew
 			}
 
 			// 获取请求ID
-			headerName := config.Header
+			headerName := config.HeaderName
 			if headerName == "" {
 				headerName = "X-Request-ID" // 默认头名称
 			}

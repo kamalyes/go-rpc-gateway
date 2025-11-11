@@ -52,10 +52,8 @@ func (s *Server) Start() error {
 
 	s.running = true
 	logger.InfoKV("🚀 Gateway启动成功!", 
-		"http_host", s.config.Gateway.HTTP.Host,
-		"http_port", s.config.Gateway.HTTP.Port,
-		"grpc_host", s.config.Gateway.GRPC.Host,
-		"grpc_port", s.config.Gateway.GRPC.Port)
+		"http_endpoint", s.config.Gateway.HTTPServer.GetEndpoint(),
+		"grpc_endpoint", s.config.Gateway.GRPC.Server.GetEndpoint())
 
 	return nil
 }

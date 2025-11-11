@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 18:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 18:30:00
+ * @LastEditTime: 2025-11-12 01:04:30
  * @FilePath: \go-rpc-gateway\middleware\pprof_scenarios.go
  * @Description: pprof性能测试场景 - 提供各种性能测试场景用于分析
  *
@@ -20,6 +20,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/kamalyes/go-config/pkg/pprof"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 )
 
@@ -36,7 +37,7 @@ func NewPProfScenarios() *PProfScenarios {
 }
 
 // RegisterScenarios 注册所有测试场景到pprof配置 (兼容旧接口)
-func (ps *PProfScenarios) RegisterScenarios(config *PProfConfig) {
+func (ps *PProfScenarios) RegisterScenarios(config *pprof.PProf) {
 	// 这个方法保持为空，因为现在使用适配器模式
 }
 

@@ -1,6 +1,6 @@
 # 🚀 快速开始指南
 
-本指南帮助你快速上手 Go RPC Gateway 框架。
+本指南帮助你在 5 分钟内上手 Go RPC Gateway 框架。
 
 ## 📦 安装
 
@@ -38,59 +38,66 @@ go run main.go
 
 ### 2️⃣ 使用配置文件 (推荐)
 
-1. **复制配置模板**
-```bash
-cp template/config.yaml config.yaml
+1. **创建 config.yaml**
+```yaml
+# 基础服务配置
+server:
+  name: my-gateway
+  version: v1.0.0
+
+# HTTP/gRPC 端口配置  
+server:
+  http:
+    port: 8080
+  grpc:
+    port: 9090
+
+# 数据库配置 (可选)
+mysql:
+  host: "localhost"
+  port: 3306
+  dbname: "mydb"
+  username: "root"
+  password: "password"
+
+# Redis 配置 (可选)
+redis:
+  host: "localhost"
+  port: 6379
 ```
 
 2. **创建 main.go**
 ```go
 package main
 
-import gateway "github.com/kamalyes/go-rpc-gateway"
+import (
+    gateway "github.com/kamalyes/go-rpc-gateway"
+    "github.com/kamalyes/go-rpc-gateway/config"
+)
 
 func main() {
-    gw, err := gateway.NewWithConfigFile("config.yaml")
+    configManager, err := config.NewConfigManager("config.yaml")
     if err != nil {
         panic(err)
     }
+    
+    cfg := configManager.GetGatewayConfig()
+    
+    gw, err := gateway.New(cfg)
+    if err != nil {
+        panic(err)
+    }
+    
     gw.Start()
 }
 ```
 
-3. **根据需要编辑 config.yaml**
-
 ### 3️⃣ 完整应用开发
-
-参考 `template/advanced.go` 了解如何:
-- ✅ 注册 gRPC 服务
-- ✅ 添加 HTTP 路由
-- ✅ 使用数据库和 Redis
-- ✅ 启用性能分析
-- ✅ 自定义中间件
-
-## 🏗️ 项目结构建议
-
-```
-your-project/
-├── main.go              # 入口文件
-├── config.yaml          # 配置文件
-├── proto/               # Protocol Buffers 定义
-│   └── service.proto
-├── service/             # 业务逻辑
-│   └── user_service.go
-├── handler/             # HTTP 处理器
-│   └── api_handler.go
-└── go.mod
-```
-
-## 📝 完整示例
 
 ```go
 package main
 
 import (
-    "context"
     "net/http"
     
     gateway "github.com/kamalyes/go-rpc-gateway"
@@ -100,7 +107,7 @@ import (
 
 func main() {
     // 1. 创建网关
-    gw, err := gateway.NewWithConfigFile("config.yaml")
+    gw, err := gateway.New()
     if err != nil {
         panic(err)
     }
@@ -115,14 +122,10 @@ func main() {
         w.Write([]byte(`{"message":"Hello World"}`))
     })
     
-    // 4. 使用全局组件
-    if global.DB != nil {
-        global.LOGGER.Info("数据库已就绪")
-    }
-    
-    if global.REDIS != nil {
-        global.LOGGER.Info("Redis已就绪")
-    }
+    // 4. 启用功能特性
+    gw.EnablePProf()      // 性能分析
+    gw.EnableMonitoring() // 监控指标
+    gw.EnableTracing()    // 链路追踪
     
     // 5. 启动服务
     if err := gw.Start(); err != nil {
@@ -163,17 +166,17 @@ func main() {
 ```go
 // 创建网关
 gw, _ := gateway.New()                              // 默认配置
-gw, _ := gateway.NewWithConfigFile("config.yaml")   // 配置文件
 
 // 注册服务
 gw.RegisterService(func(s *grpc.Server) {})         // gRPC 服务
 gw.RegisterHTTPRoute("/path", handlerFunc)          // HTTP 路由
 gw.RegisterHTTPRoutes(map[string]http.HandlerFunc{}) // 批量路由
 
-// 性能分析
+// 启用功能特性
 gw.EnablePProf()                                    // 启用 pprof
-gw.EnablePProfWithToken("token")                    // 带认证的 pprof
-gw.EnablePProfForDevelopment()                      // 开发环境 pprof
+gw.EnableMonitoring()                               // 启用监控
+gw.EnableTracing()                                  // 启用追踪
+gw.EnableHealth()                                   // 启用健康检查
 
 // 启动和停止
 gw.Start()                                          // 启动 (带 banner)
@@ -186,7 +189,7 @@ gw.Stop()                                           // 优雅关闭
 ### 最小配置 (config.yaml)
 
 ```yaml
-gateway:
+server:
   http:
     port: 8080
   grpc:
@@ -229,32 +232,115 @@ global.REDIS.Set(ctx, "key", "value", 0)
 val := global.REDIS.Get(ctx, "key").Val()
 ```
 
-## 📚 更多示例
+## 📚 示例项目
 
-查看 `template/` 目录:
-- `quickstart.go` - 最简启动
-- `main.go` - 标准模板
-- `advanced.go` - 高级特性
-- `with-database.go` - 数据库集成
+### 简单 API 服务
 
-查看 `examples/` 目录:
-- `integration-demo/` - 四大核心库集成演示
-- `complete-integration/` - 完整功能示例
+```go
+package main
 
-## 🔗 相关链接
+import (
+    "encoding/json"
+    "net/http"
+    
+    gateway "github.com/kamalyes/go-rpc-gateway"
+    "github.com/kamalyes/go-core/pkg/global"
+)
 
-- [完整文档](./README.md)
-- [配置指南](./docs/CONFIG_ANALYSIS.md)
-- [中间件文档](./docs/MIDDLEWARE_GUIDE.md)
-- [架构设计](./docs/ARCHITECTURE.md)
-- [部署指南](./docs/DEPLOYMENT.md)
+type User struct {
+    ID   int    `json:"id"`
+    Name string `json:"name"`
+}
+
+func main() {
+    gw, _ := gateway.New()
+    
+    // 注册 API 路由
+    gw.RegisterHTTPRoutes(map[string]http.HandlerFunc{
+        "/api/users": getUsersHandler,
+        "/api/hello": helloHandler,
+    })
+    
+    gw.Start()
+}
+
+func getUsersHandler(w http.ResponseWriter, r *http.Request) {
+    users := []User{
+        {ID: 1, Name: "Alice"},
+        {ID: 2, Name: "Bob"},
+    }
+    
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(users)
+}
+
+func helloHandler(w http.ResponseWriter, r *http.Request) {
+    response := map[string]string{
+        "message": "Hello from Go RPC Gateway!",
+        "version": "1.0.0",
+    }
+    
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(response)
+}
+```
+
+### 带数据库的服务
+
+```go
+package main
+
+import (
+    "net/http"
+    
+    gateway "github.com/kamalyes/go-rpc-gateway"
+    "github.com/kamalyes/go-rpc-gateway/config"
+    "github.com/kamalyes/go-core/pkg/global"
+)
+
+type User struct {
+    ID   uint   `gorm:"primaryKey"`
+    Name string `gorm:"not null"`
+}
+
+func main() {
+    // 加载配置
+    configManager, _ := config.NewConfigManager("config.yaml")
+    cfg := configManager.GetGatewayConfig()
+    
+    gw, _ := gateway.New(cfg)
+    
+    // 自动迁移数据库
+    if global.DB != nil {
+        global.DB.AutoMigrate(&User{})
+    }
+    
+    // 注册路由
+    gw.RegisterHTTPRoute("/api/users", usersHandler)
+    
+    gw.Start()
+}
+
+func usersHandler(w http.ResponseWriter, r *http.Request) {
+    if global.DB == nil {
+        http.Error(w, "Database not available", 500)
+        return
+    }
+    
+    var users []User
+    global.DB.Find(&users)
+    
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(users)
+}
+```
 
 ## ❓ 常见问题
 
 ### Q: 如何自定义端口?
-A: 在 `config.yaml` 中设置:
+A: 在配置文件中设置:
 ```yaml
-gateway:
+server:
   http:
     port: 3000
   grpc:
@@ -271,21 +357,53 @@ security:
     key_file: "key.pem"
 ```
 
-### Q: 如何添加自定义中间件?
-A: 使用中间件管理器:
-```go
-gw.GetMiddlewareManager().Use(yourMiddleware)
+### Q: 如何查看性能分析?
+A: 启用 PProf 后访问:
+```bash
+# 启用 PProf
+gw.EnablePProf()
+
+# 访问性能分析
+curl http://localhost:8080/debug/pprof/
 ```
 
-### Q: 如何查看所有配置项?
-A: 查看 `examples/config-complete.yaml` 完整配置示例
+### Q: 如何添加 gRPC 服务?
+A: 注册 gRPC 服务:
+```go
+gw.RegisterService(func(s *grpc.Server) {
+    pb.RegisterYourServiceServer(s, &yourService{})
+})
+```
+
+### Q: 如何使用中间件?
+A: 框架内置 15+ 中间件，通过配置文件启用:
+```yaml
+middleware:
+  cors:
+    enabled: true
+  rate_limit:
+    enabled: true
+    rate: 100
+```
+
+## 🔗 相关链接
+
+- [完整文档](./README.md)
+- [使用手册](./HOW_TO_USE.md)
+- [配置指南](./docs/CONFIG_ANALYSIS.md)
+- [中间件文档](./docs/MIDDLEWARE_GUIDE.md)
+- [架构设计](./docs/ARCHITECTURE.md)
+- [部署指南](./docs/DEPLOYMENT.md)
 
 ## 🆘 获取帮助
 
-- 查看示例代码: `examples/` 和 `template/`
-- 阅读文档: `docs/`
+- 查看示例代码: `examples/` 目录
+- 阅读文档: `docs/` 目录  
 - 提交 Issue: GitHub Issues
+- 参与讨论: GitHub Discussions
 
 ---
 
-**现在开始构建你的微服务网关吧！** 🚀
+**🎉 现在开始构建你的微服务网关吧！**
+
+完成以上任一示例后，你已经掌握了 Go RPC Gateway 的基本用法，可以开始构建更复杂的应用了。

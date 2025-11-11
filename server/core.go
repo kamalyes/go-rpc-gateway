@@ -116,9 +116,6 @@ func (s *Server) onConfigChanged(newConfig *config.GatewayConfig) {
 	oldConfig := s.config
 	s.config = newConfig
 
-	// 更新全局配置
-	global.CONFIG = newConfig.SingleConfig
-
 	// 这里可以添加其他需要热重载的组件
 	// 比如重新初始化中间件、更新限流配置等
 

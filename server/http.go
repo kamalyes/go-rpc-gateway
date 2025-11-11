@@ -42,7 +42,7 @@ func (w gzipResponseWriter) Write(b []byte) (int, error) {
 func (s *Server) gzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 检查是否启用压缩
-		if !s.config.Gateway.HTTP.EnableGzipCompress {
+		if !s.config.Gateway.HTTPServer.EnableGzipCompress {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -79,31 +79,27 @@ func (s *Server) initHTTPGateway() error {
 	s.httpMux.Handle("/", s.gwMux)
 
 	// 注册健康检查
-	if s.config.Gateway.HealthCheck.Enabled {
-		s.httpMux.HandleFunc(s.config.Gateway.HealthCheck.Path, s.healthCheckHandler)
+	if s.config.Gateway.Health.Enabled {
+		s.httpMux.HandleFunc(s.config.Gateway.Health.Path, s.healthCheckHandler)
 		global.LOGGER.InfoKV("❤️  健康检查已启用",
-			"url", fmt.Sprintf("http://%s:%d%s",
-				s.config.Gateway.HTTP.Host,
-				s.config.Gateway.HTTP.Port,
-				s.config.Gateway.HealthCheck.Path))
+			"url", s.config.Gateway.HTTPServer.GetEndpoint()+s.config.Gateway.Health.Path)
 
 		// 注册组件级健康检查端点
 		s.registerComponentHealthChecks()
-	} // 注册监控指标端点
+	}
+	
+	// 注册监控指标端点
 	if s.config.Monitoring.Metrics.Enabled {
-		s.httpMux.Handle(s.config.Monitoring.Metrics.Path, promhttp.Handler())
+		s.httpMux.Handle(s.config.Monitoring.Prometheus.Path, promhttp.Handler())
 		global.LOGGER.InfoKV("📊 监控指标服务可用",
-			"url", fmt.Sprintf("http://%s:%d%s",
-				s.config.Gateway.HTTP.Host,
-				s.config.Gateway.HTTP.Port,
-				s.config.Monitoring.Metrics.Path))
+			"url", s.config.Gateway.HTTPServer.GetEndpoint()+s.config.Monitoring.Prometheus.Path)
 	}
 
 	// 应用中间件
 	var handler http.Handler = s.httpMux
 
 	// 首先应用Gzip压缩中间件（如果启用）
-	if s.config.Gateway.HTTP.EnableGzipCompress {
+	if s.config.Gateway.HTTPServer.EnableGzipCompress {
 		handler = s.gzipMiddleware(handler)
 		global.LOGGER.InfoMsg("✅ HTTP Gzip压缩已启用")
 	}
@@ -120,12 +116,12 @@ func (s *Server) initHTTPGateway() error {
 
 	// 创建HTTP服务器
 	s.httpServer = &http.Server{
-		Addr:           fmt.Sprintf("%s:%d", s.config.Gateway.HTTP.Host, s.config.Gateway.HTTP.Port),
+		Addr:           fmt.Sprintf("%s:%d", s.config.Gateway.HTTPServer.Host, s.config.Gateway.HTTPServer.Port),
 		Handler:        handler,
-		ReadTimeout:    time.Duration(s.config.Gateway.HTTP.ReadTimeout) * time.Second,
-		WriteTimeout:   time.Duration(s.config.Gateway.HTTP.WriteTimeout) * time.Second,
-		IdleTimeout:    time.Duration(s.config.Gateway.HTTP.IdleTimeout) * time.Second,
-		MaxHeaderBytes: s.config.Gateway.HTTP.MaxHeaderBytes,
+		ReadTimeout:    time.Duration(s.config.Gateway.HTTPServer.ReadTimeout) * time.Second,
+		WriteTimeout:   time.Duration(s.config.Gateway.HTTPServer.WriteTimeout) * time.Second,
+		IdleTimeout:    time.Duration(s.config.Gateway.HTTPServer.IdleTimeout) * time.Second,
+		MaxHeaderBytes: s.config.Gateway.HTTPServer.MaxHeaderBytes,
 	}
 
 	return nil
@@ -133,27 +129,20 @@ func (s *Server) initHTTPGateway() error {
 
 // registerComponentHealthChecks 注册组件级健康检查端点
 func (s *Server) registerComponentHealthChecks() {
-	baseURL := fmt.Sprintf("http://%s:%d", s.config.Gateway.HTTP.Host, s.config.Gateway.HTTP.Port)
+	baseURL := s.config.Gateway.HTTPServer.GetEndpoint()
 
 	// 注册Redis健康检查
-	if s.config.Gateway.HealthCheck.Redis.Enabled {
-		s.httpMux.HandleFunc("/health/redis", s.redisHealthCheckHandler)
+	if s.config.Gateway.Health.Redis.Enabled {
+		s.httpMux.HandleFunc(s.config.Gateway.Health.Redis.Path, s.redisHealthCheckHandler)
 		global.LOGGER.InfoKV("🔴 Redis健康检查已启用",
-			"url", baseURL+"/health/redis",
-			"redis_host", fmt.Sprintf("%s:%d",
-				s.config.Gateway.HealthCheck.Redis.Host,
-				s.config.Gateway.HealthCheck.Redis.Port))
+			"url", baseURL+s.config.Gateway.Health.Redis.Path)
 	}
 
 	// 注册MySQL健康检查
-	if s.config.Gateway.HealthCheck.MySQL.Enabled {
-		s.httpMux.HandleFunc("/health/mysql", s.mysqlHealthCheckHandler)
+	if s.config.Gateway.Health.MySQL.Enabled {
+		s.httpMux.HandleFunc(s.config.Gateway.Health.MySQL.Path, s.mysqlHealthCheckHandler)
 		global.LOGGER.InfoKV("🗃️  MySQL健康检查已启用",
-			"url", baseURL+"/health/mysql",
-			"mysql_host", fmt.Sprintf("%s:%d/%s",
-				s.config.Gateway.HealthCheck.MySQL.Host,
-				s.config.Gateway.HealthCheck.MySQL.Port,
-				s.config.Gateway.HealthCheck.MySQL.Database))
+			"url", baseURL+s.config.Gateway.Health.MySQL.Path)
 	}
 
 	// 后续可以在这里继续添加其他组件的健康检查
@@ -164,21 +153,13 @@ func (s *Server) registerComponentHealthChecks() {
 func (s *Server) startHTTPServer() error {
 	address := s.httpServer.Addr
 
-	// 检查是否启用TLS
-	if s.config.Security.TLS.Enabled {
-		global.LOGGER.InfoKV("Starting HTTPS server with TLS",
-			"address", address,
-			"cert_file", s.config.Security.TLS.CertFile,
-			"key_file", s.config.Security.TLS.KeyFile)
+	// TLS 支持待实现（需要在 go-config/pkg/security 中添加 TLS 配置）
+	// if s.config.Security.TLS.Enabled {
+	// 	return s.httpServer.ListenAndServeTLS(certFile, keyFile)
+	// }
 
-		return s.httpServer.ListenAndServeTLS(
-			s.config.Security.TLS.CertFile,
-			s.config.Security.TLS.KeyFile,
-		)
-	} else {
-		global.LOGGER.InfoKV("Starting HTTP server", "address", address)
-		return s.httpServer.ListenAndServe()
-	}
+	global.LOGGER.InfoKV("Starting HTTP server", "address", address)
+	return s.httpServer.ListenAndServe()
 }
 
 // stopHTTPServer 停止HTTP服务器

@@ -8,7 +8,6 @@
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
  */
-
 package middleware
 
 import (
@@ -19,23 +18,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kamalyes/go-config/pkg/register"
+	gopprof "github.com/kamalyes/go-config/pkg/pprof"
 	gologger "github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 )
 
 // DefaultPProfConfig 默认pprof配置
-func DefaultPProfConfig() *register.PProf {
-	return &register.PProf{
-		Enabled:        false, // 默认关闭
-		PathPrefix:     constants.DefaultDebugPath + "/pprof",
-		AllowedIPs:     []string{}, // 默认允许所有IP
-		RequireAuth:    true,       // 默认需要认证
-		AuthToken:      "",         // 需要用户设置
-		EnableLogging:  true,
-		Timeout:        30,    // 30秒超时
-		CustomHandlers: make(map[string]http.HandlerFunc),
-	}
+func DefaultPProfConfig() *gopprof.PProf {
+	return gopprof.Default()
 }
 
 // PProfInfo pprof端点信息
@@ -45,21 +35,35 @@ type PProfInfo struct {
 	Method      string `json:"method"`
 }
 
-// PProfConfigAdapter pprof配置适配器，包装外部配置类型
+// PProfConfigAdapter pprof配置适配器，包装外部配置类型并扩展额外字段
 type PProfConfigAdapter struct {
-	*register.PProf
-	scenarios *PProfScenarios
-	logger    *gologger.Logger
+	*gopprof.PProf
+	scenarios      *PProfScenarios
+	logger         *gologger.Logger
+	
+	// 扩展字段 - go-config 中没有的字段
+	AllowedIPs     []string                   // IP白名单
+	RequireAuth    bool                       // 是否需要认证
+	AuthToken      string                     // 认证token
+	EnableLogging  bool                       // 是否启用访问日志
+	Timeout        int                        // 超时时间（秒）
+	CustomHandlers map[string]http.HandlerFunc // 自定义处理器（运行时）
 }
 
 // NewPProfConfigAdapter 创建pprof配置适配器
-func NewPProfConfigAdapter(config *register.PProf) *PProfConfigAdapter {
+func NewPProfConfigAdapter(config *gopprof.PProf) *PProfConfigAdapter {
 	if config == nil {
 		config = DefaultPProfConfig()
 	}
 	adapter := &PProfConfigAdapter{
-		PProf:     config,
-		scenarios: NewPProfScenarios(),
+		PProf:          config,
+		scenarios:      NewPProfScenarios(),
+		AllowedIPs:     []string{},     // 默认允许所有IP
+		RequireAuth:    false,          // 默认不需要认证
+		AuthToken:      "",             // 需要用户设置
+		EnableLogging:  true,           // 默认启用日志
+		Timeout:        30,             // 默认30秒超时
+		CustomHandlers: make(map[string]http.HandlerFunc),
 	}
 	
 	// 创建日志记录器
@@ -71,7 +75,7 @@ func NewPProfConfigAdapter(config *register.PProf) *PProfConfigAdapter {
 
 // GetAvailableEndpoints 获取所有可用的pprof端点信息
 func (a *PProfConfigAdapter) GetAvailableEndpoints() []PProfInfo {
-	basePrefix := strings.TrimSuffix(a.PathPrefix, "/")
+	basePrefix := strings.TrimSuffix(a.PProf.PathPrefix, "/")
 	
 	endpoints := []PProfInfo{
 		{
