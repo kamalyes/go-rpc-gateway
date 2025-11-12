@@ -3,7 +3,7 @@
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-12 09:41:45
- * @FilePath: \engine-im-push-service\go-rpc-gateway\middleware\breaker.go
+ * @FilePath: \go-rpc-gateway\middleware\breaker.go
  * @Description: CircuitBreaker 中间件适配器 - 在 middleware 模块下统一管理中间件
  * 通过此适配器将 breaker 模块的功能集成到标准的中间件框架中
  * 配置使用 go-config/pkg/breaker 中定义的结构

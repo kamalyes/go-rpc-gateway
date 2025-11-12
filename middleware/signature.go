@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-07 18:04:41
+ * @LastEditTime: 2025-11-13 01:11:03
  * @FilePath: \go-rpc-gateway\middleware\signature.go
  * @Description:
  *
@@ -22,49 +22,21 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/kamalyes/go-config/pkg/request"
+	"github.com/kamalyes/go-config/pkg/signature"
 	"github.com/kamalyes/go-rpc-gateway/constants"
+	"github.com/kamalyes/go-rpc-gateway/response"
 )
 
-// SignatureConfig 签名验证配置
-type SignatureConfig struct {
-	Enabled        bool          `json:"enabled" yaml:"enabled"`               // 是否启用签名验证
-	SecretKey      string        `json:"secretKey" yaml:"secretKey"`           // 签名密钥
-	ExpireDuration time.Duration `json:"expireDuration" yaml:"expireDuration"` // 签名过期时间
-	TimestampField string        `json:"timestampField" yaml:"timestampField"` // 时间戳字段名
-	SignatureField string        `json:"signatureField" yaml:"signatureField"` // 签名字段名
-	Algorithm      string        `json:"algorithm" yaml:"algorithm"`           // 签名算法
-	IncludeQuery   bool          `json:"includeQuery" yaml:"includeQuery"`     // 是否包含查询参数
-	IncludeBody    bool          `json:"includeBody" yaml:"includeBody"`       // 是否包含请求体
-}
-
-// DefaultSignatureConfig 默认签名配置
-func DefaultSignatureConfig() *SignatureConfig {
-	return &SignatureConfig{
-		Enabled:        true,
-		ExpireDuration: 10 * time.Minute,
-		TimestampField: "timestamp",
-		SignatureField: "signature",
-		Algorithm:      "HMAC-SHA256",
-		IncludeQuery:   true,
-		IncludeBody:    true,
-	}
-}
-
-// RequestCommon 通用请求结构
+// RequestCommon 通用请求结构 - 继承自go-config的BaseRequest
 type RequestCommon struct {
-	Timestamp     string `json:"timestamp" header:"X-Timestamp"`       // 时间戳 (constants.HeaderXTimestamp)
-	Signature     string `json:"signature" header:"X-Signature"`       // 签名 (constants.HeaderXSignature)
-	TraceID       string `json:"traceId" header:"X-Trace-Id"`          // 链路追踪ID (constants.HeaderXTraceID)
-	RequestID     string `json:"requestId" header:"X-Request-Id"`      // 请求ID (constants.HeaderXRequestID)
-	Authorization string `json:"authorization" header:"Authorization"` // 授权信息 (constants.HeaderAuthorization)
-	DeviceID      string `json:"deviceId" header:"X-Device-Id"`        // 设备ID (constants.HeaderXDeviceID)
-	AppVersion    string `json:"appVersion" header:"X-App-Version"`    // 应用版本 (constants.HeaderXAppVersion)
-	Platform      string `json:"platform" header:"X-Platform"`         // 平台 (constants.HeaderXPlatform)
+	request.BaseRequest
+	// 可以在这里添加Gateway特有的字段
 }
 
 // SignatureValidator 签名验证器接口
 type SignatureValidator interface {
-	Validate(r *http.Request, config *SignatureConfig) error
+	Validate(r *http.Request, config *signature.Signature) error
 	GenerateSignature(reqCommon *RequestCommon, secretKey string, body []byte, query url.Values) (string, error)
 }
 
@@ -72,7 +44,7 @@ type SignatureValidator interface {
 type HMACValidator struct{}
 
 // Validate 验证签名
-func (v *HMACValidator) Validate(r *http.Request, config *SignatureConfig) error {
+func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) error {
 	if !config.Enabled {
 		return nil
 	}
@@ -81,13 +53,13 @@ func (v *HMACValidator) Validate(r *http.Request, config *SignatureConfig) error
 	reqCommon := extractRequestCommon(r, config)
 
 	// 验证时间戳
-	if err := v.validateTimestamp(reqCommon.Timestamp, config.ExpireDuration); err != nil {
+	if err := v.validateTimestamp(reqCommon.Timestamp, config.TimeoutWindow); err != nil {
 		return err
 	}
 
 	// 读取请求体
 	var body []byte
-	if config.IncludeBody && r.Body != nil {
+	if !config.SkipBody && r.Body != nil {
 		var err error
 		body, err = io.ReadAll(r.Body)
 		if err != nil {
@@ -99,7 +71,7 @@ func (v *HMACValidator) Validate(r *http.Request, config *SignatureConfig) error
 
 	// 获取查询参数
 	var query url.Values
-	if config.IncludeQuery {
+	if !config.SkipQuery {
 		query = r.URL.Query()
 	}
 
@@ -160,16 +132,18 @@ func (v *HMACValidator) validateTimestamp(timestampStr string, expireDuration ti
 }
 
 // extractRequestCommon 提取请求公共信息
-func extractRequestCommon(r *http.Request, config *SignatureConfig) *RequestCommon {
+func extractRequestCommon(r *http.Request, config *signature.Signature) *RequestCommon {
 	return &RequestCommon{
-		Timestamp:     getValueFromRequest(r, config.TimestampField),
-		Signature:     getValueFromRequest(r, config.SignatureField),
-		TraceID:       r.Header.Get(constants.HeaderXTraceID),
-		RequestID:     r.Header.Get(constants.HeaderXRequestID),
-		Authorization: r.Header.Get(constants.HeaderAuthorization),
-		DeviceID:      r.Header.Get(constants.HeaderXDeviceID),
-		AppVersion:    r.Header.Get(constants.HeaderXAppVersion),
-		Platform:      r.Header.Get(constants.HeaderXPlatform),
+		BaseRequest: request.BaseRequest{
+			Timestamp:     getValueFromRequest(r, config.TimestampHeader),
+			Signature:     getValueFromRequest(r, config.SignatureHeader),
+			TraceID:       r.Header.Get(constants.HeaderXTraceID),
+			RequestID:     r.Header.Get(constants.HeaderXRequestID),
+			Authorization: r.Header.Get(constants.HeaderAuthorization),
+			DeviceID:      r.Header.Get(constants.HeaderXDeviceID),
+			AppVersion:    r.Header.Get(constants.HeaderXAppVersion),
+			Platform:      r.Header.Get(constants.HeaderXPlatform),
+		},
 	}
 }
 
@@ -189,9 +163,9 @@ func getValueFromRequest(r *http.Request, fieldName string) string {
 }
 
 // SignatureMiddleware 签名验证中间件
-func SignatureMiddleware(config *SignatureConfig, validator SignatureValidator) HTTPMiddleware {
+func SignatureMiddleware(config *signature.Signature, validator SignatureValidator) HTTPMiddleware {
 	if config == nil {
-		config = DefaultSignatureConfig()
+		config = signature.Default()
 	}
 
 	if !config.Enabled {
@@ -208,7 +182,7 @@ func SignatureMiddleware(config *SignatureConfig, validator SignatureValidator) 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// 验证签名
 			if err := validator.Validate(r, config); err != nil {
-				writeErrorResponse(w, http.StatusUnauthorized, "SIGNATURE_INVALID", err.Error())
+				response.WriteErrorResponseWithCode(w, http.StatusUnauthorized, "SIGNATURE_INVALID", err.Error())
 				return
 			}
 
@@ -218,9 +192,9 @@ func SignatureMiddleware(config *SignatureConfig, validator SignatureValidator) 
 }
 
 // TimestampMiddleware 时间戳验证中间件（独立使用）
-func TimestampMiddleware(config *SignatureConfig) HTTPMiddleware {
+func TimestampMiddleware(config *signature.Signature) HTTPMiddleware {
 	if config == nil {
-		config = DefaultSignatureConfig()
+		config = signature.Default()
 	}
 
 	if !config.Enabled {
@@ -231,21 +205,21 @@ func TimestampMiddleware(config *SignatureConfig) HTTPMiddleware {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			timestampStr := getValueFromRequest(r, config.TimestampField)
+			timestampStr := getValueFromRequest(r, config.TimestampHeader)
 			if timestampStr == "" {
-				writeErrorResponse(w, http.StatusBadRequest, "TIMESTAMP_MISSING", "Timestamp is required")
+				response.WriteErrorResponseWithCode(w, http.StatusBadRequest, "TIMESTAMP_MISSING", "Timestamp is required")
 				return
 			}
 
 			timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
 			if err != nil {
-				writeErrorResponse(w, http.StatusBadRequest, "TIMESTAMP_INVALID", "Invalid timestamp format")
+				response.WriteErrorResponseWithCode(w, http.StatusBadRequest, "TIMESTAMP_INVALID", "Invalid timestamp format")
 				return
 			}
 
 			now := time.Now().Unix()
-			if now-timestamp > int64(config.ExpireDuration.Seconds()) {
-				writeErrorResponse(w, http.StatusUnauthorized, "TIMESTAMP_EXPIRED", "Timestamp expired")
+			if now-timestamp > int64(config.TimeoutWindow.Seconds()) {
+				response.WriteErrorResponseWithCode(w, http.StatusUnauthorized, "TIMESTAMP_EXPIRED", "Timestamp expired")
 				return
 			}
 
@@ -254,29 +228,22 @@ func TimestampMiddleware(config *SignatureConfig) HTTPMiddleware {
 	}
 }
 
-// writeErrorResponse 写入错误响应
-func writeErrorResponse(w http.ResponseWriter, statusCode int, errorCode, message string) {
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(statusCode)
-
-	response := fmt.Sprintf(`{
-		"error": "%s",
-		"message": "%s",
-		"timestamp": %d
-	}`, errorCode, message, time.Now().Unix())
-
-	w.Write([]byte(response))
-} // SignatureMiddlewareWithConfig 带配置的签名中间件
-func SignatureMiddlewareWithConfig(secretKey string, expireDuration time.Duration) HTTPMiddleware {
-	config := &SignatureConfig{
-		Enabled:        true,
-		SecretKey:      secretKey,
-		ExpireDuration: expireDuration,
-		TimestampField: "timestamp",
-		SignatureField: "signature",
-		Algorithm:      "HMAC-SHA256",
-		IncludeQuery:   true,
-		IncludeBody:    true,
+// SignatureMiddlewareWithConfig 带配置的签名中间件
+func SignatureMiddlewareWithConfig(conf signature.Signature) HTTPMiddleware {
+	config := signature.Default().
+		WithSecretKey(conf.SecretKey).
+		WithTimeoutWindow(conf.TimeoutWindow).
+		WithSignatureHeader(conf.SignatureHeader).
+		WithTimestampHeader(conf.TimestampHeader).
+		WithAlgorithm(conf.Algorithm).
+		WithSkipQuery(conf.SkipQuery).
+		WithSkipBody(conf.SkipBody)
+	
+	// 根据配置启用或禁用
+	if conf.Enabled {
+		config = config.Enable()
+	} else {
+		config = config.Disable()
 	}
 
 	return SignatureMiddleware(config, &HMACValidator{})

@@ -15,26 +15,13 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kamalyes/go-config/pkg/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// MetricsConfig 监控配置
-type MetricsConfig struct {
-	Enabled   bool   `json:"enabled" yaml:"enabled"`
-	Path      string `json:"path" yaml:"path"`
-	Namespace string `json:"namespace" yaml:"namespace"`
-	Subsystem string `json:"subsystem" yaml:"subsystem"`
-}
-
-// TracingConfig 链路追踪配置
-type TracingConfig struct {
-	Enabled     bool   `json:"enabled" yaml:"enabled"`
-	ServiceName string `json:"serviceName" yaml:"serviceName"`
-}
-
 // MetricsManager 监控管理器
 type MetricsManager struct {
-	config *MetricsConfig
+	config *metrics.Metrics
 
 	// Prometheus 指标
 	httpRequestsTotal   prometheus.Counter
@@ -44,7 +31,7 @@ type MetricsManager struct {
 }
 
 // NewMetricsManager 创建监控管理器
-func NewMetricsManager(config *MetricsConfig) (*MetricsManager, error) {
+func NewMetricsManager(config *metrics.Metrics) (*MetricsManager, error) {
 	if config == nil || !config.Enabled {
 		return nil, nil
 	}
@@ -75,7 +62,7 @@ func (m *MetricsManager) initMetrics() error {
 		Subsystem: m.config.Subsystem,
 		Name:      "http_request_duration_seconds",
 		Help:      "Duration of HTTP requests in seconds",
-		Buckets:   prometheus.DefBuckets,
+		Buckets:   m.config.Buckets,
 	})
 
 	m.grpcRequestsTotal = prometheus.NewCounter(prometheus.CounterOpts{
@@ -90,7 +77,7 @@ func (m *MetricsManager) initMetrics() error {
 		Subsystem: m.config.Subsystem,
 		Name:      "grpc_request_duration_seconds",
 		Help:      "Duration of gRPC requests in seconds",
-		Buckets:   prometheus.DefBuckets,
+		Buckets:   m.config.Buckets,
 	})
 
 	// 注册指标

@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 11:58:42
+ * @LastEditTime: 2025-11-12 22:15:00
  * @FilePath: \go-rpc-gateway\server\core.go
  * @Description: 核心组件初始化模块，集成企业级组件和go-logger
  *
@@ -13,92 +13,23 @@ package server
 
 import (
 	"fmt"
+
+	"github.com/kamalyes/go-rpc-gateway/cpool"
 )
 
 // initCore 初始化核心组件，集成企业级组件
 func (s *Server) initCore() error {
 	// 注意：全局配置和日志已经由ConfigManager初始化，这里不再重复初始化
 
-	// 初始化数据库
-	if err := s.initDatabase(); err != nil {
-		return fmt.Errorf("failed to init database: %w", err)
+	// 创建并初始化连接池管理器
+	poolManager := cpool.NewManager()
+	if err := poolManager.Initialize(s.ctx, s.config); err != nil {
+		return fmt.Errorf("failed to initialize connection pool manager: %w", err)
 	}
 
-	// 初始化Redis
-	if err := s.initRedis(); err != nil {
-		return fmt.Errorf("failed to init redis: %w", err)
-	}
+	// 将连接池管理器保存到服务器中
+	s.poolManager = poolManager
 
-	// 初始化其他企业级组件
-	if err := s.initOtherComponents(); err != nil {
-		return fmt.Errorf("failed to init other components: %w", err)
-	}
-
-	return nil
-}
-
-// initOtherComponents 初始化其他企业级组件
-func (s *Server) initOtherComponents() error {
-	// 初始化雪花ID生成器
-	if err := s.initSnowflake(); err != nil {
-		return fmt.Errorf("failed to init snowflake: %w", err)
-	}
-
-	// 初始化MinIO客户端
-	if err := s.initMinIO(); err != nil {
-		return fmt.Errorf("failed to init minio: %w", err)
-	}
-
-	// 初始化MQTT客户端（如果需要）
-	if err := s.initMQTT(); err != nil {
-		return fmt.Errorf("failed to init mqtt: %w", err)
-	}
-
-	// 初始化Casbin权限管理（如果需要）
-	if err := s.initCasbin(); err != nil {
-		return fmt.Errorf("failed to init casbin: %w", err)
-	}
-
-	return nil
-}
-
-// initDatabase 初始化数据库
-func (s *Server) initDatabase() error {
-	// 根据配置初始化数据库连接
-	// 这里需要结合内置的数据库初始化逻辑
-	return nil
-}
-
-// initRedis 初始化Redis
-func (s *Server) initRedis() error {
-	// 根据配置初始化Redis连接
-	// 这里需要结合内置的Redis初始化逻辑
-	return nil
-}
-
-// initSnowflake 初始化雪花ID生成器
-func (s *Server) initSnowflake() error {
-	// 这里可以根据配置初始化雪花ID
-	// 暂时跳过，等待具体实现
-	return nil
-}
-
-// initMinIO 初始化MinIO客户端
-func (s *Server) initMinIO() error {
-	// 根据配置初始化MinIO客户端
-	// 这里需要结合内置的MinIO初始化逻辑
-	return nil
-}
-
-// initMQTT 初始化MQTT客户端
-func (s *Server) initMQTT() error {
-	// 根据配置初始化MQTT客户端
-	return nil
-}
-
-// initCasbin 初始化Casbin权限管理
-func (s *Server) initCasbin() error {
-	// 根据配置初始化Casbin
 	return nil
 }
 

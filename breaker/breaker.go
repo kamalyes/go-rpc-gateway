@@ -3,7 +3,7 @@
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-12 09:25:30
- * @FilePath: \engine-im-push-service\go-rpc-gateway\breaker\breaker.go
+ * @FilePath: \go-rpc-gateway\breaker\breaker.go
  * @Description: CircuitBreaker 核心模块 - 断路器业务逻辑独立维护
  * 将配置管理下沉到 go-config，核心业务逻辑由此模块维护
  *

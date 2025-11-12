@@ -13,6 +13,7 @@ package response
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/kamalyes/go-rpc-gateway/constants"
@@ -119,6 +120,67 @@ func WriteAppErrorf(w http.ResponseWriter, code errors.ErrorCode, format string,
 	WriteAppError(w, appErr)
 }
 
+// WriteJSONResponse 写入自定义JSON响应
+func WriteJSONResponse(w http.ResponseWriter, httpStatus int, data interface{}) {
+	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
+	w.WriteHeader(httpStatus)
+
+	if err := json.NewEncoder(w).Encode(data); err != nil && global.LOGGER != nil {
+		global.LOGGER.WithError(err).ErrorMsg("Failed to encode JSON response")
+	}
+}
+
+// VersionInfo 版本信息结构
+type VersionInfo struct {
+	Version   string `json:"version"`
+	GitBranch string `json:"git_branch"`
+	GitHash   string `json:"git_hash"`
+	BuildTime string `json:"build_time"`
+}
+
+// WriteVersionResponse 写入版本信息响应
+func WriteVersionResponse(w http.ResponseWriter, version, gitBranch, gitHash, buildTime string) {
+	versionInfo := &VersionInfo{
+		Version:   version,
+		GitBranch: gitBranch,
+		GitHash:   gitHash,
+		BuildTime: buildTime,
+	}
+	WriteJSONResponse(w, http.StatusOK, versionInfo)
+}
+
+// CSRFTokenResponse CSRF token响应结构
+type CSRFTokenResponse struct {
+	CSRFToken string `json:"csrf_token"`
+}
+
+// WriteCSRFTokenResponse 写入CSRF token响应
+func WriteCSRFTokenResponse(w http.ResponseWriter, token string) {
+	tokenResponse := &CSRFTokenResponse{
+		CSRFToken: token,
+	}
+	WriteJSONResponse(w, http.StatusOK, tokenResponse)
+}
+
+// PProfStatusResponse PProf状态响应结构
+type PProfStatusResponse struct {
+	PProfEnabled   bool   `json:"pprof_enabled"`
+	PProfPath      string `json:"pprof_path"`
+	AuthRequired   bool   `json:"auth_required"`
+	EndpointsCount int    `json:"endpoints_count"`
+}
+
+// WritePProfStatusResponse 写入PProf状态响应
+func WritePProfStatusResponse(w http.ResponseWriter, enabled bool, path string, authRequired bool, endpointsCount int) {
+	statusResponse := &PProfStatusResponse{
+		PProfEnabled:   enabled,
+		PProfPath:      path,
+		AuthRequired:   authRequired,
+		EndpointsCount: endpointsCount,
+	}
+	WriteJSONResponse(w, http.StatusOK, statusResponse)
+}
+
 // WriteHealthCheckResult 写入健康检查结果
 func WriteHealthCheckResult(w http.ResponseWriter, isHealthy bool, component string, message string, details map[string]interface{}) {
 	if isHealthy {
@@ -136,4 +198,26 @@ func WriteHealthCheckResult(w http.ResponseWriter, isHealthy bool, component str
 		}
 		WriteResult(w, http.StatusServiceUnavailable, result)
 	}
+}
+
+// WriteErrorResponseWithCode 写入带错误码的错误响应
+// 这个方法提供了更细粒度的错误响应控制，支持自定义错误码和消息
+func WriteErrorResponseWithCode(w http.ResponseWriter, statusCode int, errorCode, message string) {
+	// 根据HTTP状态码选择合适的StatusCode
+	var status commonapis.StatusCode
+	switch statusCode {
+	case http.StatusBadRequest:
+		status = commonapis.StatusCode_InvalidArgument
+	case http.StatusUnauthorized:
+		status = commonapis.StatusCode_Unauthenticated
+	case http.StatusForbidden:
+		status = commonapis.StatusCode_PermissionDenied
+	case http.StatusNotFound:
+		status = commonapis.StatusCode_NotFound
+	default:
+		status = commonapis.StatusCode_Internal
+	}
+	
+	// 使用标准的错误响应方法
+	WriteErrorResult(w, statusCode, fmt.Sprintf("%s: %s", errorCode, message), status)
 }

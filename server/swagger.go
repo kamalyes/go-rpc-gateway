@@ -27,7 +27,10 @@ func (s *Server) EnableSwagger() error {
 		WithJSONPath(s.config.Swagger.JSONPath).
 		WithUIPath(s.config.Swagger.UIPath).
 		WithTitle(s.config.Swagger.Title).
-		WithDescription(s.config.Swagger.Description)
+		WithDescription(s.config.Swagger.Description).
+		WithVersion(s.config.Swagger.Version).
+		WithContact(s.config.Swagger.Contact).
+		WithLicense(s.config.Swagger.License)
 	return s.EnableSwaggerWithConfig(swaggerConfig)
 }
 
@@ -37,17 +40,8 @@ func (s *Server) EnableSwaggerWithConfig(config *goswagger.Swagger) error {
 		return nil
 	}
 
-	// 转换为中间件配置
-	middlewareConfig := &middleware.SwaggerConfig{
-		Enabled:     config.Enabled,
-		JSONPath:    config.JSONPath,
-		UIPath:      config.UIPath,
-		Title:       config.Title,
-		Description: config.Description,
-	}
-
-	// 创建 Swagger 中间件
-	swaggerMiddleware := middleware.NewSwaggerMiddleware(middlewareConfig)
+	// 直接使用 go-config 的配置创建中间件
+	swaggerMiddleware := middleware.NewSwaggerMiddleware(config)
 
 	// 创建处理函数
 	swaggerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

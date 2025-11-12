@@ -21,37 +21,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kamalyes/go-rpc-gateway/constants"
+	"github.com/kamalyes/go-config/pkg/access"
 	"github.com/mssola/user_agent"
 )
-
-// AccessRecordConfig 访问记录配置
-type AccessRecordConfig struct {
-	Enabled         bool     `json:"enabled" yaml:"enabled"`                 // 是否启用
-	ServiceName     string   `json:"serviceName" yaml:"serviceName"`         // 服务名称
-	RetentionDays   int      `json:"retentionDays" yaml:"retentionDays"`     // 保留天数
-	IncludeBody     bool     `json:"includeBody" yaml:"includeBody"`         // 是否记录请求体
-	IncludeResponse bool     `json:"includeResponse" yaml:"includeResponse"` // 是否记录响应体
-	IncludeHeaders  []string `json:"includeHeaders" yaml:"includeHeaders"`   // 要记录的头部
-	ExcludePaths    []string `json:"excludePaths" yaml:"excludePaths"`       // 排除的路径
-	MaxBodySize     int64    `json:"maxBodySize" yaml:"maxBodySize"`         // 最大请求体大小
-	MaxResponseSize int64    `json:"maxResponseSize" yaml:"maxResponseSize"` // 最大响应体大小
-}
-
-// DefaultAccessRecordConfig 默认访问记录配置
-func DefaultAccessRecordConfig() *AccessRecordConfig {
-	return &AccessRecordConfig{
-		Enabled:         true,
-		ServiceName:     "rpc-gateway",
-		RetentionDays:   60,
-		IncludeBody:     true,
-		IncludeResponse: true,
-		IncludeHeaders:  []string{constants.HeaderUserAgent, constants.HeaderXRequestID, constants.HeaderXTraceID, constants.HeaderAuthorization, constants.HeaderContentType},
-		ExcludePaths:    []string{constants.DefaultHealthPath, constants.DefaultMetricsPath, constants.DefaultDebugPath},
-		MaxBodySize:     1024 * 1024,     // 1MB
-		MaxResponseSize: 1024 * 1024 * 5, // 5MB
-	}
-}
 
 // AccessRecord 访问记录结构
 type AccessRecord struct {
@@ -128,9 +100,9 @@ func (w *accessRecordResponseWriter) Write(data []byte) (int, error) {
 }
 
 // AccessRecordMiddleware 访问记录中间件
-func AccessRecordMiddleware(config *AccessRecordConfig, handler AccessRecordHandler) HTTPMiddleware {
+func AccessRecordMiddleware(config *access.Access, handler AccessRecordHandler) HTTPMiddleware {
 	if config == nil {
-		config = DefaultAccessRecordConfig()
+		config = access.Default()
 	}
 
 	if !config.Enabled {

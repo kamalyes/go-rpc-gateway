@@ -21,7 +21,7 @@ import (
 	"unsafe"
 
 	"github.com/kamalyes/go-config/pkg/pprof"
-	"github.com/kamalyes/go-rpc-gateway/constants"
+	"github.com/kamalyes/go-rpc-gateway/response"
 )
 
 // PProfScenarios pprof测试场景集合
@@ -86,9 +86,7 @@ func (ps *PProfScenarios) SimulateSmallObjectsGC(w http.ResponseWriter, r *http.
 	}
 	_ = objects
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Triggered GC after creating 100000 small objects!", "duration": "` + duration.String() + `", "objects_created": 100000}`))
+	response.WriteSuccessResult(w, "Triggered GC after creating 100000 small objects! Duration: "+duration.String())
 }
 
 // SimulateLargeObjectsGC 模拟大对象的GC场景
@@ -108,9 +106,7 @@ func (ps *PProfScenarios) SimulateLargeObjectsGC(w http.ResponseWriter, r *http.
 	_ = objects // 标记为已使用，避免linter警告
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Triggered GC after creating 1000 large objects!", "duration": "` + duration.String() + `", "objects_created": 1000, "total_memory": "1GB"}`))
+	response.WriteSuccessResult(w, "Triggered GC after creating 1000 large objects! Duration: "+duration.String())
 }
 
 // SimulateHighCPUUsageGC 模拟高CPU使用的场景
@@ -135,9 +131,7 @@ func (ps *PProfScenarios) SimulateHighCPUUsageGC(w http.ResponseWriter, r *http.
 	wg.Wait() // 等待所有goroutine完成
 	duration := time.Since(start)
 
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Triggered high CPU usage!", "duration": "` + duration.String() + `", "workers": ` + string(rune(numWorkers)) + `, "iterations": ` + string(rune(iterations)) + `}`))
+	response.WriteSuccessResult(w, "Triggered high CPU usage! Duration: "+duration.String())
 }
 
 // SimulateCyclicGC 模拟周期性GC场景
@@ -161,9 +155,7 @@ func (ps *PProfScenarios) SimulateCyclicGC(w http.ResponseWriter, r *http.Reques
 	current.next = head
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Triggered GC after creating cyclic objects!", "duration": "` + duration.String() + `", "nodes_created": ` + string(rune(nodeCount)) + `}`))
+	response.WriteSuccessResult(w, "Triggered GC after creating cyclic objects! Duration: "+duration.String())
 }
 
 // SimulateShortLivedObjectsGC 模拟短生命周期对象的GC场景
@@ -176,9 +168,7 @@ func (ps *PProfScenarios) SimulateShortLivedObjectsGC(w http.ResponseWriter, r *
 	}
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Triggered GC after creating many short-lived objects!", "duration": "` + duration.String() + `", "objects_created": ` + string(rune(objectCount)) + `}`))
+	response.WriteSuccessResult(w, "Triggered GC after creating many short-lived objects! Duration: "+duration.String())
 }
 
 // SimulateLongLivedObjectsGC 模拟长时间持有对象的GC场景
@@ -192,9 +182,7 @@ func (ps *PProfScenarios) SimulateLongLivedObjectsGC(w http.ResponseWriter, r *h
 	}
 
 	duration := time.Since(start)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Triggered GC after holding many long-lived objects!", "duration": "` + duration.String() + `", "objects_held": ` + string(rune(len(ps.longLivedObjects))) + `}`))
+	response.WriteSuccessResult(w, "Triggered GC after holding many long-lived objects! Duration: "+duration.String())
 }
 
 // TreeNode 树节点结构
@@ -223,9 +211,7 @@ func (ps *PProfScenarios) SimulateComplexStructureGC(w http.ResponseWriter, r *h
 	}
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Triggered GC after creating a complex tree structure!", "duration": "` + duration.String() + `", "nodes_created": ` + string(rune(nodeCount)) + `}`))
+	response.WriteSuccessResult(w, "Triggered GC after creating a complex tree structure! Duration: "+duration.String())
 }
 
 // SimulateConcurrentGC 模拟并发场景的GC场景
@@ -247,9 +233,7 @@ func (ps *PProfScenarios) SimulateConcurrentGC(w http.ResponseWriter, r *http.Re
 	wg.Wait()
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Triggered GC after concurrent creation of many objects!", "duration": "` + duration.String() + `", "workers": ` + string(rune(numWorkers)) + `, "total_objects": ` + string(rune(numWorkers*objectsPerWorker)) + `}`))
+	response.WriteSuccessResult(w, "Triggered GC after concurrent creation of many objects! Duration: "+duration.String())
 }
 
 // SimulateMemoryAllocate 模拟内存分配
@@ -268,9 +252,7 @@ func (ps *PProfScenarios) SimulateMemoryAllocate(w http.ResponseWriter, r *http.
 	}
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Memory allocation test completed!", "duration": "` + duration.String() + `", "allocations": ` + string(rune(len(allocations))) + `}`))
+	response.WriteSuccessResult(w, "Memory allocation test completed! Duration: "+duration.String())
 }
 
 // SimulateMemoryLeak 模拟内存泄漏（注意：这只是演示，不是真正的泄漏）
@@ -284,9 +266,7 @@ func (ps *PProfScenarios) SimulateMemoryLeak(w http.ResponseWriter, r *http.Requ
 	}
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Memory leak simulation completed!", "duration": "` + duration.String() + `", "leaked_objects": 1000}`))
+	response.WriteSuccessResult(w, "Memory leak simulation completed! Duration: "+duration.String())
 }
 
 // SimulateMemoryFragmentation 模拟内存碎片化
@@ -310,9 +290,7 @@ func (ps *PProfScenarios) SimulateMemoryFragmentation(w http.ResponseWriter, r *
 	}
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Memory fragmentation test completed!", "duration": "` + duration.String() + `", "final_allocations": ` + string(rune(len(allocations))) + `}`))
+	response.WriteSuccessResult(w, "Memory fragmentation test completed! Duration: "+duration.String())
 }
 
 // SimulateCPUIntensive 模拟CPU密集型操作
@@ -326,9 +304,7 @@ func (ps *PProfScenarios) SimulateCPUIntensive(w http.ResponseWriter, r *http.Re
 	}
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "CPU intensive test completed!", "duration": "` + duration.String() + `", "result": ` + string(rune(int(result))) + `}`))
+	response.WriteSuccessResult(w, "CPU intensive test completed! Duration: "+duration.String())
 }
 
 // fibonacci 递归计算斐波那契数列
@@ -344,12 +320,10 @@ func (ps *PProfScenarios) SimulateCPURecursive(w http.ResponseWriter, r *http.Re
 	start := time.Now()
 
 	// 计算一个较大的斐波那契数
-	result := fibonacci(35)
+	_ = fibonacci(35)
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "CPU recursive test completed!", "duration": "` + duration.String() + `", "fibonacci(35)": ` + string(rune(result)) + `}`))
+	response.WriteSuccessResult(w, "CPU recursive test completed! Duration: "+duration.String())
 }
 
 // SimulateGoroutineSpawn 模拟大量Goroutine创建
@@ -368,9 +342,7 @@ func (ps *PProfScenarios) SimulateGoroutineSpawn(w http.ResponseWriter, r *http.
 	wg.Wait()
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Goroutine spawn test completed!", "duration": "` + duration.String() + `", "goroutines_spawned": ` + string(rune(numGoroutines)) + `}`))
+	response.WriteSuccessResult(w, "Goroutine spawn test completed! Duration: "+duration.String())
 }
 
 // SimulateGoroutineLeak 模拟Goroutine泄漏
@@ -386,9 +358,7 @@ func (ps *PProfScenarios) SimulateGoroutineLeak(w http.ResponseWriter, r *http.R
 	}
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Goroutine leak simulation completed!", "duration": "` + duration.String() + `", "leaked_goroutines": ` + string(rune(numLeakedGoroutines)) + `}`))
+	response.WriteSuccessResult(w, "Goroutine leak simulation completed! Duration: "+duration.String())
 }
 
 // SimulateMutexContention 模拟互斥锁竞争
@@ -415,9 +385,7 @@ func (ps *PProfScenarios) SimulateMutexContention(w http.ResponseWriter, r *http
 	wg.Wait()
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Mutex contention test completed!", "duration": "` + duration.String() + `", "final_counter": ` + string(rune(counter)) + `}`))
+	response.WriteSuccessResult(w, "Mutex contention test completed! Duration: "+duration.String())
 }
 
 // CleanupAll 清理所有持有的对象
@@ -425,7 +393,6 @@ func (ps *PProfScenarios) CleanupAll(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	// 清理长生命周期对象
-	objectCount := len(ps.longLivedObjects)
 	ps.longLivedObjects = ps.longLivedObjects[:0]
 
 	// 手动触发GC
@@ -433,7 +400,5 @@ func (ps *PProfScenarios) CleanupAll(w http.ResponseWriter, r *http.Request) {
 	runtime.GC() // 连续调用两次确保清理
 
 	duration := time.Since(start)
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Cleanup completed!", "duration": "` + duration.String() + `", "objects_cleaned": ` + string(rune(objectCount)) + `}`))
+	response.WriteSuccessResult(w, "Cleanup completed! Duration: "+duration.String())
 }

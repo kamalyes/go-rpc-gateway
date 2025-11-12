@@ -18,6 +18,7 @@ import (
 
 	gopprof "github.com/kamalyes/go-config/pkg/pprof"
 	"github.com/kamalyes/go-rpc-gateway/constants"
+	"github.com/kamalyes/go-rpc-gateway/response"
 )
 
 // PProfOptions pprof配置选项
@@ -150,21 +151,11 @@ func (cfg *PProfGatewayConfig) GetPProfEndpoints() []PProfInfo {
 // CreatePProfStatusAPIHandler 创建pprof状态API处理器
 func (cfg *PProfGatewayConfig) CreatePProfStatusAPIHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-
-		statusJSON := fmt.Sprintf(`{
-			"pprof_enabled": %t,
-			"pprof_path": "%s",
-			"auth_required": %t,
-			"endpoints_count": %d
-		}`,
+		response.WritePProfStatusResponse(w, 
 			cfg.IsPProfEnabled(),
 			cfg.adapter.PathPrefix,
 			cfg.adapter.RequireAuth,
 			len(cfg.GetPProfEndpoints()))
-
-		w.Write([]byte(statusJSON))
 	}
 }
 

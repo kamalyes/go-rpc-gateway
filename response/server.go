@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 15:00:00
- * @FilePath: \go-rpc-gateway\response\response.go
+ * @LastEditTime: 2025-11-13 01:20:37
+ * @FilePath: \go-rpc-gateway\response\server.go
  * @Description: HTTP响应工具函数，避免循环导入
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.

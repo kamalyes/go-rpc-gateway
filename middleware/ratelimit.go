@@ -18,33 +18,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kamalyes/go-config/pkg/ratelimit"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/response"
 )
-
-// RateLimitConfig 限流配置
-type RateLimitConfig struct {
-	RequestsPerSecond int           `json:"requestsPerSecond" yaml:"requestsPerSecond"` // 每秒允许的请求数
-	BurstSize         int           `json:"burstSize" yaml:"burstSize"`                 // 突发请求数
-	CleanupInterval   time.Duration `json:"cleanupInterval" yaml:"cleanupInterval"`     // 清理间隔
-	WindowSize        time.Duration `json:"windowSize" yaml:"windowSize"`               // 时间窗口大小
-	KeyPrefix         string        `json:"keyPrefix" yaml:"keyPrefix"`                 // Redis key 前缀
-	Enabled           bool          `json:"enabled" yaml:"enabled"`                     // 是否启用
-}
-
-// DefaultRateLimitConfig 默认限流配置
-func DefaultRateLimitConfig() *RateLimitConfig {
-	return &RateLimitConfig{
-		RequestsPerSecond: 100,
-		BurstSize:         200,
-		CleanupInterval:   time.Minute,
-		WindowSize:        time.Minute,
-		KeyPrefix:         "rate_limit",
-		Enabled:           true,
-	}
-}
 
 // RateLimiter 限流器接口
 type RateLimiter interface {
@@ -54,14 +33,14 @@ type RateLimiter interface {
 
 // RedisRateLimiter Redis 限流器
 type RedisRateLimiter struct {
-	config *RateLimitConfig
+	config *ratelimit.RateLimit
 	mu     sync.RWMutex
 }
 
 // NewRedisRateLimiter 创建 Redis 限流器
-func NewRedisRateLimiter(config *RateLimitConfig) *RedisRateLimiter {
+func NewRedisRateLimiter(config *ratelimit.RateLimit) *RedisRateLimiter {
 	if config == nil {
-		config = DefaultRateLimitConfig()
+		config = ratelimit.Default()
 	}
 
 	return &RedisRateLimiter{
@@ -110,7 +89,7 @@ func (r *RedisRateLimiter) Reset(ctx context.Context, key string) error {
 
 // MemoryRateLimiter 内存限流器
 type MemoryRateLimiter struct {
-	config   *RateLimitConfig
+	config   *ratelimit.RateLimit
 	counters map[string]*rateLimitCounter
 	mu       sync.RWMutex
 }
@@ -122,9 +101,9 @@ type rateLimitCounter struct {
 }
 
 // NewMemoryRateLimiter 创建内存限流器
-func NewMemoryRateLimiter(config *RateLimitConfig) *MemoryRateLimiter {
+func NewMemoryRateLimiter(config *ratelimit.RateLimit) *MemoryRateLimiter {
 	if config == nil {
-		config = DefaultRateLimitConfig()
+		config = ratelimit.Default()
 	}
 
 	limiter := &MemoryRateLimiter{
@@ -220,7 +199,7 @@ func RateLimitMiddleware(limiter RateLimiter) HTTPMiddleware {
 }
 
 // RateLimitMiddlewareWithConfig 带配置的限流中间件
-func RateLimitMiddlewareWithConfig(config *RateLimitConfig) HTTPMiddleware {
+func RateLimitMiddlewareWithConfig(config *ratelimit.RateLimit) HTTPMiddleware {
 	var limiter RateLimiter
 
 	// 如果全局Redis可用，使用Redis限流器，否则使用内存限流器

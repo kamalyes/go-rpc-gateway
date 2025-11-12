@@ -3,7 +3,7 @@
 * @Date: 2024-11-07 00:00:00
 * @LastEditors: kamalyes 501893067@qq.com
 * @LastEditTime: 2025-11-12 09:25:30
-* @FilePath: \engine-im-push-service\go-rpc-gateway\breaker\manager.go
+* @FilePath: \go-rpc-gateway\breaker\manager.go
 * @Description: CircuitBreaker 管理器 - 管理多个断路器实例
 *
 * Copyright (c) 2025 by kamalyes, All Rights Reserved.

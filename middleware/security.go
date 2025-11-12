@@ -43,15 +43,6 @@ func CORSMiddleware() HTTPMiddleware {
 	}
 }
 
-// CORSConfig CORS 配置
-type CORSConfig struct {
-	AllowOrigins     []string `json:"allowOrigins" yaml:"allowOrigins"`
-	AllowMethods     []string `json:"allowMethods" yaml:"allowMethods"`
-	AllowHeaders     []string `json:"allowHeaders" yaml:"allowHeaders"`
-	AllowCredentials bool     `json:"allowCredentials" yaml:"allowCredentials"`
-	MaxAge           int      `json:"maxAge" yaml:"maxAge"`
-}
-
 // DefaultCORSConfig 默认 CORS 配置
 func DefaultCORSConfig() *cors.Cors {
 	return &cors.Cors{
@@ -308,10 +299,5 @@ func writeSecurityError(w http.ResponseWriter, httpStatus int, statusCode common
 // CSRFTokenHandler 提供CSRF token的端点
 func CSRFTokenHandler(w http.ResponseWriter, r *http.Request) {
 	token := generateCSRFToken()
-
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	w.WriteHeader(http.StatusOK)
-
-	response := fmt.Sprintf(`{"csrf_token": "%s"}`, token)
-	w.Write([]byte(response))
+	response.WriteCSRFTokenResponse(w, token)
 }

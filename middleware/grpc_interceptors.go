@@ -176,7 +176,7 @@ func (im *InterceptorManager) panicRecoveryHandler() grpc_recovery.RecoveryHandl
 		}
 
 		// 记录 panic 详情
-		im.logger.Error("recovered from panic",
+		im.logger.ErrorKV("recovered from panic",
 			"panic", p,
 			"stack", string(debug.Stack()))
 

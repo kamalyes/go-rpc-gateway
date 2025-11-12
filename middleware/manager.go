@@ -69,13 +69,7 @@ func NewManager() (*Manager, error) {
 
 	// 初始化监控管理器
 	if cfg.Middleware.Metrics != nil && cfg.Middleware.Metrics.Enabled {
-		metricsConfig := &MetricsConfig{
-			Enabled:   cfg.Middleware.Metrics.Enabled,
-			Path:      cfg.Middleware.Metrics.Path,
-			Namespace: "", // go-config 没有 Namespace 字段，使用空字符串或默认值
-			Subsystem: cfg.Middleware.Metrics.Subsystem,
-		}
-		manager.metricsManager, err = NewMetricsManager(metricsConfig)
+		manager.metricsManager, err = NewMetricsManager(cfg.Middleware.Metrics)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init metrics manager: %w", err)
 		}
@@ -91,16 +85,7 @@ func NewManager() (*Manager, error) {
 
 	// 初始化i18n管理器
 	if cfg.Middleware.I18N != nil && cfg.Middleware.I18N.Enabled {
-		i18nConfig := &I18nConfig{
-			DefaultLanguage:    cfg.Middleware.I18N.DefaultLanguage,
-			SupportedLanguages: cfg.Middleware.I18N.SupportedLanguages,
-			DetectionOrder:     []string{}, // go-config 没有 DetectionOrder，使用默认值
-			LanguageParam:      cfg.Middleware.I18N.QueryParam,
-			LanguageHeader:     cfg.Middleware.I18N.HeaderName,
-			MessagesPath:       cfg.Middleware.I18N.LocaleDir,
-			EnableFallback:     true, // go-config 没有此字段，默认启用
-		}
-		manager.i18nManager, err = NewI18nManager(i18nConfig)
+		manager.i18nManager, err = NewI18nManager(cfg.Middleware.I18N)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init i18n manager: %w", err)
 		}

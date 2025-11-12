@@ -16,11 +16,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
+	goconfigi18n "github.com/kamalyes/go-config/pkg/i18n"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 )
 
@@ -32,266 +31,20 @@ const (
 	I18nContextKey contextKey = "i18n"
 )
 
-// I18nConfig 国际化中间件配置
-type I18nConfig struct {
-	// 默认语言
-	DefaultLanguage string
-	// 支持的语言列表
-	SupportedLanguages []string
-	// 语言映射关系，支持地区变体映射到基础语言
-	// 例如: {"zh-cn": "zh", "zh-tw": "zh-tw", "en-us": "en", "fr-fr": "fr"}
-	LanguageMapping map[string]string
-	// 语言检测顺序：header, query, cookie, default
-	DetectionOrder []string
-	// 语言参数名称（用于query和cookie）
-	LanguageParam string
-	// 语言头名称
-	LanguageHeader string
-	// 消息文件路径
-	MessagesPath string
-	// 自定义消息文件路径映射，允许为特定语言指定不同的文件路径
-	// 例如: {"zh-tw": "./locales/traditional", "en": "./locales/english"}
-	CustomMessagePaths map[string]string
-	// 是否启用回退到默认语言
-	EnableFallback bool
-	// 自定义消息加载器
-	MessageLoader MessageLoader
-}
-
-// MessageLoader 消息加载器接口
-type MessageLoader interface {
-	LoadMessages(language string) (map[string]string, error)
-}
-
-// FileMessageLoader 文件消息加载器
-type FileMessageLoader struct {
-	basePath           string
-	customMessagePaths map[string]string
-	languageMapping    map[string]string
-}
-
-// NewFileMessageLoader 创建文件消息加载器
-func NewFileMessageLoader(basePath string, customPaths map[string]string, langMapping map[string]string) *FileMessageLoader {
-	if customPaths == nil {
-		customPaths = make(map[string]string)
-	}
-	if langMapping == nil {
-		langMapping = make(map[string]string)
-	}
-	return &FileMessageLoader{
-		basePath:           basePath,
-		customMessagePaths: customPaths,
-		languageMapping:    langMapping,
-	}
-}
-
-// LoadMessages 从文件加载消息
-func (f *FileMessageLoader) LoadMessages(language string) (map[string]string, error) {
-	// 解析语言映射
-	targetLanguage := f.resolveLanguage(language)
-
-	// 获取文件路径
-	filePath := f.getMessageFilePath(targetLanguage)
-
-	// 检查文件是否存在
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		// 如果文件不存在，返回默认消息作为备用
-		return f.getDefaultMessages(targetLanguage), nil
-	}
-
-	// 读取文件内容
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read i18n file %s: %v", filePath, err)
-	}
-
-	// 解析JSON
-	var messages map[string]string
-	if err := json.Unmarshal(data, &messages); err != nil {
-		return nil, fmt.Errorf("failed to parse i18n file %s: %v", filePath, err)
-	}
-
-	return messages, nil
-} // resolveLanguage 解析语言映射
-func (f *FileMessageLoader) resolveLanguage(language string) string {
-	// 先检查完整匹配
-	if mapped, exists := f.languageMapping[language]; exists {
-		return mapped
-	}
-
-	// 尝试基础语言匹配（如 zh-cn -> zh）
-	if idx := strings.Index(language, "-"); idx > 0 {
-		baseLang := language[:idx]
-		if mapped, exists := f.languageMapping[baseLang]; exists {
-			return mapped
-		}
-	}
-
-	return language
-}
-
-// getMessageFilePath 获取消息文件路径
-func (f *FileMessageLoader) getMessageFilePath(language string) string {
-	// 检查是否有自定义路径
-	if customPath, exists := f.customMessagePaths[language]; exists {
-		return filepath.Join(customPath, fmt.Sprintf("%s.json", language))
-	}
-
-	// 使用默认路径
-	return filepath.Join(f.basePath, fmt.Sprintf("%s.json", language))
-}
-
-// getDefaultMessages 获取默认消息
-func (f *FileMessageLoader) getDefaultMessages(language string) map[string]string {
-	switch language {
-	case constants.LangEn: // English
-		return map[string]string{
-			constants.MessageKeyWelcome:         "Welcome",
-			constants.MessageKeyErrorNotFound:   "Resource not found",
-			constants.MessageKeyErrorBadRequest: "Bad request",
-			constants.MessageKeyErrorInternal:   "Internal server error",
-			constants.MessageKeySuccess:         "Success",
-		}
-	case constants.LangZh: // Chinese (Simplified)
-		return map[string]string{
-			constants.MessageKeyWelcome:         "欢迎",
-			constants.MessageKeyErrorNotFound:   "资源未找到",
-			constants.MessageKeyErrorBadRequest: "请求无效",
-			constants.MessageKeyErrorInternal:   "服务器内部错误",
-			constants.MessageKeySuccess:         "成功",
-		}
-	case constants.LangJa: // Japanese
-		return map[string]string{
-			constants.MessageKeyWelcome:         "ようこそ",
-			constants.MessageKeyErrorNotFound:   "リソースが見つかりません",
-			constants.MessageKeyErrorBadRequest: "無効なリクエスト",
-			constants.MessageKeyErrorInternal:   "サーバー内部エラー",
-			constants.MessageKeySuccess:         "成功",
-		}
-	case constants.LangKo: // Korean
-		return map[string]string{
-			constants.MessageKeyWelcome:         "환영합니다",
-			constants.MessageKeyErrorNotFound:   "리소스를 찾을 수 없습니다",
-			constants.MessageKeyErrorBadRequest: "잘못된 요청",
-			constants.MessageKeyErrorInternal:   "서버 내부 오류",
-			constants.MessageKeySuccess:         "성공",
-		}
-	case constants.LangFr: // French
-		return map[string]string{
-			constants.MessageKeyWelcome:         "Bienvenue",
-			constants.MessageKeyErrorNotFound:   "Ressource non trouvée",
-			constants.MessageKeyErrorBadRequest: "Requête invalide",
-			constants.MessageKeyErrorInternal:   "Erreur interne du serveur",
-			constants.MessageKeySuccess:         "Succès",
-		}
-	case constants.LangDe: // German
-		return map[string]string{
-			constants.MessageKeyWelcome:         "Willkommen",
-			constants.MessageKeyErrorNotFound:   "Ressource nicht gefunden",
-			constants.MessageKeyErrorBadRequest: "Ungültige Anfrage",
-			constants.MessageKeyErrorInternal:   "Interner Serverfehler",
-			constants.MessageKeySuccess:         "Erfolg",
-		}
-	case constants.LangEs: // Spanish
-		return map[string]string{
-			constants.MessageKeyWelcome:         "Bienvenido",
-			constants.MessageKeyErrorNotFound:   "Recurso no encontrado",
-			constants.MessageKeyErrorBadRequest: "Solicitud incorrecta",
-			constants.MessageKeyErrorInternal:   "Error interno del servidor",
-			constants.MessageKeySuccess:         "Éxito",
-		}
-	case constants.LangPt: // Portuguese
-		return map[string]string{
-			constants.MessageKeyWelcome:         "Bem-vindo",
-			constants.MessageKeyErrorNotFound:   "Recurso não encontrado",
-			constants.MessageKeyErrorBadRequest: "Solicitação inválida",
-			constants.MessageKeyErrorInternal:   "Erro interno do servidor",
-			constants.MessageKeySuccess:         "Sucesso",
-		}
-	case constants.LangIt: // Italian
-		return map[string]string{
-			constants.MessageKeyWelcome:         "Benvenuto",
-			constants.MessageKeyErrorNotFound:   "Risorsa non trovata",
-			constants.MessageKeyErrorBadRequest: "Richiesta non valida",
-			constants.MessageKeyErrorInternal:   "Errore interno del server",
-			constants.MessageKeySuccess:         "Successo",
-		}
-	case constants.LangRu: // Russian
-		return map[string]string{
-			constants.MessageKeyWelcome:         "Добро пожаловать",
-			constants.MessageKeyErrorNotFound:   "Ресурс не найден",
-			constants.MessageKeyErrorBadRequest: "Неверный запрос",
-			constants.MessageKeyErrorInternal:   "Внутренняя ошибка сервера",
-			constants.MessageKeySuccess:         "Успех",
-		}
-	case constants.LangAr: // Arabic
-		return map[string]string{
-			constants.MessageKeyWelcome:         "مرحباً",
-			constants.MessageKeyErrorNotFound:   "المورد غير موجود",
-			constants.MessageKeyErrorBadRequest: "طلب غير صحيح",
-			constants.MessageKeyErrorInternal:   "خطأ داخلي في الخادم",
-			constants.MessageKeySuccess:         "نجح",
-		}
-	case constants.LangHi: // Hindi
-		return map[string]string{
-			constants.MessageKeyWelcome:         "स्वागत है",
-			constants.MessageKeyErrorNotFound:   "संसाधन नहीं मिला",
-			constants.MessageKeyErrorBadRequest: "गलत अनुरोध",
-			constants.MessageKeyErrorInternal:   "सर्वर आंतरिक त्रुटि",
-			constants.MessageKeySuccess:         "सफलता",
-		}
-	case constants.LangTh: // Thai
-		return map[string]string{
-			constants.MessageKeyWelcome:         "ยินดีต้อนรับ",
-			constants.MessageKeyErrorNotFound:   "ไม่พบทรัพยากร",
-			constants.MessageKeyErrorBadRequest: "คำขอไม่ถูกต้อง",
-			constants.MessageKeyErrorInternal:   "ข้อผิดพลาดภายในเซิร์ฟเวอร์",
-			constants.MessageKeySuccess:         "สำเร็จ",
-		}
-	case constants.LangTr: // Turkish
-		return map[string]string{
-			constants.MessageKeyWelcome:         "Hoş geldiniz",
-			constants.MessageKeyErrorNotFound:   "Kaynak bulunamadı",
-			constants.MessageKeyErrorBadRequest: "Geçersiz istek",
-			constants.MessageKeyErrorInternal:   "Sunucu iç hatası",
-			constants.MessageKeySuccess:         "Başarı",
-		}
-	case constants.LangNl: // Dutch
-		return map[string]string{
-			constants.MessageKeyWelcome:         "Welkom",
-			constants.MessageKeyErrorNotFound:   "Bron niet gevonden",
-			constants.MessageKeyErrorBadRequest: "Ongeldig verzoek",
-			constants.MessageKeyErrorInternal:   "Interne serverfout",
-			constants.MessageKeySuccess:         "Succes",
-		}
-	case constants.LangSv: // Swedish
-		return map[string]string{
-			constants.MessageKeyWelcome:         "Välkommen",
-			constants.MessageKeyErrorNotFound:   "Resursen hittades inte",
-			constants.MessageKeyErrorBadRequest: "Ogiltigt förfrågan",
-			constants.MessageKeyErrorInternal:   "Intern serverfel",
-			constants.MessageKeySuccess:         "Framgång",
-		}
-	default:
-		return nil
-	}
-} // I18nManager 国际化管理器
+// I18nManager 国际化管理器
 type I18nManager struct {
-	config   *I18nConfig
+	config   *goconfigi18n.I18N
 	messages map[string]map[string]string
 	mutex    sync.RWMutex
 }
 
 // NewI18nManager 创建国际化管理器
-func NewI18nManager(config *I18nConfig) (*I18nManager, error) {
-	if config.MessageLoader == nil {
-		config.MessageLoader = NewFileMessageLoader(
-			config.MessagesPath,
-			config.CustomMessagePaths,
-			config.LanguageMapping,
-		)
+func NewI18nManager(config *goconfigi18n.I18N) (*I18nManager, error) {
+	if config == nil {
+		config = goconfigi18n.Default()
 	}
 
+	// MessageLoader 会在实际使用时创建，这里先不设置
 	manager := &I18nManager{
 		config:   config,
 		messages: make(map[string]map[string]string),
@@ -450,34 +203,13 @@ func (i *I18nManager) IsLanguageSupported(language string) bool {
 	return false
 }
 
-// DefaultI18nConfig 默认国际化配置
-func DefaultI18nConfig() *I18nConfig {
-	return &I18nConfig{
-		DefaultLanguage:    constants.I18nDefaultLanguage,
-		SupportedLanguages: constants.I18nDefaultSupportedLanguages,
-		DetectionOrder:     constants.I18nDefaultDetectionOrder,
-		LanguageParam:      constants.I18nDefaultLanguageParam,
-		LanguageHeader:     constants.HeaderAcceptLanguage,
-		MessagesPath:       constants.I18nDefaultMessagesPath,
-		EnableFallback:     true,
-		// 默认语言映射，支持常见的地区变体
-		LanguageMapping: constants.I18nDefaultLanguageMapping,
-		// 自定义消息路径，可以为特定语言指定不同目录
-		CustomMessagePaths: map[string]string{
-			// 示例：特殊语言可以放在不同目录
-			// "zh-tw": "locales/traditional",
-			// "fr-fr": "locales/france",
-		},
-	}
-}
-
-// I18n 国际化中间件
+// I18n 国际化中间件，使用默认配置
 func I18n() MiddlewareFunc {
-	return I18nWithConfig(DefaultI18nConfig())
+	return I18nWithConfig(goconfigi18n.Default())
 }
 
 // I18nWithConfig 带配置的国际化中间件
-func I18nWithConfig(config *I18nConfig) MiddlewareFunc {
+func I18nWithConfig(config *goconfigi18n.I18N) MiddlewareFunc {
 	manager, err := NewI18nManager(config)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create i18n manager: %v", err))
@@ -512,7 +244,7 @@ func I18nWithManager(manager *I18nManager) MiddlewareFunc {
 }
 
 // detectLanguage 检测用户语言偏好
-func detectLanguage(r *http.Request, config *I18nConfig) string {
+func detectLanguage(r *http.Request, config *goconfigi18n.I18N) string {
 	for _, method := range config.DetectionOrder {
 		switch method {
 		case "header":
@@ -535,7 +267,7 @@ func detectLanguage(r *http.Request, config *I18nConfig) string {
 }
 
 // detectFromHeader 从HTTP头检测语言
-func detectFromHeader(r *http.Request, config *I18nConfig) string {
+func detectFromHeader(r *http.Request, config *goconfigi18n.I18N) string {
 	acceptLanguage := r.Header.Get(config.LanguageHeader)
 	if acceptLanguage == "" {
 		return ""
@@ -557,12 +289,12 @@ func detectFromHeader(r *http.Request, config *I18nConfig) string {
 }
 
 // detectFromQuery 从查询参数检测语言
-func detectFromQuery(r *http.Request, config *I18nConfig) string {
+func detectFromQuery(r *http.Request, config *goconfigi18n.I18N) string {
 	return r.URL.Query().Get(config.LanguageParam)
 }
 
 // detectFromCookie 从Cookie检测语言
-func detectFromCookie(r *http.Request, config *I18nConfig) string {
+func detectFromCookie(r *http.Request, config *goconfigi18n.I18N) string {
 	cookie, err := r.Cookie(config.LanguageParam)
 	if err != nil {
 		return ""
@@ -731,50 +463,3 @@ func (j *JSONMessageLoader) LoadMessages(language string) (map[string]string, er
 	}
 	return nil, fmt.Errorf("language %s not found", language)
 }
-
-// ConfigurableI18nMiddleware 可配置的国际化中间件
-// TODO: 重构为使用 go-config 的 i18n.I18N 配置
-/*
-func ConfigurableI18nMiddleware(i18nConfig *config.I18nConfig) HTTPMiddleware {
-	if i18nConfig == nil || !i18nConfig.Enabled {
-		return func(next http.Handler) http.Handler {
-			return next
-		}
-	}
-
-	// 创建 I18n 管理器
-	config := &I18nConfig{
-		DefaultLanguage:    i18nConfig.DefaultLanguage,
-		SupportedLanguages: i18nConfig.SupportedLanguages,
-		DetectionOrder:     i18nConfig.Detection.Sources,
-		LanguageParam:      i18nConfig.Detection.QueryParam,
-		LanguageHeader:     i18nConfig.Detection.HeaderName,
-		MessagesPath:       i18nConfig.Translations.Path,
-		EnableFallback:     i18nConfig.Translations.Fallback,
-	}
-
-	// 设置默认值
-	if config.DefaultLanguage == "" {
-		config.DefaultLanguage = constants.I18nDefaultLanguage
-	}
-	if config.LanguageParam == "" {
-		config.LanguageParam = constants.I18nDefaultLanguageParam
-	}
-	if config.LanguageHeader == "" {
-		config.LanguageHeader = constants.I18nDefaultLanguageHeader
-	}
-	if len(config.DetectionOrder) == 0 {
-		config.DetectionOrder = constants.I18nDefaultDetectionOrder
-	}
-
-	manager, err := NewI18nManager(config)
-	if err != nil {
-		// 如果初始化失败，返回一个无操作的中间件
-		return func(next http.Handler) http.Handler {
-			return next
-		}
-	}
-
-	return HTTPMiddleware(I18nWithManager(manager))
-}
-*/

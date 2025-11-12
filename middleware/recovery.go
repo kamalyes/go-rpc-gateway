@@ -17,53 +17,23 @@ import (
 	"net/http"
 	"runtime"
 
+	"github.com/kamalyes/go-config/pkg/recovery"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
 )
 
-// Recovery 恢复中间件，捕获panic并返回友好的错误响应
+// Recovery 恢复中间件，使用默认配置
 func Recovery() MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			defer func() {
-				if err := recover(); err != nil {
-					// 获取堆栈信息
-					buf := make([]byte, 2048)
-					n := runtime.Stack(buf, false)
-					stackTrace := string(buf[:n])
-
-					// 使用全局logger记录错误
-					global.LOGGER.ErrorKV("请求恐慌恢复",
-						"error", err,
-						"path", r.URL.Path,
-						"method", r.Method,
-						"remote_addr", r.RemoteAddr,
-						"stack_trace", string(stackTrace))
-
-					// 设置响应头
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusInternalServerError)
-
-					// 创建标准化错误响应
-					result := &commonapis.Result{
-						Code:   int32(http.StatusInternalServerError),
-						Error:  "服务器内部错误",
-						Status: commonapis.StatusCode_Internal,
-					}
-
-					if err := json.NewEncoder(w).Encode(result); err != nil && global.LOGGER != nil {
-						global.LOGGER.WithError(err).ErrorMsg("写入panic响应失败")
-					}
-				}
-			}()
-
-			next.ServeHTTP(w, r)
-		})
-	}
+	return RecoveryWithConfig(recovery.Default())
 }
 
 // RecoveryWithConfig Recovery中间件配置版本
-func RecoveryWithConfig(config RecoveryConfig) MiddlewareFunc {
+func RecoveryWithConfig(config *recovery.Recovery) MiddlewareFunc {
+	// 如果配置为 nil，使用默认配置
+	if config == nil {
+		config = recovery.Default()
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
@@ -116,30 +86,13 @@ func RecoveryWithConfig(config RecoveryConfig) MiddlewareFunc {
 						result.Error = fmt.Sprintf("%s | Debug: %s", message, debugInfo)
 					}
 
-					json.NewEncoder(w).Encode(result)
+					if err := json.NewEncoder(w).Encode(result); err != nil && global.LOGGER != nil {
+						global.LOGGER.WithError(err).ErrorMsg("写入panic响应失败")
+					}
 				}
 			}()
 
 			next.ServeHTTP(w, r)
 		})
-	}
-}
-
-// RecoveryConfig Recovery中间件配置
-type RecoveryConfig struct {
-	EnableStack     bool
-	StackSize       int
-	EnableDebug     bool
-	ErrorMessage    string
-	RecoveryHandler func(http.ResponseWriter, *http.Request, interface{})
-}
-
-// DefaultRecoveryConfig 默认Recovery配置
-func DefaultRecoveryConfig() RecoveryConfig {
-	return RecoveryConfig{
-		EnableStack:  true,
-		StackSize:    4096,
-		EnableDebug:  false,
-		ErrorMessage: "服务器内部错误",
 	}
 }

@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 15:11:15
+ * @LastEditTime: 2025-11-12 21:51:15
  * @FilePath: \go-rpc-gateway\gateway.go
  * @Description: Gateway主入口，基于go-config
  *
@@ -21,11 +21,16 @@ import (
 	"os"
 	"time"
 
+	"github.com/bwmarrin/snowflake"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	"github.com/kamalyes/go-rpc-gateway/cpool"
 	"github.com/kamalyes/go-rpc-gateway/server"
+	"github.com/minio/minio-go/v7"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
+	"gorm.io/gorm"
 )
 
 // Gateway 是主要的网关服务器
@@ -287,4 +292,51 @@ func (g *Gateway) RegisterConfigCallbacks() {
 		fmt.Printf("🌍 环境变更: %s -> %s\n", oldEnv, newEnv)
 		return nil
 	}, goconfig.CallbackPriorityHigh, false)
+}
+
+// ================ 连接池管理方法 ================
+
+// GetPoolManager 获取连接池管理器
+func (g *Gateway) GetPoolManager() cpool.PoolManager {
+	return g.Server.GetPoolManager()
+}
+
+// GetDB 获取数据库连接
+func (g *Gateway) GetDB() *gorm.DB {
+	if poolManager := g.GetPoolManager(); poolManager != nil {
+		return poolManager.GetDB()
+	}
+	return nil
+}
+
+// GetRedis 获取Redis客户端
+func (g *Gateway) GetRedis() *redis.Client {
+	if poolManager := g.GetPoolManager(); poolManager != nil {
+		return poolManager.GetRedis()
+	}
+	return nil
+}
+
+// GetMinIO 获取MinIO客户端
+func (g *Gateway) GetMinIO() *minio.Client {
+	if poolManager := g.GetPoolManager(); poolManager != nil {
+		return poolManager.GetMinIO()
+	}
+	return nil
+}
+
+// GetSnowflake 获取雪花ID生成器
+func (g *Gateway) GetSnowflake() *snowflake.Node {
+	if poolManager := g.GetPoolManager(); poolManager != nil {
+		return poolManager.GetSnowflake()
+	}
+	return nil
+}
+
+// HealthCheck 获取所有连接的健康状态
+func (g *Gateway) HealthCheck() map[string]bool {
+	if poolManager := g.GetPoolManager(); poolManager != nil {
+		return poolManager.HealthCheck()
+	}
+	return make(map[string]bool)
 }

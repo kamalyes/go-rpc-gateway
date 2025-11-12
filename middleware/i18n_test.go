@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-10 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 09:52:03
+ * @LastEditTime: 2025-11-13 00:06:27
  * @FilePath: \go-rpc-gateway\middleware\i18n_test.go
  * @Description: i18n国际化中间件测试
  *
@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	goconfigi18n "github.com/kamalyes/go-config/pkg/i18n"
 
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/stretchr/testify/assert"
@@ -60,8 +62,8 @@ func TestI18nMiddleware(t *testing.T) {
 	}
 }
 
-func createTestI18nConfig() *I18nConfig {
-	return &I18nConfig{
+func createTestI18nConfig() *goconfigi18n.I18N {
+	return &goconfigi18n.I18N{
 		DefaultLanguage:    "en",
 		SupportedLanguages: []string{"en", "zh", "ja"},
 		DetectionOrder:     []string{"query", "header", "default"},
@@ -139,7 +141,7 @@ func createTestRequest(queryParam, acceptLanguage string) (*http.Request, *httpt
 }
 
 func TestGetMsgByKey(t *testing.T) {
-	manager, err := NewI18nManager(DefaultI18nConfig())
+	manager, err := NewI18nManager(goconfigi18n.Default())
 	assert.NoError(t, err, errFailedToCreateI18nManager)
 
 	ctx := context.WithValue(context.Background(), I18nContextKey, &I18nContext{
@@ -157,7 +159,7 @@ func TestGetMsgByKey(t *testing.T) {
 }
 
 func TestGetMsgWithMap(t *testing.T) {
-	manager, err := NewI18nManager(DefaultI18nConfig())
+	manager, err := NewI18nManager(goconfigi18n.Default())
 	assert.NoError(t, err, errFailedToCreateI18nManager)
 
 	ctx := context.WithValue(context.Background(), I18nContextKey, &I18nContext{
@@ -181,7 +183,7 @@ func TestGetMsgWithMap(t *testing.T) {
 }
 
 func TestSetLanguage(t *testing.T) {
-	manager, err := NewI18nManager(DefaultI18nConfig())
+	manager, err := NewI18nManager(goconfigi18n.Default())
 	assert.NoError(t, err, errFailedToCreateI18nManager)
 
 	ctx := context.WithValue(context.Background(), I18nContextKey, &I18nContext{
@@ -207,7 +209,7 @@ func TestI18nFromContext(t *testing.T) {
 	assert.Nil(t, i18nCtx, "Expected nil i18n context from empty context")
 
 	// 测试带有i18n context
-	manager, err := NewI18nManager(DefaultI18nConfig())
+	manager, err := NewI18nManager(goconfigi18n.Default())
 	assert.NoError(t, err, errFailedToCreateI18nManager)
 
 	expectedI18nCtx := &I18nContext{
@@ -226,7 +228,7 @@ func TestI18nFromContext(t *testing.T) {
 
 // TestI18nManagerGetMessageWithMap 测试I18nManager的GetMessageWithMap方法
 func TestI18nManagerGetMessageWithMap(t *testing.T) {
-	manager, err := NewI18nManager(DefaultI18nConfig())
+	manager, err := NewI18nManager(goconfigi18n.Default())
 	assert.NoError(t, err, errFailedToCreateI18nManager)
 
 	tests := []struct {
@@ -274,7 +276,7 @@ func TestI18nManagerGetMessageWithMap(t *testing.T) {
 
 // TestI18nContextMethods 测试I18nContext的方法
 func TestI18nContextMethods(t *testing.T) {
-	manager, err := NewI18nManager(DefaultI18nConfig())
+	manager, err := NewI18nManager(goconfigi18n.Default())
 	assert.NoError(t, err, errFailedToCreateI18nManager)
 
 	ctx := &I18nContext{
@@ -342,7 +344,7 @@ func TestParseAcceptLanguage(t *testing.T) {
 
 // TestLocalizedError 测试本地化错误
 func TestLocalizedError(t *testing.T) {
-	manager, err := NewI18nManager(DefaultI18nConfig())
+	manager, err := NewI18nManager(goconfigi18n.Default())
 	assert.NoError(t, err, errFailedToCreateI18nManager)
 
 	ctx := context.WithValue(context.Background(), I18nContextKey, &I18nContext{
@@ -366,7 +368,7 @@ func TestLocalizedError(t *testing.T) {
 
 // TestLanguageMapping 测试语言映射功能
 func TestLanguageMapping(t *testing.T) {
-	config := DefaultI18nConfig()
+	config := goconfigi18n.Default()
 	config.MessagesPath = getTestLocalesPath()
 	manager, err := NewI18nManager(config)
 	assert.NoError(t, err, "Failed to create i18n manager")
@@ -455,7 +457,7 @@ func TestLanguageMapping(t *testing.T) {
 
 // TestCustomConfiguration 测试自定义配置
 func TestCustomConfiguration(t *testing.T) {
-	customConfig := &I18nConfig{
+	customConfig := &goconfigi18n.I18N{
 		DefaultLanguage:    "en",
 		SupportedLanguages: []string{"en", "zh", "custom"},
 		DetectionOrder:     []string{"header", "query", "cookie", "default"},
@@ -528,7 +530,7 @@ func TestAllSupportedLanguages(t *testing.T) {
 		"it", "ru", "ar", "hi", "th", "tr", "nl", "sv",
 	}
 
-	config := DefaultI18nConfig()
+	config := goconfigi18n.Default()
 	config.MessagesPath = getTestLocalesPath()
 	manager, err := NewI18nManager(config)
 	assert.NoError(t, err, errFailedToCreateI18nManager)

@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 13:58:19
+ * @LastEditTime: 2025-11-12 21:50:15
  * @FilePath: \go-rpc-gateway\server\server.go
  * @Description: Gateway服务器核心结构定义
  *
@@ -20,6 +20,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	logger "github.com/kamalyes/go-logger"
+	"github.com/kamalyes/go-rpc-gateway/cpool"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"google.golang.org/grpc"
@@ -47,6 +48,9 @@ type Server struct {
 
 	// 功能管理器
 	featureManager *FeatureManager
+
+	// 连接池管理器
+	poolManager cpool.PoolManager
 
 	// 状态管理
 	ctx    context.Context
@@ -132,6 +136,11 @@ func (s *Server) GetBannerManager() *BannerManager {
 // GetFeatureManager 获取功能管理器
 func (s *Server) GetFeatureManager() *FeatureManager {
 	return s.featureManager
+}
+
+// GetPoolManager 获取连接池管理器
+func (s *Server) GetPoolManager() cpool.PoolManager {
+	return s.poolManager
 }
 
 // EnableFeature 启用指定功能（使用配置中的默认设置）

@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 01:07:24
+ * @LastEditTime: 2025-11-12 23:31:56
  * @FilePath: \go-rpc-gateway\middleware\requestid.go
  * @Description: 请求ID中间件
  *
@@ -29,16 +29,16 @@ func RequestID() MiddlewareFunc {
 }
 
 // RequestIDWithConfig 带配置的请求ID中间件
-func RequestIDWithConfig(config RequestIDConfig) MiddlewareFunc {
+func RequestIDWithConfig(config *requestid.RequestID) MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			requestID := r.Header.Get(config.Header)
+			requestID := r.Header.Get(config.HeaderName)
 			if requestID == "" {
-				requestID = config.Generator()
+				requestID = generateRequestID(config.Generator)
 			}
 
 			// 设置响应头
-			w.Header().Set(config.Header, requestID)
+			w.Header().Set(config.HeaderName, requestID)
 
 			// 添加到context中
 			ctx := context.WithValue(r.Context(), requestIDKey("request_id"), requestID)

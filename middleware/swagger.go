@@ -17,45 +17,24 @@ import (
 	"os"
 	"strings"
 
+	goswagger "github.com/kamalyes/go-config/pkg/swagger"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
 )
 
-// SwaggerConfig Swagger配置
-// [EN] Swagger configuration
-type SwaggerConfig struct {
-	Enabled     bool   `json:"enabled" yaml:"enabled"`         // 是否启用Swagger [EN] Whether to enable Swagger
-	JSONPath    string `json:"json_path" yaml:"json_path"`     // Swagger JSON文件路径 [EN] Swagger JSON file path
-	UIPath      string `json:"ui_path" yaml:"ui_path"`         // Swagger UI路由路径 [EN] Swagger UI route path
-	Title       string `json:"title" yaml:"title"`             // 文档标题 [EN] Documentation title
-	Description string `json:"description" yaml:"description"` // 文档描述 [EN] Documentation description
-}
-
-// DefaultSwaggerConfig 默认Swagger配置
-// [EN] Default Swagger configuration
-func DefaultSwaggerConfig() *SwaggerConfig {
-	return &SwaggerConfig{
-		Enabled:     false,
-		JSONPath:    "",
-		UIPath:      "/swagger",
-		Title:       "API Documentation",
-		Description: "API Documentation powered by Swagger UI",
-	}
-}
-
 // SwaggerMiddleware Swagger文档中间件
 // [EN] Swagger documentation middleware
 type SwaggerMiddleware struct {
-	config      *SwaggerConfig
+	config      *goswagger.Swagger
 	swaggerJSON []byte
 }
 
 // NewSwaggerMiddleware 创建Swagger中间件
 // [EN] Create Swagger middleware
-func NewSwaggerMiddleware(config *SwaggerConfig) *SwaggerMiddleware {
+func NewSwaggerMiddleware(config *goswagger.Swagger) *SwaggerMiddleware {
 	if config == nil {
-		config = DefaultSwaggerConfig()
+		config = goswagger.Default()
 	}
 
 	middleware := &SwaggerMiddleware{

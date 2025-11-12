@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-08 00:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 14:18:37
+ * @LastEditTime: 2025-11-12 23:59:20
  * @FilePath: \go-rpc-gateway\server\banner.go
  * @Description: Gateway启动横幅和信息展示
  *
@@ -51,14 +51,11 @@ func (b *BannerManager) AddFeature(feature string) {
 
 // PrintStartupBanner 打印启动横幅
 func (b *BannerManager) PrintStartupBanner() {
-	global.LOGGER.Info(`
- ██████╗  ██████╗       ██████╗ ██████╗  ██████╗     ██████╗  █████╗ ████████╗███████╗██╗    ██╗ █████╗ ██╗   ██╗
-██╔════╝ ██╔═══██╗      ██╔══██╗██╔══██╗██╔════╝    ██╔════╝ ██╔══██╗╚══██╔══╝██╔════╝██║    ██║██╔══██╗╚██╗ ██╔╝
-██║  ███╗██║   ██║█████╗██████╔╝██████╔╝██║         ██║  ███╗███████║   ██║   █████╗  ██║ █╗ ██║███████║ ╚████╔╝ 
-██║   ██║██║   ██║╚════╝██╔══██╗██╔═══╝ ██║         ██║   ██║██╔══██║   ██║   ██╔══╝  ██║███╗██║██╔══██║  ╚██╔╝  
-╚██████╔╝╚██████╔╝      ██║  ██║██║     ╚██████╗    ╚██████╔╝██║  ██║   ██║   ███████╗╚███╔███╔╝██║  ██║   ██║   
- ╚═════╝  ╚═════╝       ╚═╝  ╚═╝╚═╝      ╚═════╝     ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝   `)
-	global.LOGGER.Info("🚀 Go RPC Gateway - Enterprise Edition")
+	// 使用go-config中的Banner模板
+	if b.config.Banner.Template != "" {
+		global.LOGGER.Info(b.config.Banner.Template)
+	}
+	global.LOGGER.Info("🚀 " + b.config.Banner.Title + " - Enterprise Edition")
 	global.LOGGER.Info("")
 
 	// 基础信息
@@ -160,7 +157,7 @@ func (b *BannerManager) printMiddlewareFeatures() {
 		global.LOGGER.Info("   ✅ CORS跨域支持")
 	}
 
-	if b.config.Security.RateLimit != nil && b.config.Security.RateLimit.Enabled {
+	if b.config.RateLimit != nil && b.config.RateLimit.Enabled {
 		global.LOGGER.Info("   ✅ 限流控制")
 	}
 
@@ -255,7 +252,7 @@ func (b *BannerManager) PrintMiddlewareStatus() {
 		{"RequestID", b.config.Middleware.RequestID != nil && b.config.Middleware.RequestID.Enabled, "请求ID生成"},
 		{"I18n", b.config.Middleware.I18N != nil && b.config.Middleware.I18N.Enabled, "国际化支持"},
 		{"CORS", b.config.CORS.AllowedAllOrigins || len(b.config.CORS.AllowedOrigins) > 0, "跨域处理"},
-		{"RateLimit", b.config.Security.RateLimit != nil && b.config.Security.RateLimit.Enabled, "限流控制"},
+		{"RateLimit", b.config.RateLimit != nil && b.config.RateLimit.Enabled, "限流控制"},
 		{"AccessLog", b.config.Middleware.Logging != nil && b.config.Middleware.Logging.Enabled, "访问日志"},
 		{"Auth", b.config.JWT.SigningKey != "", "身份认证"},
 		{"Security", b.config.Security.Enabled, "安全头设置"},

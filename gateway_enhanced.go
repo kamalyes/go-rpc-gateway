@@ -15,6 +15,7 @@ import (
 	"net/http"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/kamalyes/go-rpc-gateway/response"
 )
 
 // RegisterCustomHandler 注册自定义处理器（支持路径参数）
@@ -54,20 +55,7 @@ func (g *Gateway) RegisterHealthCheck(path string, handler http.HandlerFunc) {
 // RegisterVersionEndpoint 注册版本信息端点
 func (g *Gateway) RegisterVersionEndpoint(path string, version, gitBranch, gitHash, buildTime string) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		response := map[string]string{
-			"version":    version,
-			"git_branch": gitBranch,
-			"git_hash":   gitHash,
-			"build_time": buildTime,
-		}
-		// 简单的 JSON 编码
-		w.Write([]byte("{"))
-		w.Write([]byte("\"version\":\"" + response["version"] + "\","))
-		w.Write([]byte("\"git_branch\":\"" + response["git_branch"] + "\","))
-		w.Write([]byte("\"git_hash\":\"" + response["git_hash"] + "\","))
-		w.Write([]byte("\"build_time\":\"" + response["build_time"] + "\""))
-		w.Write([]byte("}"))
+		response.WriteVersionResponse(w, version, gitBranch, gitHash, buildTime)
 	}
 	g.RegisterHTTPRoute(path, handler)
 }

@@ -15,35 +15,16 @@ import (
 	"net/http"
 	"time"
 
+	gologging "github.com/kamalyes/go-config/pkg/logging"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/osx"
 )
 
-// LoggingConfig 日志配置
-type LoggingConfig struct {
-	Enabled        bool     `json:"enabled" yaml:"enabled"`
-	Format         string   `json:"format" yaml:"format"` // "json" 或 "text"
-	IncludeBody    bool     `json:"includeBody" yaml:"includeBody"`
-	IncludeQuery   bool     `json:"includeQuery" yaml:"includeQuery"`
-	IncludeHeaders []string `json:"includeHeaders" yaml:"includeHeaders"`
-}
-
-// DefaultLoggingConfig 默认日志配置
-func DefaultLoggingConfig() *LoggingConfig {
-	return &LoggingConfig{
-		Enabled:        true,
-		Format:         "text",
-		IncludeBody:    false,
-		IncludeQuery:   true,
-		IncludeHeaders: []string{constants.HeaderUserAgent, constants.HeaderXRequestID, constants.HeaderXTraceID},
-	}
-}
-
 // LoggingMiddleware 日志中间件
-func LoggingMiddleware(config *LoggingConfig) HTTPMiddleware {
+func LoggingMiddleware(config *gologging.Logging) HTTPMiddleware {
 	if config == nil {
-		config = DefaultLoggingConfig()
+		config = gologging.Default()
 	}
 
 	if !config.Enabled {
@@ -95,7 +76,7 @@ func (rw *loggingResponseWriter) Write(data []byte) (int, error) {
 }
 
 // logRequestText 文本格式日志
-func logRequestText(r *http.Request, rw *loggingResponseWriter, duration time.Duration, config *LoggingConfig) {
+func logRequestText(r *http.Request, rw *loggingResponseWriter, duration time.Duration, config *gologging.Logging) {
 	logLine := fmt.Sprintf("[%s] %s %s %d %d %v %s",
 		time.Now().Format(time.RFC3339),
 		r.Method,
@@ -106,22 +87,23 @@ func logRequestText(r *http.Request, rw *loggingResponseWriter, duration time.Du
 		r.RemoteAddr,
 	)
 
-	if config.IncludeQuery && r.URL.RawQuery != "" {
+	if config.EnableRequest && r.URL.RawQuery != "" {
 		logLine += fmt.Sprintf(" query=%s", r.URL.RawQuery)
 	}
 
-	// 包含指定的头部
-	for _, header := range config.IncludeHeaders {
-		if value := r.Header.Get(header); value != "" {
-			logLine += fmt.Sprintf(" %s=%s", header, value)
-		}
+	// 添加常用头部信息
+	if userAgent := r.Header.Get(constants.HeaderUserAgent); userAgent != "" {
+		logLine += fmt.Sprintf(" user-agent=%s", userAgent)
+	}
+	if requestID := r.Header.Get(constants.HeaderXRequestID); requestID != "" {
+		logLine += fmt.Sprintf(" request-id=%s", requestID)
 	}
 
 	global.LOGGER.Info(logLine)
 }
 
 // logRequestJSON JSON 格式日志
-func logRequestJSON(r *http.Request, rw *loggingResponseWriter, duration time.Duration, config *LoggingConfig) {
+func logRequestJSON(r *http.Request, rw *loggingResponseWriter, duration time.Duration, config *gologging.Logging) {
 	logData := map[string]interface{}{
 		"timestamp":     time.Now().Format(time.RFC3339),
 		"method":        r.Method,
@@ -133,19 +115,19 @@ func logRequestJSON(r *http.Request, rw *loggingResponseWriter, duration time.Du
 		"user_agent":    r.UserAgent(),
 	}
 
-	if config.IncludeQuery && r.URL.RawQuery != "" {
+	if config.EnableRequest && r.URL.RawQuery != "" {
 		logData["query"] = r.URL.RawQuery
 	}
 
-	// 包含指定的头部
-	headers := make(map[string]string)
-	for _, header := range config.IncludeHeaders {
-		if value := r.Header.Get(header); value != "" {
-			headers[header] = value
-		}
+	// 添加常用头部信息
+	if userAgent := r.Header.Get(constants.HeaderUserAgent); userAgent != "" {
+		logData["user_agent_header"] = userAgent
 	}
-	if len(headers) > 0 {
-		logData["headers"] = headers
+	if requestID := r.Header.Get(constants.HeaderXRequestID); requestID != "" {
+		logData["request_id"] = requestID
+	}
+	if traceID := r.Header.Get(constants.HeaderXTraceID); traceID != "" {
+		logData["trace_id"] = traceID
 	}
 
 	// 简单的 JSON 输出（生产环境建议使用专业的日志库）
