@@ -152,8 +152,8 @@ github.com/kamalyes/go-logger v0.0.0-20251109052836-c53bbb5942bf h1:Lv75GBE/nd0e
 github.com/kamalyes/go-logger v0.0.0-20251109052836-c53bbb5942bf/go.mod h1:jT/mMdOKn8CIrN1ocvvblH9H8j0YOVx9u5GK5apP1+o=
 github.com/kamalyes/go-toolbox v0.11.63 h1:ajsTPzdzDrzSIki98KcXBdihmD8l0eMEQqLYGYEG57Y=
 github.com/kamalyes/go-toolbox v0.11.63/go.mod h1:iY6EK9G0gl1vDitE8dAvf9Tk/rAQi1IasdDo/uOd7Tg=
-github.com/kamalyes/go-wsc v0.1.0 h1:ql+lndV+dk2sW01LXTS3RJBo89SHFJ/ZSg+JFjxCTm8=
-github.com/kamalyes/go-wsc v0.1.0/go.mod h1:lpVaW4xil0i0uL1AJntoQ5dN4aGEpIKRpkscddE2kdg=
+github.com/kamalyes/go-wsc v0.1.1 h1:n6SKhU0M7sm0jdfy/Bl0oSAAY/FxpKqFQFpCU5I/b5M=
+github.com/kamalyes/go-wsc v0.1.1/go.mod h1:lpVaW4xil0i0uL1AJntoQ5dN4aGEpIKRpkscddE2kdg=
 github.com/klauspost/compress v1.17.9 h1:6KIumPrER1LHsvBVuDa0r5xaG0Es51mhhB9BQB2qeMA=
 github.com/klauspost/compress v1.17.9/go.mod h1:Di0epgTjJY877eYKx5yC51cX2A2Vl2ibi7bDH9ttBbw=
 github.com/klauspost/cpuid/v2 v2.0.1/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
