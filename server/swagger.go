@@ -15,7 +15,7 @@ import (
 	"net/http"
 
 	goswagger "github.com/kamalyes/go-config/pkg/swagger"
-	"github.com/kamalyes/go-core/pkg/global"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 )
 

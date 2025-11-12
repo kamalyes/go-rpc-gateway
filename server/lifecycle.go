@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 01:05:46
+ * @LastEditTime: 2025-11-12 14:13:28
  * @FilePath: \go-rpc-gateway\server\lifecycle.go
  * @Description: 服务器生命周期管理模块，包括启动、停止等
  *
@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kamalyes/go-core/pkg/global"
+	"github.com/kamalyes/go-rpc-gateway/global"
 )
 
 // Start 启动服务器
@@ -51,9 +51,9 @@ func (s *Server) Start() error {
 	}()
 
 	s.running = true
-	logger.InfoKV("🚀 Gateway启动成功!", 
-		"http_endpoint", s.config.Gateway.HTTPServer.GetEndpoint(),
-		"grpc_endpoint", s.config.Gateway.GRPC.Server.GetEndpoint())
+	logger.InfoKV("🚀 Gateway启动成功!",
+		"http_endpoint", s.config.HTTPServer.GetEndpoint(),
+		"grpc_endpoint", s.config.GRPC.Server.GetEndpoint())
 
 	return nil
 }

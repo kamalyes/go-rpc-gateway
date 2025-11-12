@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 00:37:06
+ * @LastEditTime: 2025-11-12 13:55:11
  * @FilePath: \go-rpc-gateway\middleware\manager.go
  * @Description: 中间件管理器
  *
@@ -15,8 +15,10 @@ import (
 	"fmt"
 	"net/http"
 
+	breakercof "github.com/kamalyes/go-config/pkg/breaker"
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-config/pkg/middleware"
-	"github.com/kamalyes/go-rpc-gateway/config"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 )
@@ -26,8 +28,8 @@ type Manager struct {
 	// 监控管理器
 	metricsManager *MetricsManager
 	tracingManager *TracingManager
-	// 统一配置 - 使用 go-config 的 Middleware
-	cfg *config.GatewayConfig
+	// 统一配置 - 使用 go-config 的 Gateway
+	cfg *gwconfig.Gateway
 	// 功能组件
 	rateLimiter         RateLimiter
 	accessRecordHandler AccessRecordHandler
@@ -35,20 +37,22 @@ type Manager struct {
 	pprofScenarios      *PProfScenarios
 	pprofAdapter        *PProfConfigAdapter
 	i18nManager         *I18nManager
+	breakerAdapter      *BreakerMiddlewareAdapter
 }
 
-// NewManager 创建中间件管理器 - 使用 GatewayConfig
-func NewManager(cfg *config.GatewayConfig) (*Manager, error) {
+// NewManager 创建中间件管理器 - 使用全局 GATEWAY 配置
+func NewManager() (*Manager, error) {
 	var err error
 
-	// 如果没有提供配置，使用默认配置
+	// 使用全局配置
+	cfg := global.GATEWAY
 	if cfg == nil {
-		cfg = config.DefaultGatewayConfig()
+		return nil, fmt.Errorf("global GATEWAY config is not initialized")
 	}
 
 	// 确保 Middleware 配置存在
-	if cfg.Middleware == (middleware.Middleware{}) {
-		cfg.Middleware = *middleware.Default()
+	if cfg.Middleware == nil {
+		cfg.Middleware = middleware.Default()
 	}
 
 	manager := &Manager{
@@ -102,15 +106,10 @@ func NewManager(cfg *config.GatewayConfig) (*Manager, error) {
 		}
 	}
 
-	return manager, nil
-}
+	// 初始化熔断中间件适配器（使用 go-config 的 CircuitBreaker 配置）
+	manager.breakerAdapter = NewBreakerMiddlewareAdapter(breakercof.Default())
 
-// SetConfig 设置配置
-func (m *Manager) SetConfig(cfg *config.GatewayConfig) *Manager {
-	if cfg != nil {
-		m.cfg = cfg
-	}
-	return m
+	return manager, nil
 }
 
 // WithRateLimiter 设置限流器
@@ -135,7 +134,6 @@ func (m *Manager) WithSignatureValidator(validator SignatureValidator) *Manager 
 	return m
 }
 
-// HTTPMetricsMiddleware HTTP 监控中间件
 func (m *Manager) HTTPMetricsMiddleware() MiddlewareFunc {
 	return HTTPMetrics(m.metricsManager)
 }
@@ -254,6 +252,14 @@ func (m *Manager) PProfMiddleware() MiddlewareFunc {
 	return func(next http.Handler) http.Handler { return next }
 }
 
+// BreakerMiddleware 熔断中间件
+func (m *Manager) BreakerMiddleware() MiddlewareFunc {
+	if m.breakerAdapter == nil || !m.breakerAdapter.IsEnabled() {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	return m.breakerAdapter.Middleware()
+}
+
 // MetricsHandler 返回监控指标处理器
 func (m *Manager) MetricsHandler() http.Handler {
 	if m.metricsManager == nil {
@@ -270,6 +276,11 @@ func (m *Manager) PProfHandler() http.Handler {
 	return CreatePProfHandler(m.pprofAdapter)
 }
 
+// GetBreakerAdapter 获取熔断中间件适配器
+func (m *Manager) GetBreakerAdapter() *BreakerMiddlewareAdapter {
+	return m.breakerAdapter
+}
+
 // GetDefaultMiddlewares 获取默认中间件链
 func (m *Manager) GetDefaultMiddlewares() []MiddlewareFunc {
 	middlewares := []MiddlewareFunc{
@@ -282,6 +293,9 @@ func (m *Manager) GetDefaultMiddlewares() []MiddlewareFunc {
 	if m.rateLimiter != nil {
 		middlewares = append(middlewares, m.RateLimitMiddleware())
 	}
+
+	// 添加熔断中间件
+	middlewares = append(middlewares, m.BreakerMiddleware())
 
 	middlewares = append(middlewares,
 		m.LoggingMiddleware(),
@@ -311,6 +325,7 @@ func (m *Manager) GetProductionMiddlewares() []MiddlewareFunc {
 		m.RecoveryMiddleware(),
 		m.RequestIDMiddleware(),
 		m.RateLimitMiddleware(),
+		m.BreakerMiddleware(), // 生产环境启用熔断
 		m.SignatureMiddleware(),
 		m.SecurityMiddleware(),
 		m.CORSMiddleware(),

@@ -266,9 +266,7 @@ func writeErrorResponse(w http.ResponseWriter, statusCode int, errorCode, messag
 	}`, errorCode, message, time.Now().Unix())
 
 	w.Write([]byte(response))
-}
-
-// SignatureMiddlewareWithConfig 带配置的签名中间件
+} // SignatureMiddlewareWithConfig 带配置的签名中间件
 func SignatureMiddlewareWithConfig(secretKey string, expireDuration time.Duration) HTTPMiddleware {
 	config := &SignatureConfig{
 		Enabled:        true,

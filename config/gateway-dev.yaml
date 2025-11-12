@@ -1,0 +1,67 @@
+# go-rpc-gateway 开发环境配置
+# 基于 go-config v0.7.1 标准格式
+
+name: "go-rpc-gateway 开发版"
+enabled: true
+debug: true
+version: "v1.0.0"
+environment: "development"
+
+# HTTP服务器配置
+http:
+  host: "0.0.0.0"
+  port: 8080
+  read-timeout: 30
+  write-timeout: 30
+  idle-timeout: 60
+
+# gRPC服务器配置  
+grpc:
+  host: "0.0.0.0"
+  port: 9090
+  max-recv-msg-size: 4194304
+  max-send-msg-size: 4194304
+
+# 日志配置
+logging:
+  level: "debug"
+  format: "json"
+  output: "console"
+  
+# 健康检查配置
+health-check:
+  enabled: true
+  path: "/health"
+  
+# 中间件配置
+middleware:
+  # 跨域配置
+  cors:
+    enabled: true
+    allow-origins: ["*"]
+    allow-methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allow-headers: ["*"]
+    
+  # 限流配置
+  rate-limit:
+    enabled: true
+    requests-per-second: 100
+    burst-size: 200
+    
+  # 恢复中间件
+  recovery:
+    enabled: true
+    debug: true
+    
+  # 请求ID
+  request-id:
+    enabled: true
+    header: "X-Request-ID"
+
+# Swagger文档配置
+swagger:
+  enabled: true
+  json-path: "./docs/swagger/proto/common.swagger.json"
+  ui-path: "/swagger"
+  title: "go-rpc-gateway API Documentation"
+  description: "企业级 gRPC-Gateway 微服务网关框架 API 文档"

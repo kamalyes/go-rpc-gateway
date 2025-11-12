@@ -17,7 +17,7 @@ import (
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/kamalyes/go-config/pkg/monitoring"
-	"github.com/kamalyes/go-core/pkg/global"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"

@@ -1,0 +1,139 @@
+/*
+ * @Author: kamalyes 501893067@qq.com
+ * @Date: 2024-11-07 00:00:00
+ * @LastEditors: kamalyes 501893067@qq.com
+ * @LastEditTime: 2025-11-12 10:11:54
+ * @FilePath: \go-rpc-gateway\server\response.go
+ * @Description: HTTP响应标准化工具模块
+ *
+ * Copyright (c) 2024 by kamalyes, All Rights Reserved.
+ */
+
+package response
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/kamalyes/go-rpc-gateway/constants"
+	"github.com/kamalyes/go-rpc-gateway/errors"
+	"github.com/kamalyes/go-rpc-gateway/global"
+	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
+)
+
+// HTTPStatus 定义HTTP状态码对应的Result Code
+const (
+	// 成功状态
+	HTTPStatusOK = 200
+
+	// 客户端错误状态
+	HTTPStatusBadRequest       = 400
+	HTTPStatusUnauthorized     = 401
+	HTTPStatusForbidden        = 403
+	HTTPStatusNotFound         = 404
+	HTTPStatusMethodNotAllowed = 405
+	HTTPStatusConflict         = 409
+	HTTPStatusTooManyRequests  = 429
+
+	// 服务器错误状态
+	HTTPStatusInternalServerError = 500
+	HTTPStatusBadGateway          = 502
+	HTTPStatusServiceUnavailable  = 503
+	HTTPStatusGatewayTimeout      = 504
+)
+
+// WriteResult 写入标准化Result响应
+func WriteResult(w http.ResponseWriter, httpStatus int, result *commonapis.Result) {
+	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
+	w.WriteHeader(httpStatus)
+
+	if err := json.NewEncoder(w).Encode(result); err != nil && global.LOGGER != nil {
+		global.LOGGER.WithError(err).ErrorMsg("Failed to encode Result response")
+	}
+}
+
+// WriteSuccessResult 写入成功响应
+func WriteSuccessResult(w http.ResponseWriter, message string) {
+	result := &commonapis.Result{
+		Code:   HTTPStatusOK,
+		Error:  message,
+		Status: commonapis.StatusCode_OK,
+	}
+	WriteResult(w, http.StatusOK, result)
+}
+
+// WriteErrorResult 写入错误响应
+func WriteErrorResult(w http.ResponseWriter, httpStatus int, errorMsg string, statusCode commonapis.StatusCode) {
+	result := &commonapis.Result{
+		Code:   int32(httpStatus),
+		Error:  errorMsg,
+		Status: statusCode,
+	}
+	WriteResult(w, httpStatus, result)
+}
+
+// WriteInternalServerErrorResult 写入500内部服务器错误
+func WriteInternalServerErrorResult(w http.ResponseWriter, errorMsg string) {
+	WriteErrorResult(w, http.StatusInternalServerError, errorMsg, commonapis.StatusCode_Internal)
+}
+
+// WriteServiceUnavailableResult 写入503服务不可用错误
+func WriteServiceUnavailableResult(w http.ResponseWriter, errorMsg string) {
+	WriteErrorResult(w, http.StatusServiceUnavailable, errorMsg, commonapis.StatusCode_Unavailable)
+}
+
+// WriteBadRequestResult 写入400请求错误
+func WriteBadRequestResult(w http.ResponseWriter, errorMsg string) {
+	WriteErrorResult(w, http.StatusBadRequest, errorMsg, commonapis.StatusCode_InvalidArgument)
+}
+
+// WriteNotFoundResult 写入404未找到错误
+func WriteNotFoundResult(w http.ResponseWriter, errorMsg string) {
+	WriteErrorResult(w, http.StatusNotFound, errorMsg, commonapis.StatusCode_NotFound)
+}
+
+// WriteUnauthorizedResult 写入401未授权错误
+func WriteUnauthorizedResult(w http.ResponseWriter, errorMsg string) {
+	WriteErrorResult(w, http.StatusUnauthorized, errorMsg, commonapis.StatusCode_Unauthenticated)
+}
+
+// WriteForbiddenResult 写入403禁止访问错误
+func WriteForbiddenResult(w http.ResponseWriter, errorMsg string) {
+	WriteErrorResult(w, http.StatusForbidden, errorMsg, commonapis.StatusCode_PermissionDenied)
+}
+
+// WriteTooManyRequestsResult 写入429请求过多错误
+func WriteTooManyRequestsResult(w http.ResponseWriter, errorMsg string) {
+	WriteErrorResult(w, http.StatusTooManyRequests, errorMsg, commonapis.StatusCode_ResourceExhausted)
+}
+
+// WriteAppError 写入AppError响应
+func WriteAppError(w http.ResponseWriter, appErr *errors.AppError) {
+	result := appErr.ToResult()
+	WriteResult(w, appErr.GetHTTPStatus(), result)
+}
+
+// WriteAppErrorf 写入格式化的AppError响应
+func WriteAppErrorf(w http.ResponseWriter, code errors.ErrorCode, format string, args ...interface{}) {
+	appErr := errors.NewErrorf(code, format, args...)
+	WriteAppError(w, appErr)
+}
+
+// WriteHealthCheckResult 写入健康检查结果
+func WriteHealthCheckResult(w http.ResponseWriter, isHealthy bool, component string, message string, details map[string]interface{}) {
+	if isHealthy {
+		result := &commonapis.Result{
+			Code:   HTTPStatusOK,
+			Error:  message,
+			Status: commonapis.StatusCode_OK,
+		}
+		WriteResult(w, http.StatusOK, result)
+	} else {
+		result := &commonapis.Result{
+			Code:   HTTPStatusServiceUnavailable,
+			Error:  message,
+			Status: commonapis.StatusCode_Unavailable,
+		}
+		WriteResult(w, http.StatusServiceUnavailable, result)
+	}
+}

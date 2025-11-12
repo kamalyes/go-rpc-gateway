@@ -121,10 +121,10 @@ func main() {
     
     // 检查健康检查是否启用
     config := gw.GetConfig()
-    fmt.Printf("健康检查启用: %v\n", config.Gateway.HealthCheck.Enabled)
-    fmt.Printf("健康检查路径: %s\n", config.Gateway.HealthCheck.Path)
+    fmt.Printf("健康检查启用: %v\n", config..HealthCheck.Enabled)
+    fmt.Printf("健康检查路径: %s\n", config..HealthCheck.Path)
     
-    if !config.Gateway.HealthCheck.Enabled {
+    if !config..HealthCheck.Enabled {
         fmt.Println("⚠️  警告：健康检查未启用！")
         fmt.Println("请在 config.yaml 中设置:")
         fmt.Println("gateway:")
@@ -217,9 +217,9 @@ func main() {
 	// 2. 检查配置
 	config := gw.GetConfig()
 	fmt.Println("=== 配置检查 ===")
-	fmt.Printf("健康检查启用: %v\n", config.Gateway.HealthCheck.Enabled)
-	fmt.Printf("健康检查路径: %s\n", config.Gateway.HealthCheck.Path)
-	fmt.Printf("HTTP 端口: %d\n", config.Gateway.HTTP.Port)
+	fmt.Printf("健康检查启用: %v\n", config..HealthCheck.Enabled)
+	fmt.Printf("健康检查路径: %s\n", config..HealthCheck.Path)
+	fmt.Printf("HTTP 端口: %d\n", config..HTTP.Port)
 	fmt.Println()
 
 	// 3. 启动服务（在 goroutine 中）
@@ -233,7 +233,7 @@ func main() {
 	time.Sleep(2 * time.Second)
 
 	// 5. 测试健康检查端点
-	testHealthEndpoint(config.Gateway.HTTP.Port, config.Gateway.HealthCheck.Path)
+	testHealthEndpoint(config..HTTP.Port, config..HealthCheck.Path)
 
 	// 6. 保持运行
 	select {}

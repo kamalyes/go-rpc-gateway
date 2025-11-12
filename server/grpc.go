@@ -16,7 +16,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/kamalyes/go-core/pkg/global"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
@@ -25,8 +25,8 @@ import (
 // initGRPCServer 初始化gRPC服务器
 // go-config 的 Default() 已经设置了所有默认值，无需再次设置
 func (s *Server) initGRPCServer() error {
-	grpcCfg := s.config.Gateway.GRPC.Server
-	
+	grpcCfg := s.config.GRPC.Server
+
 	opts := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(grpcCfg.MaxRecvMsgSize),
 		grpc.MaxSendMsgSize(grpcCfg.MaxSendMsgSize),
@@ -88,7 +88,7 @@ func (s *Server) initGRPCServer() error {
 
 // startGRPCServer 启动gRPC服务器
 func (s *Server) startGRPCServer() error {
-	grpcCfg := s.config.Gateway.GRPC.Server
+	grpcCfg := s.config.GRPC.Server
 	address := grpcCfg.GetEndpoint()
 	listener, err := net.Listen(grpcCfg.Network, address)
 	if err != nil {

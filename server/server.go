@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 02:45:23
+ * @LastEditTime: 2025-11-12 13:58:19
  * @FilePath: \go-rpc-gateway\server\server.go
  * @Description: Gateway服务器核心结构定义
  *
@@ -18,9 +18,9 @@ import (
 	"sync"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"github.com/kamalyes/go-core/pkg/global"
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	logger "github.com/kamalyes/go-logger"
-	"github.com/kamalyes/go-rpc-gateway/config"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -28,7 +28,7 @@ import (
 
 // Server Gateway服务器
 type Server struct {
-	config *config.GatewayConfig
+	config *gwconfig.Gateway
 
 	// 服务器组件
 	grpcServer *grpc.Server
@@ -63,10 +63,11 @@ func (s *Server) GetGatewayMux() *runtime.ServeMux {
 	return s.gwMux
 }
 
-// NewServer 创建新的Gateway服务器
-func NewServer(cfg *config.GatewayConfig) (*Server, error) {
+// NewServer 创建新的Gateway服务器 - 使用全局 GATEWAY 配置
+func NewServer() (*Server, error) {
+	cfg := global.GATEWAY
 	if cfg == nil {
-		cfg = config.DefaultGatewayConfig()
+		return nil, fmt.Errorf("global GATEWAY config is not initialized")
 	}
 
 	// 确保全局日志器被初始化
@@ -76,9 +77,9 @@ func NewServer(cfg *config.GatewayConfig) (*Server, error) {
 
 	// 记录环境配置应用情况
 	global.LOGGER.InfoKV("服务器启动配置",
-		"environment", cfg.Gateway.Environment,
-		"debug", cfg.Gateway.Debug,
-		"metrics_enabled", cfg.Gateway.Monitoring.Enabled)
+		"environment", cfg.Environment,
+		"debug", cfg.Debug,
+		"metrics_enabled", cfg.Monitoring.Enabled)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -113,19 +114,8 @@ func NewServer(cfg *config.GatewayConfig) (*Server, error) {
 	return server, nil
 }
 
-// NewServerWithConfigFile 使用配置文件创建服务器
-func NewServerWithConfigFile(configPath string) (*Server, error) {
-	loader := config.NewLoader()
-	cfg, err := loader.LoadFromFile(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	return NewServer(cfg)
-}
-
 // GetConfig 获取配置
-func (s *Server) GetConfig() *config.GatewayConfig {
+func (s *Server) GetConfig() *gwconfig.Gateway {
 	return s.config
 }
 
@@ -168,33 +158,24 @@ func (s *Server) RegisterGRPCService(registerFunc func(*grpc.Server)) {
 
 // RegisterHTTPHandler 注册HTTP处理器到网关
 func (s *Server) RegisterHTTPHandler(ctx context.Context, registerFunc func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error) error {
-	grpcAddress := s.config.Gateway.GRPC.Server.GetEndpoint()
+	grpcAddress := s.config.GRPC.Server.GetEndpoint()
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
 	return registerFunc(ctx, s.gwMux, grpcAddress, opts)
 }
 
 // ensureLoggerInitialized 确保全局日志器被正确初始化
-func ensureLoggerInitialized(cfg *config.GatewayConfig) error {
+func ensureLoggerInitialized(cfg *gwconfig.Gateway) error {
 	// 如果全局日志器已经初始化，直接返回
 	if global.LOGGER != nil {
 		return nil
 	}
 
 	// 使用 go-logger 创建一个新的日志器实例
-	// 根据配置设置日志级别
+	// 使用默认日志级别，具体配置交给 go-config 管理
 	level := logger.INFO
-	if cfg.Zap.Level != "" {
-		switch cfg.Zap.Level {
-		case "debug":
-			level = logger.DEBUG
-		case "info":
-			level = logger.INFO
-		case "warn":
-			level = logger.WARN
-		case "error":
-			level = logger.ERROR
-		}
+	if cfg.Debug {
+		level = logger.DEBUG
 	}
 
 	// 创建一个简单的 logger 实例

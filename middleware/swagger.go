@@ -17,7 +17,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/kamalyes/go-core/pkg/global"
+	"github.com/kamalyes/go-rpc-gateway/constants"
+	"github.com/kamalyes/go-rpc-gateway/global"
+	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
 )
 
 // SwaggerConfig Swagger配置
@@ -217,7 +219,7 @@ func (s *SwaggerMiddleware) handleSwaggerUI(w http.ResponseWriter, r *http.Reque
 
 	if err := tmpl.Execute(w, data); err != nil {
 		global.LOGGER.Error("渲染Swagger UI失败: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		writeSwaggerError(w, http.StatusInternalServerError, commonapis.StatusCode_Internal, "Failed to render Swagger UI")
 		return
 	}
 }
@@ -236,14 +238,29 @@ func (s *SwaggerMiddleware) handleSwaggerJSON(w http.ResponseWriter, r *http.Req
 	}
 
 	if s.swaggerJSON == nil {
-		http.Error(w, "Swagger JSON not found", http.StatusNotFound)
+		writeSwaggerError(w, http.StatusNotFound, commonapis.StatusCode_NotFound, "Swagger JSON not found")
 		return
 	}
 
 	w.Write(s.swaggerJSON)
 }
 
-// loadSwaggerJSON 加载Swagger JSON文件
+// writeSwaggerError 写入Swagger相关错误响应
+func writeSwaggerError(w http.ResponseWriter, httpStatus int, statusCode commonapis.StatusCode, message string) {
+	result := &commonapis.Result{
+		Code:   int32(httpStatus),
+		Error:  message,
+		Status: statusCode,
+	}
+
+	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
+	w.WriteHeader(httpStatus)
+
+	if err := json.NewEncoder(w).Encode(result); err != nil && global.LOGGER != nil {
+		global.LOGGER.WithError(err).ErrorMsg("Failed to encode Swagger error response")
+	}
+}
+
 // [EN] Load Swagger JSON file
 func (s *SwaggerMiddleware) loadSwaggerJSON() error {
 	data, err := os.ReadFile(s.config.JSONPath)

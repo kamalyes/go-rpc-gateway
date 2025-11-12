@@ -21,7 +21,7 @@ import (
 // initMiddleware 初始化中间件管理器
 func (s *Server) initMiddleware() error {
 	// 使用统一的配置系统创建中间件管理器
-	manager, err := middleware.NewManager(s.config)
+	manager, err := middleware.NewManager()
 	if err != nil {
 		return fmt.Errorf("failed to create middleware manager: %w", err)
 	}
@@ -39,22 +39,22 @@ func (s *Server) initMiddleware() error {
 func (s *Server) initHealthManager() error {
 	// 直接使用配置中的值，默认值已在 go-config 的 Default() 中设置
 	healthManager := middleware.NewHealthManager(
-		s.config.Gateway.Name,
-		s.config.Gateway.Version,
+		s.config.Name,
+		s.config.Version,
 	)
 
 	// 添加Redis健康检查
-	if s.config.Gateway.Health.Redis.Enabled {
+	if s.config.Health.Redis.Enabled {
 		redisChecker := middleware.NewRedisChecker(
-			time.Duration(s.config.Gateway.Health.Redis.Timeout) * time.Second,
+			time.Duration(s.config.Health.Redis.Timeout) * time.Second,
 		)
 		healthManager.RegisterChecker(redisChecker)
 	}
 
 	// 添加MySQL健康检查
-	if s.config.Gateway.Health.MySQL.Enabled {
+	if s.config.Health.MySQL.Enabled {
 		mysqlChecker := middleware.NewMySQLChecker(
-			time.Duration(s.config.Gateway.Health.MySQL.Timeout) * time.Second,
+			time.Duration(s.config.Health.MySQL.Timeout) * time.Second,
 		)
 		healthManager.RegisterChecker(mysqlChecker)
 	}

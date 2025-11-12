@@ -4,7 +4,7 @@
 
 ## 文件结构
 
-```
+```bash
 server/
 ├── server.go           # 主要的Server结构定义和构造函数
 ├── core.go            # 核心组件初始化（数据库、Redis、日志等）
@@ -19,24 +19,28 @@ server/
 ## 各文件职责
 
 ### server.go
+
 - `Server` 结构体定义
 - 构造函数 `NewServer` 和 `NewServerWithConfigManager`
 - 基本的公共方法如 `GetConfig`、`RegisterGRPCService` 等
 
 ### core.go
+
 - 核心组件初始化：`initCore()`
 - 数据库初始化：`initDatabase()`
 - Redis初始化：`initRedis()`
 - 日志初始化：`initLogger()`
-- 其他go-core组件初始化
+- 其他企业级组件初始化
 - 配置热重载回调：`onConfigChanged()`
 
 ### grpc.go
+
 - gRPC服务器初始化：`initGRPCServer()`
 - gRPC服务器启动：`startGRPCServer()`
 - gRPC服务器停止：`stopGRPCServer()`
 
 ### http.go
+
 - HTTP网关初始化：`initHTTPGateway()`
 - HTTP服务器启动：`startHTTPServer()`
 - HTTP服务器停止：`stopHTTPServer()`
@@ -44,10 +48,12 @@ server/
 - HTTP路由注册：`RegisterHTTPRoute()`、`RegisterHTTPHandler()`
 
 ### middleware_init.go
+
 - 中间件管理器初始化：`initMiddleware()`
 - 服务器组件初始化：`initServers()`
 
 ### lifecycle.go
+
 - 服务器启动：`Start()`
 - 服务器停止：`Stop()`
 - 服务器重启：`Restart()`
@@ -56,6 +62,7 @@ server/
 - 等待运行：`Wait()`
 
 ### banner.go
+
 - 启动横幅显示：`showBanner()`
 - 版本信息显示
 - 启动时间记录

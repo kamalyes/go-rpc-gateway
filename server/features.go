@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 02:31:20
+ * @LastEditTime: 2025-11-12 13:59:00
  * @FilePath: \go-rpc-gateway\server\features.go
  * @Description: 统一的功能特性注册管理器
  *
@@ -36,13 +36,13 @@ const (
 type FeatureEnabler interface {
 	// Enable 启用功能，使用配置中的默认设置
 	Enable() error
-	
+
 	// EnableWithConfig 使用自定义配置启用功能
 	EnableWithConfig(config interface{}) error
-	
+
 	// IsEnabled 检查功能是否已启用
 	IsEnabled() bool
-	
+
 	// GetType 获取功能类型
 	GetType() FeatureType
 }
@@ -59,10 +59,10 @@ func NewFeatureManager(s *Server) *FeatureManager {
 		server:   s,
 		enablers: make(map[FeatureType]FeatureEnabler),
 	}
-	
+
 	// 注册所有内置功能
 	fm.registerBuiltinFeatures()
-	
+
 	return fm
 }
 
@@ -123,7 +123,7 @@ func (f *SwaggerFeature) Enable() error {
 	if f.server.config.Swagger.Enabled {
 		return f.EnableWithConfig(&f.server.config.Swagger)
 	}
-	
+
 	// 如果配置中未启用，使用默认配置
 	defaultConfig := goswagger.Default()
 	return f.EnableWithConfig(defaultConfig)
@@ -135,11 +135,11 @@ func (f *SwaggerFeature) EnableWithConfig(config interface{}) error {
 	if !ok {
 		return fmt.Errorf("invalid config type for swagger feature")
 	}
-	
+
 	if err := f.server.EnableSwaggerWithConfig(swaggerConfig); err != nil {
 		return err
 	}
-	
+
 	f.enabled = true
 	return nil
 }
@@ -165,7 +165,7 @@ func (f *MonitoringFeature) Enable() error {
 	if f.server.config.Monitoring.Enabled {
 		return f.EnableWithConfig(&f.server.config.Monitoring)
 	}
-	
+
 	// 如果配置中未启用，使用默认配置
 	defaultConfig := gomonitoring.Default()
 	return f.EnableWithConfig(defaultConfig)
@@ -173,15 +173,15 @@ func (f *MonitoringFeature) Enable() error {
 
 // EnableWithConfig 使用自定义配置启用Monitoring
 func (f *MonitoringFeature) EnableWithConfig(config interface{}) error {
-	monitoringConfig, ok := config.(*gomonitoring.Monitoring)
+	_, ok := config.(*gomonitoring.Monitoring)
 	if !ok {
 		return fmt.Errorf("invalid config type for monitoring feature")
 	}
-	
-	if err := f.server.EnableMonitoringWithConfig(monitoringConfig); err != nil {
+
+	if err := f.server.EnableMonitoringWithConfig(); err != nil {
 		return err
 	}
-	
+
 	f.enabled = true
 	return nil
 }
@@ -207,7 +207,7 @@ func (f *HealthFeature) Enable() error {
 	if f.server.config.Health.Enabled {
 		return f.EnableWithConfig(&f.server.config.Health)
 	}
-	
+
 	// 如果配置中未启用，使用默认配置
 	defaultConfig := gohealth.Default()
 	return f.EnableWithConfig(defaultConfig)
@@ -215,15 +215,15 @@ func (f *HealthFeature) Enable() error {
 
 // EnableWithConfig 使用自定义配置启用Health
 func (f *HealthFeature) EnableWithConfig(config interface{}) error {
-	healthConfig, ok := config.(*gohealth.Health)
+	_, ok := config.(*gohealth.Health)
 	if !ok {
 		return fmt.Errorf("invalid config type for health feature")
 	}
-	
-	if err := f.server.EnableHealthWithConfig(healthConfig); err != nil {
+
+	if err := f.server.EnableHealthWithConfig(); err != nil {
 		return err
 	}
-	
+
 	f.enabled = true
 	return nil
 }
@@ -246,10 +246,10 @@ type PProfFeature struct {
 
 // Enable 启用PProf（使用配置中的设置）
 func (f *PProfFeature) Enable() error {
-	if f.server.config.Pprof.Enabled {
-		return f.EnableWithConfig(&f.server.config.Pprof)
+	if f.server.config.Middleware.PProf.Enabled {
+		return f.EnableWithConfig(&f.server.config.Middleware.PProf)
 	}
-	
+
 	// 如果配置中未启用，使用默认配置
 	defaultConfig := gopprof.Default()
 	return f.EnableWithConfig(defaultConfig)
@@ -257,15 +257,15 @@ func (f *PProfFeature) Enable() error {
 
 // EnableWithConfig 使用自定义配置启用PProf
 func (f *PProfFeature) EnableWithConfig(config interface{}) error {
-	pprofConfig, ok := config.(*gopprof.PProf)
+	_, ok := config.(*gopprof.PProf)
 	if !ok {
 		return fmt.Errorf("invalid config type for pprof feature")
 	}
-	
-	if err := f.server.EnablePProfWithConfig(pprofConfig); err != nil {
+
+	if err := f.server.EnablePProfWithConfig(); err != nil {
 		return err
 	}
-	
+
 	f.enabled = true
 	return nil
 }
@@ -288,10 +288,10 @@ type TracingFeature struct {
 
 // Enable 启用Tracing（使用配置中的设置）
 func (f *TracingFeature) Enable() error {
-	if f.server.config.Jaeger.Enabled {
-		return f.EnableWithConfig(&f.server.config.Jaeger)
+	if f.server.config.Monitoring.Jaeger.Enabled {
+		return f.EnableWithConfig(&f.server.config.Monitoring.Jaeger)
 	}
-	
+
 	// 如果配置中未启用，使用默认配置
 	defaultConfig := gojaeger.Default()
 	return f.EnableWithConfig(defaultConfig)
@@ -299,15 +299,15 @@ func (f *TracingFeature) Enable() error {
 
 // EnableWithConfig 使用自定义配置启用Tracing
 func (f *TracingFeature) EnableWithConfig(config interface{}) error {
-	jaegerConfig, ok := config.(*gojaeger.Jaeger)
+	_, ok := config.(*gojaeger.Jaeger)
 	if !ok {
 		return fmt.Errorf("invalid config type for tracing feature")
 	}
-	
-	if err := f.server.EnableTracingWithConfig(jaegerConfig); err != nil {
+
+	if err := f.server.EnableTracingWithConfig(); err != nil {
 		return err
 	}
-	
+
 	f.enabled = true
 	return nil
 }

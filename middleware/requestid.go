@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/kamalyes/go-config/pkg/requestid"
-	"github.com/kamalyes/go-core/pkg/global"
+	"github.com/kamalyes/go-rpc-gateway/global"
 )
 
 // RequestID 请求ID中间件

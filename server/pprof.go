@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 02:40:00
+ * @LastEditTime: 2025-11-12 14:09:11
  * @FilePath: \go-rpc-gateway\server\pprof.go
  * @Description: PProf 功能实现
  *
@@ -14,26 +14,24 @@ package server
 import (
 	"net/http"
 	"net/http/pprof"
-
-	gopprof "github.com/kamalyes/go-config/pkg/pprof"
 )
 
 // EnablePProf 启用性能分析功能（使用配置文件）
 func (s *Server) EnablePProf() error {
-	if s.config.Pprof.Enabled {
-		return s.EnablePProfWithConfig(&s.config.Pprof)
+	if s.config.Middleware.PProf.Enabled {
+		return s.EnablePProfWithConfig()
 	}
 	return nil
 }
 
 // EnablePProfWithConfig 使用自定义配置启用性能分析
-func (s *Server) EnablePProfWithConfig(config *gopprof.PProf) error {
-	if !config.Enabled {
+func (s *Server) EnablePProfWithConfig() error {
+	if !s.config.Middleware.PProf.Enabled {
 		return nil
 	}
 
 	// 获取路径前缀
-	prefix := config.PathPrefix
+	prefix := s.config.Middleware.PProf.PathPrefix
 	if prefix == "" {
 		prefix = "/debug/pprof"
 	}
@@ -44,7 +42,7 @@ func (s *Server) EnablePProfWithConfig(config *gopprof.PProf) error {
 	s.RegisterHTTPRoute(prefix+"/profile", http.HandlerFunc(pprof.Profile))
 	s.RegisterHTTPRoute(prefix+"/symbol", http.HandlerFunc(pprof.Symbol))
 	s.RegisterHTTPRoute(prefix+"/trace", http.HandlerFunc(pprof.Trace))
-	
+
 	// 注册其他 pprof 处理器
 	s.RegisterHTTPRoute(prefix+"/allocs", pprof.Handler("allocs"))
 	s.RegisterHTTPRoute(prefix+"/block", pprof.Handler("block"))

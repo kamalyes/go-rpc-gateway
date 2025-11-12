@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 01:11:55
+ * @LastEditTime: 2025-11-12 14:38:43
  * @FilePath: \go-rpc-gateway\middleware\ratelimit.go
  * @Description:
  *
@@ -18,8 +18,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kamalyes/go-core/pkg/global"
 	"github.com/kamalyes/go-rpc-gateway/constants"
+	"github.com/kamalyes/go-rpc-gateway/errors"
+	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-rpc-gateway/response"
 )
 
 // RateLimitConfig 限流配置
@@ -203,14 +205,12 @@ func RateLimitMiddleware(limiter RateLimiter) HTTPMiddleware {
 			// 检查是否允许请求
 			allowed, err := limiter.Allow(r.Context(), key)
 			if err != nil {
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				response.WriteErrorResponse(w, errors.ErrInternalServerError.WithDetails(err.Error()))
 				return
 			}
 
 			if !allowed {
-				w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-				w.WriteHeader(http.StatusTooManyRequests)
-				w.Write([]byte(`{"error": "Too Many Requests", "message": "Rate limit exceeded"}`))
+				response.WriteErrorResponse(w, errors.ErrRateLimitExceeded)
 				return
 			}
 

@@ -65,7 +65,7 @@ configManager.OnConfigChange(func() {
 - 读写分离、连接池、自动迁移
 
 ```go
-import "github.com/kamalyes/go-core/pkg/global"
+import "github.com/kamalyes/go-rpc-gateway/global"
 
 // 自动获取数据库连接
 db := global.DB

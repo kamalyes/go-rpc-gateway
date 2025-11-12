@@ -199,7 +199,7 @@ func (cm *ConfigManager) ValidateConfig() error {
 // 根据环境自动调整配置
 switch environment {
 case "development":
-    config.Gateway.Debug = true
+    config..Debug = true
     config.GRPC.EnableReflection = true
 case "production":
     config.Security.TLS.Enabled = true
@@ -222,7 +222,7 @@ func (s *Server) onConfigChanged(newConfig *GatewayConfig) {
 
 ```go
 // 根据环境加载不同中间件
-if config.Gateway.Debug {
+if config..Debug {
     middlewares = manager.GetDevelopmentMiddlewares()
 } else {
     middlewares = manager.GetDefaultMiddlewares()  

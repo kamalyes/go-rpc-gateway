@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-08 00:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 20:11:02
+ * @LastEditTime: 2025-11-12 14:18:37
  * @FilePath: \go-rpc-gateway\server\banner.go
  * @Description: Gateway启动横幅和信息展示
  *
@@ -16,19 +16,19 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/kamalyes/go-core/pkg/global"
-	"github.com/kamalyes/go-rpc-gateway/config"
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 )
 
 // BannerManager 横幅管理器
 type BannerManager struct {
-	config   *config.GatewayConfig
+	config   *gwconfig.Gateway
 	features []string
 }
 
 // NewBannerManager 创建横幅管理器
-func NewBannerManager(config *config.GatewayConfig) *BannerManager {
+func NewBannerManager(config *gwconfig.Gateway) *BannerManager {
 	return &BannerManager{
 		config:   config,
 		features: []string{},
@@ -37,11 +37,11 @@ func NewBannerManager(config *config.GatewayConfig) *BannerManager {
 
 // getBaseURL 获取基础 URL，处理 0.0.0.0 的情况
 func (b *BannerManager) getBaseURL() string {
-	host := b.config.Server.Host
+	host := b.config.HTTPServer.Host
 	if host == "0.0.0.0" || host == "" {
 		host = "localhost"
 	}
-	return fmt.Sprintf("http://%s:%d", host, b.config.Server.Port)
+	return fmt.Sprintf("http://%s:%d", host, b.config.HTTPServer.Port)
 }
 
 // AddFeature 添加功能特性
@@ -51,9 +51,14 @@ func (b *BannerManager) AddFeature(feature string) {
 
 // PrintStartupBanner 打印启动横幅
 func (b *BannerManager) PrintStartupBanner() {
-	global.LOGGER.Info("🎉 ================================================")
+	global.LOGGER.Info(`
+ ██████╗  ██████╗       ██████╗ ██████╗  ██████╗     ██████╗  █████╗ ████████╗███████╗██╗    ██╗ █████╗ ██╗   ██╗
+██╔════╝ ██╔═══██╗      ██╔══██╗██╔══██╗██╔════╝    ██╔════╝ ██╔══██╗╚══██╔══╝██╔════╝██║    ██║██╔══██╗╚██╗ ██╔╝
+██║  ███╗██║   ██║█████╗██████╔╝██████╔╝██║         ██║  ███╗███████║   ██║   █████╗  ██║ █╗ ██║███████║ ╚████╔╝ 
+██║   ██║██║   ██║╚════╝██╔══██╗██╔═══╝ ██║         ██║   ██║██╔══██║   ██║   ██╔══╝  ██║███╗██║██╔══██║  ╚██╔╝  
+╚██████╔╝╚██████╔╝      ██║  ██║██║     ╚██████╗    ╚██████╔╝██║  ██║   ██║   ███████╗╚███╔███╔╝██║  ██║   ██║   
+ ╚═════╝  ╚═════╝       ╚═╝  ╚═╝╚═╝      ╚═════╝     ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝   `)
 	global.LOGGER.Info("🚀 Go RPC Gateway - Enterprise Edition")
-	global.LOGGER.Info("🎉 ================================================")
 	global.LOGGER.Info("")
 
 	// 基础信息
@@ -98,16 +103,16 @@ func (b *BannerManager) printBasicInfo() {
 	global.LOGGER.Info("📋 基础信息:")
 	global.LOGGER.Info("   🏷️  名称: " + b.config.Banner.Title)
 	global.LOGGER.Info("   📦 版本: v1.0.0")
-	global.LOGGER.Info("   🌍 环境: " + b.config.Server.Host)
-	global.LOGGER.Info("   🔧 调试模式: false")
-	global.LOGGER.Info("   🏗️  框架: go-rpc-gateway (基于 go-config & go-core)")
+	global.LOGGER.Info("   🌍 环境: " + b.config.Environment)
+	global.LOGGER.Info("   🔧 调试模式: " + fmt.Sprintf("%v", b.config.Debug))
+	global.LOGGER.Info("   🏗️  框架: go-rpc-gateway (基于 go-config & go-logger & go-sqlbuilder & go-toolbox)")
 }
 
 // printServerConfig 打印服务器配置
 func (b *BannerManager) printServerConfig() {
 	global.LOGGER.Info("⚙️  服务器配置:")
-	global.LOGGER.Info("   🌐 HTTP服务器: " + b.config.Server.Endpoint)
-	global.LOGGER.Info("   📡 gRPC服务器: " + fmt.Sprintf("%s:%d", b.config.Server.Host, b.config.Server.GrpcPort))
+	global.LOGGER.Info("   🌐 HTTP服务器: " + b.config.HTTPServer.Endpoint)
+	global.LOGGER.Info("   📡 gRPC服务器: " + fmt.Sprintf("%s:%d", b.config.HTTPServer.Host, b.config.HTTPServer.GrpcPort))
 
 	if b.config.Health.Enabled {
 		global.LOGGER.Info("   ❤️  健康检查: " + b.config.Health.Path)
@@ -151,7 +156,7 @@ func (b *BannerManager) printFeatures() {
 // printMiddlewareFeatures 打印中间件功能
 func (b *BannerManager) printMiddlewareFeatures() {
 	// 使用go-config的CORS配置
-	if b.config.Cors.AllowedAllOrigins || len(b.config.Cors.AllowedOrigins) > 0 {
+	if b.config.CORS.AllowedAllOrigins || len(b.config.CORS.AllowedOrigins) > 0 {
 		global.LOGGER.Info("   ✅ CORS跨域支持")
 	}
 
@@ -198,7 +203,7 @@ func (b *BannerManager) printEndpoints() {
 // PrintPProfInfo 打印PProf信息
 // go-config 的 Default() 已经设置了所有默认值，无需再次设置
 func (b *BannerManager) PrintPProfInfo(pprofConfig *middleware.PProfGatewayConfig) {
-	if !b.config.Pprof.Enabled {
+	if !b.config.Middleware.PProf.Enabled {
 		return
 	}
 
@@ -207,7 +212,7 @@ func (b *BannerManager) PrintPProfInfo(pprofConfig *middleware.PProfGatewayConfi
 	global.LOGGER.Info("🔬 性能分析 (PProf):")
 	global.LOGGER.Info("   🎯 状态: 已启用")
 	global.LOGGER.Info("   🏠 仪表板: " + baseURL + "/")
-	global.LOGGER.Info("   🔍 PProf索引: " + baseURL + b.config.Pprof.PathPrefix + "/")
+	global.LOGGER.Info("   🔍 PProf索引: " + baseURL + b.config.Middleware.PProf.PathPrefix + "/")
 
 	global.LOGGER.Info("   🧪 性能测试场景:")
 	scenarios := []struct {
@@ -222,7 +227,7 @@ func (b *BannerManager) PrintPProfInfo(pprofConfig *middleware.PProfGatewayConfi
 	}
 
 	for _, scenario := range scenarios {
-		global.LOGGER.Info("     • " + scenario.desc + ": " + baseURL + b.config.Pprof.PathPrefix + scenario.path)
+		global.LOGGER.Info("     • " + scenario.desc + ": " + baseURL + b.config.Middleware.PProf.PathPrefix + scenario.path)
 	}
 }
 
@@ -249,7 +254,7 @@ func (b *BannerManager) PrintMiddlewareStatus() {
 		{"Recovery", b.config.Middleware.Recovery != nil && b.config.Middleware.Recovery.Enabled, "异常恢复"},
 		{"RequestID", b.config.Middleware.RequestID != nil && b.config.Middleware.RequestID.Enabled, "请求ID生成"},
 		{"I18n", b.config.Middleware.I18N != nil && b.config.Middleware.I18N.Enabled, "国际化支持"},
-		{"CORS", b.config.Cors.AllowedAllOrigins || len(b.config.Cors.AllowedOrigins) > 0, "跨域处理"},
+		{"CORS", b.config.CORS.AllowedAllOrigins || len(b.config.CORS.AllowedOrigins) > 0, "跨域处理"},
 		{"RateLimit", b.config.Security.RateLimit != nil && b.config.Security.RateLimit.Enabled, "限流控制"},
 		{"AccessLog", b.config.Middleware.Logging != nil && b.config.Middleware.Logging.Enabled, "访问日志"},
 		{"Auth", b.config.JWT.SigningKey != "", "身份认证"},

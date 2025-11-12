@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kamalyes/go-cachex"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/osx"
 	"github.com/kamalyes/go-wsc"
 )
@@ -76,7 +77,7 @@ func NewHub(redisService cachex.CtxCache) *Hub {
 
 // Run 启动Hub
 func (h *Hub) Run() {
-	log.Println("WebSocket Hub 启动运行...")
+	global.LOGGER.Info("WebSocket Hub 启动运行...")
 
 	ticker := time.NewTicker(30 * time.Second) // 心跳检查间隔
 	defer ticker.Stop()
@@ -106,7 +107,7 @@ func (h *Hub) handleRegister(client *Client) {
 
 	// 如果用户已经有连接，关闭旧连接
 	if existingClient, exists := h.userToClient[client.UserID]; exists {
-		log.Printf("用户 %s 已存在连接，关闭旧连接", client.UserID)
+		global.LOGGER.Info("用户 %s 已存在连接，关闭旧连接", client.UserID)
 		existingClient.WSClient.Close()
 		h.removeClientUnsafe(existingClient)
 	}
@@ -120,7 +121,7 @@ func (h *Hub) handleRegister(client *Client) {
 		h.roomClients[client.RoomID] = append(h.roomClients[client.RoomID], client)
 	}
 
-	log.Printf("客户端注册成功: ID=%s, UserID=%s, RoomID=%s, Role=%s",
+	global.LOGGER.Info("客户端注册成功: ID=%s, UserID=%s, RoomID=%s, Role=%s",
 		client.ID, client.UserID, client.RoomID, client.Role)
 
 	// 发送欢迎消息
@@ -166,7 +167,7 @@ func (h *Hub) removeClientUnsafe(client *Client) {
 		}
 	}
 
-	log.Printf("客户端注销成功: ID=%s, UserID=%s", client.ID, client.UserID)
+	global.LOGGER.Info("客户端注销成功: ID=%s, UserID=%s", client.ID, client.UserID)
 }
 
 // handleBroadcast 处理消息广播
@@ -179,7 +180,7 @@ func (h *Hub) handleBroadcast(message *Message) {
 		if client, exists := h.userToClient[message.To]; exists {
 			h.sendMessageToClient(client, message)
 		} else {
-			log.Printf("用户 %s 不在线，无法发送消息", message.To)
+			global.LOGGER.Info("用户 %s 不在线，无法发送消息", message.To)
 		}
 	case message.RoomID != "": // 房间消息
 		if clients, exists := h.roomClients[message.RoomID]; exists {
@@ -202,12 +203,12 @@ func (h *Hub) handleBroadcast(message *Message) {
 func (h *Hub) sendMessageToClient(client *Client, message *Message) {
 	messageData, err := json.Marshal(message)
 	if err != nil {
-		log.Printf("序列化消息失败: %v", err)
+		global.LOGGER.Info("序列化消息失败: %v", err)
 		return
 	}
 
 	if err := client.WSClient.SendTextMessage(string(messageData)); err != nil {
-		log.Printf("发送消息失败，客户端 %s: %v", client.ID, err)
+		global.LOGGER.Info("发送消息失败，客户端 %s: %v", client.ID, err)
 		// 连接可能已断开，移除客户端
 		h.unregister <- client
 	}
@@ -221,7 +222,7 @@ func (h *Hub) checkHeartbeat() {
 	now := time.Now()
 	for clientID, client := range h.clients {
 		if now.Sub(client.LastSeen) > 90*time.Second { // 90秒无心跳则断开
-			log.Printf("客户端 %s 心跳超时，断开连接", clientID)
+			global.LOGGER.Info("客户端 %s 心跳超时，断开连接", clientID)
 			client.WSClient.Close()
 			delete(h.clients, clientID)
 			h.removeClientUnsafe(client)
@@ -242,7 +243,7 @@ func (h *Hub) SendToUser(userID string, message *Message) {
 	select {
 	case h.broadcast <- message:
 	default:
-		log.Printf("发送消息失败，广播通道已满: 目标用户 %s", userID)
+		global.LOGGER.Info("发送消息失败，广播通道已满: 目标用户 %s", userID)
 	}
 }
 
@@ -259,7 +260,7 @@ func (h *Hub) SendToRoom(roomID string, message *Message) {
 	select {
 	case h.broadcast <- message:
 	default:
-		log.Printf("发送消息失败，广播通道已满: 目标房间 %s", roomID)
+		global.LOGGER.Info("发送消息失败，广播通道已满: 目标房间 %s", roomID)
 	}
 }
 
@@ -275,7 +276,7 @@ func (h *Hub) Broadcast(message *Message) {
 	select {
 	case h.broadcast <- message:
 	default:
-		log.Printf("发送消息失败，广播通道已满")
+		global.LOGGER.Info("发送消息失败，广播通道已满")
 	}
 }
 
@@ -356,22 +357,22 @@ func NewClient(userID, role, roomID, wsURL string) (*Client, error) {
 
 	// 设置回调函数
 	wsClient.OnConnected(func() {
-		log.Printf("客户端 %s 连接成功", clientID)
+		global.LOGGER.Info("客户端 %s 连接成功", clientID)
 		client.LastSeen = time.Now()
 	})
 
 	wsClient.OnDisconnected(func(err error) {
-		log.Printf("客户端 %s 连接断开: %v", clientID, err)
+		global.LOGGER.Info("客户端 %s 连接断开: %v", clientID, err)
 	})
 
 	wsClient.OnTextMessageReceived(func(message string) {
-		log.Printf("客户端 %s 收到消息: %s", clientID, message)
+		global.LOGGER.Info("客户端 %s 收到消息: %s", clientID, message)
 		client.LastSeen = time.Now()
 		// 这里可以添加消息处理逻辑
 	})
 
 	wsClient.OnConnectError(func(err error) {
-		log.Printf("客户端 %s 连接错误: %v", clientID, err)
+		global.LOGGER.Info("客户端 %s 连接错误: %v", clientID, err)
 	})
 
 	return client, nil

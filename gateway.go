@@ -2,24 +2,28 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 02:25:49
+ * @LastEditTime: 2025-11-12 15:11:15
  * @FilePath: \go-rpc-gateway\gateway.go
- * @Description: Gateway主入口，基于go-config和go-core重构
+ * @Description: Gateway主入口，基于go-config
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
  */
 
 // Package gateway 提供一个轻量级的gRPC-Gateway框架
 // 集成了数据库、Redis和对象存储等组件
-// 基于go-config和go-core架构
+// 基于go-config
 package gateway
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"os"
+	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"github.com/kamalyes/go-rpc-gateway/config"
+	goconfig "github.com/kamalyes/go-config"
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-rpc-gateway/server"
 	"google.golang.org/grpc"
 )
@@ -27,6 +31,8 @@ import (
 // Gateway 是主要的网关服务器
 type Gateway struct {
 	*server.Server
+	configManager *goconfig.IntegratedConfigManager
+	gatewayConfig *gwconfig.Gateway
 }
 
 // ServiceRegisterFunc gRPC服务注册函数类型
@@ -35,19 +41,9 @@ type ServiceRegisterFunc func(*grpc.Server)
 // HandlerRegisterFunc HTTP处理器注册函数类型
 type HandlerRegisterFunc func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error
 
-// Config 网关配置类型别名
-type Config = config.GatewayConfig
-
-// New 创建新的网关实例
-func New(cfg ...*Config) (*Gateway, error) {
-	var gatewayConfig *Config
-	if len(cfg) > 0 && cfg[0] != nil {
-		gatewayConfig = cfg[0]
-	} else {
-		gatewayConfig = config.DefaultGatewayConfig()
-	}
-
-	srv, err := server.NewServer(gatewayConfig)
+// New 创建新的网关实例 - 使用全局配置
+func New() (*Gateway, error) {
+	srv, err := server.NewServer()
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +166,7 @@ func (g *Gateway) IsFeatureEnabled(feature server.FeatureType) bool {
 }
 
 // GetConfig 获取网关配置
-func (g *Gateway) GetConfig() *config.GatewayConfig {
+func (g *Gateway) GetConfig() *gwconfig.Gateway {
 	return g.Server.GetConfig()
 }
 
@@ -198,7 +194,15 @@ func (g *Gateway) StartWithBanner() error {
 
 // Stop 停止网关服务
 func (g *Gateway) Stop() error {
-	return g.Server.Stop()
+	// 先停止服务器
+	err := g.Server.Stop()
+
+	// 再停止配置管理器
+	if g.configManager != nil {
+		g.configManager.Stop()
+	}
+
+	return err
 }
 
 // PrintStartupInfo 打印启动信息
@@ -222,4 +226,65 @@ func (g *Gateway) PrintShutdownComplete() {
 	if bannerManager := g.Server.GetBannerManager(); bannerManager != nil {
 		bannerManager.PrintShutdownComplete()
 	}
+}
+
+// GetGatewayConfig 获取网关配置
+func (g *Gateway) GetGatewayConfig() *gwconfig.Gateway {
+	return g.gatewayConfig
+}
+
+// CreateConfigManager 创建配置管理器
+func (g *Gateway) CreateConfigManager(config *gwconfig.Gateway, configPath string) (*goconfig.IntegratedConfigManager, error) {
+	// 检查configPath是文件还是目录
+	if stat, err := os.Stat(configPath); err == nil && stat.IsDir() {
+		fmt.Printf("🔍 使用自动发现模式，搜索路径: %s\n", configPath)
+
+		// 使用自动发现创建管理器
+		return goconfig.CreateAndStartIntegratedManagerWithAutoDiscovery(
+			config,
+			configPath,
+			goconfig.GetEnvironment(),
+			"gateway",
+		)
+	} else {
+		fmt.Printf("📄 使用指定配置文件: %s\n", configPath)
+
+		// 使用传统方式
+		return goconfig.CreateAndStartIntegratedManager(
+			config,
+			configPath,
+			goconfig.GetEnvironment(),
+		)
+	}
+}
+
+// RegisterConfigCallbacks 注册配置变更回调
+func (g *Gateway) RegisterConfigCallbacks() {
+	if g.configManager == nil {
+		return
+	}
+
+	// 注册配置变更回调
+	g.configManager.RegisterConfigCallback(func(ctx context.Context, event goconfig.CallbackEvent) error {
+		if newConfig, ok := event.NewValue.(*gwconfig.Gateway); ok {
+			fmt.Printf("📋 配置已更新: %s\n", newConfig.Name)
+			g.gatewayConfig = newConfig
+			if newConfig.HTTPServer != nil {
+				fmt.Printf("🌐 HTTP端点: %s\n", newConfig.HTTPServer.GetEndpoint())
+			}
+		}
+		return nil
+	}, goconfig.CallbackOptions{
+		ID:       "gateway_config_handler",
+		Types:    []goconfig.CallbackType{goconfig.CallbackTypeConfigChanged},
+		Priority: goconfig.CallbackPriorityHigh,
+		Async:    false,
+		Timeout:  5 * time.Second,
+	})
+
+	// 注册环境变更回调
+	g.configManager.RegisterEnvironmentCallback("gateway_env_handler", func(oldEnv, newEnv goconfig.EnvironmentType) error {
+		fmt.Printf("🌍 环境变更: %s -> %s\n", oldEnv, newEnv)
+		return nil
+	}, goconfig.CallbackPriorityHigh, false)
 }

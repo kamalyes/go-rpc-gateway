@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 01:00:09
+ * @LastEditTime: 2025-11-12 13:43:33
  * @FilePath: \go-rpc-gateway\middleware\recovery.go
  * @Description: Recovery恢复中间件，使用go-logger
  *
@@ -17,8 +17,8 @@ import (
 	"net/http"
 	"runtime"
 
-	"github.com/kamalyes/go-core/pkg/global"
-	"github.com/kamalyes/go-core/pkg/response"
+	"github.com/kamalyes/go-rpc-gateway/global"
+	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
 )
 
 // Recovery 恢复中间件，捕获panic并返回友好的错误响应
@@ -44,14 +44,14 @@ func Recovery() MiddlewareFunc {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusInternalServerError)
 
-					// 创建错误响应
-					resp := map[string]interface{}{
-						"code":    response.ServerError,
-						"message": "服务器内部错误",
-						"success": false,
+					// 创建标准化错误响应
+					result := &commonapis.Result{
+						Code:   int32(http.StatusInternalServerError),
+						Error:  "服务器内部错误",
+						Status: commonapis.StatusCode_Internal,
 					}
 
-					if err := json.NewEncoder(w).Encode(resp); err != nil && global.LOGGER != nil {
+					if err := json.NewEncoder(w).Encode(result); err != nil && global.LOGGER != nil {
 						global.LOGGER.WithError(err).ErrorMsg("写入panic响应失败")
 					}
 				}
@@ -101,20 +101,22 @@ func RecoveryWithConfig(config RecoveryConfig) MiddlewareFunc {
 						message = "服务器内部错误"
 					}
 
-					resp := map[string]interface{}{
-						"code":    response.ServerError,
-						"message": message,
-						"success": false,
+					result := &commonapis.Result{
+						Code:   int32(http.StatusInternalServerError),
+						Error:  message,
+						Status: commonapis.StatusCode_Internal,
 					}
 
 					if config.EnableDebug {
-						resp["debug"] = fmt.Sprintf("%v", err)
+						// 对于调试信息，我们可以将其添加到错误消息中
+						debugInfo := fmt.Sprintf("%v", err)
 						if config.EnableStack {
-							resp["stack"] = stackTrace
+							debugInfo += fmt.Sprintf(" | Stack: %s", stackTrace)
 						}
+						result.Error = fmt.Sprintf("%s | Debug: %s", message, debugInfo)
 					}
 
-					json.NewEncoder(w).Encode(resp)
+					json.NewEncoder(w).Encode(result)
 				}
 			}()
 

@@ -1,6 +1,7 @@
 # 🎯 Go RPC Gateway 使用手册
 
 ## 📝 问题
+
 **"我想使用这个框架快速开发微服务，应该怎么开始？"**
 
 ## ✅ 三种使用方式
@@ -21,19 +22,22 @@ func main() {
 ```
 
 **特点：**
+
 - ✅ 只需 3 行代码
 - ✅ 使用默认配置
 - ✅ 自动启动 HTTP(:8080) 和 gRPC(:9090)
 - ✅ 自动启用健康检查、指标监控等功能
 
 **运行：**
+
 ```bash
 go run main.go
 ```
 
 **访问：**
-- 健康检查: http://localhost:8080/health
-- 指标监控: http://localhost:8080/metrics
+
+- 健康检查: <http://localhost:8080/health>
+- 指标监控: <http://localhost:8080/metrics>
 
 ---
 
@@ -105,6 +109,7 @@ func main() {
 ```
 
 **特点：**
+
 - ✅ 配置外部化，方便管理
 - ✅ 支持数据库、Redis、MinIO 等企业级组件
 - ✅ 支持多环境配置（开发、测试、生产）
@@ -120,7 +125,7 @@ import (
     "net/http"
     
     gateway "github.com/kamalyes/go-rpc-gateway"
-    "github.com/kamalyes/go-core/pkg/global"
+    "github.com/kamalyes/go-rpc-gateway/global"
     "google.golang.org/grpc"
 )
 
@@ -179,6 +184,7 @@ func infoHandler(w http.ResponseWriter, r *http.Request) {
 ```
 
 **特点：**
+
 - ✅ 完整的 gRPC + HTTP 服务
 - ✅ 使用全局组件 (DB, Redis, MinIO)
 - ✅ 支持性能分析
@@ -268,7 +274,7 @@ gw.Stop()
 ### 使用全局组件
 
 ```go
-import "github.com/kamalyes/go-core/pkg/global"
+import "github.com/kamalyes/go-rpc-gateway/global"
 
 // 使用数据库
 if global.DB != nil {
@@ -318,6 +324,7 @@ your-project/
 ### 完整项目示例
 
 **main.go**:
+
 ```go
 package main
 
@@ -372,6 +379,7 @@ func main() {
 ```
 
 **service/user_service.go**:
+
 ```go
 package service
 
@@ -379,7 +387,7 @@ import (
     "context"
     
     "your-project/model"
-    "github.com/kamalyes/go-core/pkg/global"
+    "github.com/kamalyes/go-rpc-gateway/global"
     pb "your-project/proto"
 )
 
@@ -425,6 +433,7 @@ func (s *UserService) CreateUser(ctx context.Context, req *pb.CreateUserRequest)
 ```
 
 **handler/api_handler.go**:
+
 ```go
 package handler
 
@@ -433,7 +442,7 @@ import (
     "net/http"
     
     "your-project/service"
-    "github.com/kamalyes/go-core/pkg/global"
+    "github.com/kamalyes/go-rpc-gateway/global"
 )
 
 type APIHandler struct {
@@ -527,7 +536,9 @@ curl http://localhost:8080/debug/pprof/
 ## ❓ 常见问题
 
 ### Q: 如何自定义端口?
+
 A: 在 `config.yaml` 中设置:
+
 ```yaml
 server:
   http:
@@ -537,7 +548,9 @@ server:
 ```
 
 ### Q: 如何启用数据库?
+
 A: 在配置文件中添加数据库配置:
+
 ```yaml
 mysql:
   host: "localhost"
@@ -548,9 +561,11 @@ mysql:
 ```
 
 ### Q: 如何添加自定义中间件?
+
 A: 目前通过服务器层面添加，未来版本会支持网关层面的中间件注册
 
 ### Q: 如何查看所有配置项?
+
 A: 查看 [完整配置示例](./examples/config-complete.yaml)
 
 ## 🆘 获取帮助

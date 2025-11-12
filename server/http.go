@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 12:39:24
+ * @LastEditTime: 2025-11-12 14:07:15
  * @FilePath: \go-rpc-gateway\server\http.go
  * @Description: HTTP服务器和网关初始化模块
  *
@@ -14,7 +14,6 @@ package server
 import (
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,9 +21,10 @@ import (
 	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"github.com/kamalyes/go-core/pkg/global"
 	"github.com/kamalyes/go-rpc-gateway/constants"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
+	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -42,7 +42,7 @@ func (w gzipResponseWriter) Write(b []byte) (int, error) {
 func (s *Server) gzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 检查是否启用压缩
-		if !s.config.Gateway.HTTPServer.EnableGzipCompress {
+		if !s.config.HTTPServer.EnableGzipCompress {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -79,34 +79,34 @@ func (s *Server) initHTTPGateway() error {
 	s.httpMux.Handle("/", s.gwMux)
 
 	// 注册健康检查
-	if s.config.Gateway.Health.Enabled {
-		s.httpMux.HandleFunc(s.config.Gateway.Health.Path, s.healthCheckHandler)
+	if s.config.Health.Enabled {
+		s.httpMux.HandleFunc(s.config.Health.Path, s.healthCheckHandler)
 		global.LOGGER.InfoKV("❤️  健康检查已启用",
-			"url", s.config.Gateway.HTTPServer.GetEndpoint()+s.config.Gateway.Health.Path)
+			"url", s.config.HTTPServer.GetEndpoint()+s.config.Health.Path)
 
 		// 注册组件级健康检查端点
 		s.registerComponentHealthChecks()
 	}
-	
+
 	// 注册监控指标端点
 	if s.config.Monitoring.Metrics.Enabled {
 		s.httpMux.Handle(s.config.Monitoring.Prometheus.Path, promhttp.Handler())
 		global.LOGGER.InfoKV("📊 监控指标服务可用",
-			"url", s.config.Gateway.HTTPServer.GetEndpoint()+s.config.Monitoring.Prometheus.Path)
+			"url", s.config.HTTPServer.GetEndpoint()+s.config.Monitoring.Prometheus.Path)
 	}
 
 	// 应用中间件
 	var handler http.Handler = s.httpMux
 
 	// 首先应用Gzip压缩中间件（如果启用）
-	if s.config.Gateway.HTTPServer.EnableGzipCompress {
+	if s.config.HTTPServer.EnableGzipCompress {
 		handler = s.gzipMiddleware(handler)
 		global.LOGGER.InfoMsg("✅ HTTP Gzip压缩已启用")
 	}
 
 	if s.middlewareManager != nil {
 		var middlewares []middleware.MiddlewareFunc
-		if s.config.Gateway.Debug {
+		if s.config.Debug {
 			middlewares = s.middlewareManager.GetDevelopmentMiddlewares()
 		} else {
 			middlewares = s.middlewareManager.GetDefaultMiddlewares()
@@ -116,12 +116,12 @@ func (s *Server) initHTTPGateway() error {
 
 	// 创建HTTP服务器
 	s.httpServer = &http.Server{
-		Addr:           fmt.Sprintf("%s:%d", s.config.Gateway.HTTPServer.Host, s.config.Gateway.HTTPServer.Port),
+		Addr:           fmt.Sprintf("%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port),
 		Handler:        handler,
-		ReadTimeout:    time.Duration(s.config.Gateway.HTTPServer.ReadTimeout) * time.Second,
-		WriteTimeout:   time.Duration(s.config.Gateway.HTTPServer.WriteTimeout) * time.Second,
-		IdleTimeout:    time.Duration(s.config.Gateway.HTTPServer.IdleTimeout) * time.Second,
-		MaxHeaderBytes: s.config.Gateway.HTTPServer.MaxHeaderBytes,
+		ReadTimeout:    time.Duration(s.config.HTTPServer.ReadTimeout) * time.Second,
+		WriteTimeout:   time.Duration(s.config.HTTPServer.WriteTimeout) * time.Second,
+		IdleTimeout:    time.Duration(s.config.HTTPServer.IdleTimeout) * time.Second,
+		MaxHeaderBytes: s.config.HTTPServer.MaxHeaderBytes,
 	}
 
 	return nil
@@ -129,20 +129,20 @@ func (s *Server) initHTTPGateway() error {
 
 // registerComponentHealthChecks 注册组件级健康检查端点
 func (s *Server) registerComponentHealthChecks() {
-	baseURL := s.config.Gateway.HTTPServer.GetEndpoint()
+	baseURL := s.config.HTTPServer.GetEndpoint()
 
 	// 注册Redis健康检查
-	if s.config.Gateway.Health.Redis.Enabled {
-		s.httpMux.HandleFunc(s.config.Gateway.Health.Redis.Path, s.redisHealthCheckHandler)
+	if s.config.Health.Redis.Enabled {
+		s.httpMux.HandleFunc(s.config.Health.Redis.Path, s.redisHealthCheckHandler)
 		global.LOGGER.InfoKV("🔴 Redis健康检查已启用",
-			"url", baseURL+s.config.Gateway.Health.Redis.Path)
+			"url", baseURL+s.config.Health.Redis.Path)
 	}
 
 	// 注册MySQL健康检查
-	if s.config.Gateway.Health.MySQL.Enabled {
-		s.httpMux.HandleFunc(s.config.Gateway.Health.MySQL.Path, s.mysqlHealthCheckHandler)
+	if s.config.Health.MySQL.Enabled {
+		s.httpMux.HandleFunc(s.config.Health.MySQL.Path, s.mysqlHealthCheckHandler)
 		global.LOGGER.InfoKV("🗃️  MySQL健康检查已启用",
-			"url", baseURL+s.config.Gateway.Health.MySQL.Path)
+			"url", baseURL+s.config.Health.MySQL.Path)
 	}
 
 	// 后续可以在这里继续添加其他组件的健康检查
@@ -191,9 +191,7 @@ func (s *Server) healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 		handler(w, r)
 	} else {
 		// 降级为基础健康检查
-		w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok","service":"go-rpc-gateway"}`))
+		response.WriteSuccessResult(w, "go-rpc-gateway service is healthy")
 	}
 }
 
@@ -212,12 +210,7 @@ func (s *Server) componentHealthCheck(w http.ResponseWriter, r *http.Request, co
 	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
 
 	if s.healthManager == nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		response := map[string]interface{}{
-			"status":  "error",
-			"message": fmt.Sprintf("%s health checker not configured", component),
-		}
-		json.NewEncoder(w).Encode(response)
+		response.WriteServiceUnavailableResult(w, fmt.Sprintf("%s health checker not configured", component))
 		return
 	}
 
@@ -229,30 +222,21 @@ func (s *Server) componentHealthCheck(w http.ResponseWriter, r *http.Request, co
 
 	// 返回指定组件的检查结果
 	if status, ok := result.Checks[component]; ok {
-		response := map[string]interface{}{
-			"status":     status.Status,
-			"message":    status.Message,
-			"latency_ms": status.Latency.Milliseconds(),
-			"checked_at": status.CheckedAt,
-			"details":    status.Details,
+		isHealthy := status.Status != "error"
+		message := fmt.Sprintf("%s: %s (latency: %dms, checked at: %v)",
+			status.Status, status.Message, status.Latency.Milliseconds(), status.CheckedAt)
+
+		// 安全地处理 details 类型转换
+		var details map[string]interface{}
+		if status.Details != nil {
+			if d, ok := status.Details.(map[string]interface{}); ok {
+				details = d
+			}
 		}
 
-		if status.Status == "error" {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		} else {
-			w.WriteHeader(http.StatusOK)
-		}
-
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		}
+		response.WriteHealthCheckResult(w, isHealthy, component, message, details)
 	} else {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		response := map[string]interface{}{
-			"status":  "error",
-			"message": fmt.Sprintf("%s health checker not registered", component),
-		}
-		json.NewEncoder(w).Encode(response)
+		response.WriteServiceUnavailableResult(w, fmt.Sprintf("%s health checker not registered", component))
 	}
 }
 

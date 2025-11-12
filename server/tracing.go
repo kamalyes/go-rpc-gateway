@@ -16,7 +16,7 @@ import (
 	"fmt"
 
 	gojaeger "github.com/kamalyes/go-config/pkg/jaeger"
-	"github.com/kamalyes/go-core/pkg/global"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/propagation"
@@ -183,20 +183,20 @@ func (tm *TracingManager) StartSpan(ctx context.Context, name string, opts ...tr
 
 // EnableTracing 启用链路追踪功能（使用配置文件）
 func (s *Server) EnableTracing() error {
-	if s.config.Jaeger.Enabled {
-		return s.EnableTracingWithConfig(&s.config.Jaeger)
+	if s.config.Monitoring.Jaeger.Enabled {
+		return s.EnableTracingWithConfig()
 	}
 	return nil
 }
 
 // EnableTracingWithConfig 使用自定义配置启用链路追踪
-func (s *Server) EnableTracingWithConfig(config *gojaeger.Jaeger) error {
-	if !config.Enabled {
+func (s *Server) EnableTracingWithConfig() error {
+	if !s.config.Monitoring.Jaeger.Enabled {
 		return nil
 	}
 
 	// 创建 TracingManager
-	tracingManager, err := NewTracingManager(config)
+	tracingManager, err := NewTracingManager(s.config.Monitoring.Jaeger)
 	if err != nil {
 		return fmt.Errorf("failed to create tracing manager: %w", err)
 	}
@@ -205,9 +205,9 @@ func (s *Server) EnableTracingWithConfig(config *gojaeger.Jaeger) error {
 	// s.tracingManager = tracingManager
 
 	global.LOGGER.InfoKV("链路追踪已启用",
-		"service", config.ServiceName,
-		"endpoint", config.Endpoint,
-		"sampling_type", config.Sampling.Type)
+		"service", s.config.Monitoring.Jaeger.ServiceName,
+		"endpoint", s.config.Monitoring.Jaeger.Endpoint,
+		"sampling_type", s.config.Monitoring.Jaeger.Sampling.Type)
 
 	// 注册关闭钩子
 	go func() {

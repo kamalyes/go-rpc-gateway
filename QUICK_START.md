@@ -101,7 +101,7 @@ import (
     "net/http"
     
     gateway "github.com/kamalyes/go-rpc-gateway"
-    "github.com/kamalyes/go-core/pkg/global"
+    "github.com/kamalyes/go-rpc-gateway/global"
     "google.golang.org/grpc"
 )
 
@@ -209,7 +209,7 @@ mysql:
 
 使用数据库:
 ```go
-import "github.com/kamalyes/go-core/pkg/global"
+import "github.com/kamalyes/go-rpc-gateway/global"
 
 // global.DB 自动初始化
 var users []User
@@ -244,7 +244,7 @@ import (
     "net/http"
     
     gateway "github.com/kamalyes/go-rpc-gateway"
-    "github.com/kamalyes/go-core/pkg/global"
+    "github.com/kamalyes/go-rpc-gateway/global"
 )
 
 type User struct {
@@ -295,7 +295,7 @@ import (
     
     gateway "github.com/kamalyes/go-rpc-gateway"
     "github.com/kamalyes/go-rpc-gateway/config"
-    "github.com/kamalyes/go-core/pkg/global"
+    "github.com/kamalyes/go-rpc-gateway/global"
 )
 
 type User struct {

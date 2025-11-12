@@ -87,7 +87,8 @@
 ### 依赖项目
 
 - [go-config](https://github.com/kamalyes/go-config) - 统一配置管理
-- [go-core](https://github.com/kamalyes/go-core) - 核心功能库
+- [go-sqlbuilder](https://github.com/kamalyes/go-sqlbuilder) - SQL构建器
+- [go-wsc](https://github.com/kamalyes/go-wsc) - WebSocket客户端
 - [go-logger](https://github.com/kamalyes/go-logger) - 日志组件
 
 ### 技术栈文档

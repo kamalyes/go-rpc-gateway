@@ -104,7 +104,7 @@ import (
 	"syscall"
 
 	gateway "github.com/kamalyes/go-rpc-gateway"
-	"github.com/kamalyes/go-core/pkg/global"
+	"github.com/kamalyes/go-rpc-gateway/global"
 )
 
 func main() {
@@ -118,11 +118,11 @@ func main() {
 	config := gw.GetConfig()
 	global.LOGGER.Info("=== 配置检查 ===")
 	global.LOGGER.InfoKV("健康检查",
-		"enabled", config.Gateway.HealthCheck.Enabled,
-		"path", config.Gateway.HealthCheck.Path,
+		"enabled", config..HealthCheck.Enabled,
+		"path", config..HealthCheck.Path,
 	)
 
-	if !config.Gateway.HealthCheck.Enabled {
+	if !config..HealthCheck.Enabled {
 		global.LOGGER.Fatal("❌ 健康检查未启用！请在 config.yaml 中设置 gateway.health_check.enabled: true")
 	}
 

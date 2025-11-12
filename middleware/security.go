@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-08 03:36:25
+ * @LastEditTime: 2025-11-12 14:38:32
  * @FilePath: \go-rpc-gateway\middleware\security.go
  * @Description:
  *
@@ -13,13 +13,17 @@ package middleware
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/kamalyes/go-config/pkg/cors"
-	"github.com/kamalyes/go-core/pkg/global"
 	"github.com/kamalyes/go-rpc-gateway/constants"
+	"github.com/kamalyes/go-rpc-gateway/errors"
+	"github.com/kamalyes/go-rpc-gateway/global"
+	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
+	"github.com/kamalyes/go-rpc-gateway/response"
 )
 
 // CORSMiddleware CORS 中间件
@@ -176,67 +180,6 @@ func SecurityMiddleware() HTTPMiddleware {
 	}
 }
 
-// ConfigurableSecurityMiddleware 可配置的安全中间件
-// TODO: 重构为使用 go-config 的 security.Security 配置
-/*
-func ConfigurableSecurityMiddleware(securityConfig *config.SecurityMiddlewareConfig) HTTPMiddleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !securityConfig.Enabled {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			// XSS 防护
-			if securityConfig.XSSProtection {
-				w.Header().Set("X-XSS-Protection", "1; mode=block")
-			}
-
-			// Content Type 防嗅探
-			if securityConfig.ContentTypeNoSniff {
-				w.Header().Set("X-Content-Type-Options", "nosniff")
-			}
-
-			// Frame Options 防点击劫持
-			if securityConfig.FrameOptions != "" {
-				w.Header().Set("X-Frame-Options", securityConfig.FrameOptions)
-			}
-
-			// Content Security Policy
-			if securityConfig.ContentSecurityPolicy != "" {
-				w.Header().Set("Content-Security-Policy", securityConfig.ContentSecurityPolicy)
-			}
-
-			// Referrer Policy
-			if securityConfig.ReferrerPolicy != "" {
-				w.Header().Set("Referrer-Policy", securityConfig.ReferrerPolicy)
-			}
-
-			// HSTS (HTTP Strict Transport Security)
-			if securityConfig.HSTSMaxAge > 0 {
-				hstsValue := fmt.Sprintf("max-age=%d; includeSubDomains", securityConfig.HSTSMaxAge)
-				w.Header().Set("Strict-Transport-Security", hstsValue)
-			}
-
-			// 自定义安全头
-			for key, value := range securityConfig.Headers {
-				w.Header().Set(key, value)
-			}
-
-			// 记录安全策略应用（调试模式）
-			if global.LOGGER != nil {
-				global.LOGGER.DebugKV("安全中间件已应用",
-					"path", r.URL.Path,
-					"method", r.Method,
-					"remote_addr", getClientIP(r))
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-*/
-
 // CSRFProtectionMiddleware CSRF防护中间件
 func CSRFProtectionMiddleware(enabled bool) HTTPMiddleware {
 	tokens := make(map[string]time.Time)
@@ -268,7 +211,7 @@ func CSRFProtectionMiddleware(enabled bool) HTTPMiddleware {
 						"remote_addr", getClientIP(r))
 				}
 
-				http.Error(w, "CSRF token validation failed", http.StatusForbidden)
+				response.WriteAppError(w, errors.ErrCSRFTokenInvalid)
 				return
 			}
 
@@ -296,7 +239,7 @@ func IPWhitelistMiddleware(allowedIPs []string) HTTPMiddleware {
 						"user_agent", r.Header.Get(constants.HeaderUserAgent))
 				}
 
-				http.Error(w, "Access Denied", http.StatusForbidden)
+				response.WriteAppError(w, errors.ErrForbidden.WithDetails("IP access denied"))
 				return
 			}
 
@@ -344,6 +287,22 @@ func validateCSRFToken(token string, tokens map[string]time.Time) bool {
 	}
 
 	return true
+}
+
+// writeSecurityError 写入安全相关错误响应
+func writeSecurityError(w http.ResponseWriter, httpStatus int, statusCode commonapis.StatusCode, message string) {
+	result := &commonapis.Result{
+		Code:   int32(httpStatus),
+		Error:  message,
+		Status: statusCode,
+	}
+
+	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
+	w.WriteHeader(httpStatus)
+
+	if err := json.NewEncoder(w).Encode(result); err != nil && global.LOGGER != nil {
+		global.LOGGER.WithError(err).ErrorMsg("Failed to encode security error response")
+	}
 }
 
 // CSRFTokenHandler 提供CSRF token的端点
