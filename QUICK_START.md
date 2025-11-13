@@ -26,19 +26,22 @@ func main() {
 ```
 
 运行:
+
 ```bash
 go run main.go
 ```
 
 访问:
-- HTTP: http://localhost:8080
+
+- HTTP: <http://localhost:8080>
 - gRPC: localhost:9090
-- 健康检查: http://localhost:8080/health
-- 指标监控: http://localhost:8080/metrics
+- 健康检查: <http://localhost:8080/health>
+- 指标监控: <http://localhost:8080/metrics>
 
 ### 2️⃣ 使用配置文件 (推荐)
 
 1. **创建 config.yaml**
+
 ```yaml
 # 基础服务配置
 server:
@@ -67,6 +70,7 @@ redis:
 ```
 
 2. **创建 main.go**
+
 ```go
 package main
 
@@ -139,12 +143,14 @@ func main() {
 ### 开箱即用的功能
 
 ✅ **自动初始化**
+
 - HTTP/gRPC 双协议服务器
 - 健康检查端点
 - Prometheus 指标监控
 - 结构化日志系统
 
 ✅ **企业级组件** (通过配置文件启用)
+
 - MySQL/PostgreSQL 数据库 (GORM)
 - Redis 缓存 (单机/集群/哨兵)
 - MinIO 对象存储
@@ -152,6 +158,7 @@ func main() {
 - Consul 服务发现
 
 ✅ **15+ 内置中间件**
+
 - 访问日志 (go-logger)
 - 限流控制 (令牌桶)
 - CORS 跨域
@@ -208,6 +215,7 @@ mysql:
 ```
 
 使用数据库:
+
 ```go
 import "github.com/kamalyes/go-rpc-gateway/global"
 
@@ -227,6 +235,7 @@ redis:
 ```
 
 使用 Redis:
+
 ```go
 global.REDIS.Set(ctx, "key", "value", 0)
 val := global.REDIS.Get(ctx, "key").Val()
@@ -338,7 +347,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 ## ❓ 常见问题
 
 ### Q: 如何自定义端口?
+
 A: 在配置文件中设置:
+
 ```yaml
 server:
   http:
@@ -348,7 +359,9 @@ server:
 ```
 
 ### Q: 如何启用 HTTPS?
+
 A: 配置 TLS:
+
 ```yaml
 security:
   tls:
@@ -358,7 +371,9 @@ security:
 ```
 
 ### Q: 如何查看性能分析?
+
 A: 启用 PProf 后访问:
+
 ```bash
 # 启用 PProf
 gw.EnablePProf()
@@ -368,7 +383,9 @@ curl http://localhost:8080/debug/pprof/
 ```
 
 ### Q: 如何添加 gRPC 服务?
+
 A: 注册 gRPC 服务:
+
 ```go
 gw.RegisterService(func(s *grpc.Server) {
     pb.RegisterYourServiceServer(s, &yourService{})
@@ -376,7 +393,9 @@ gw.RegisterService(func(s *grpc.Server) {
 ```
 
 ### Q: 如何使用中间件?
+
 A: 框架内置 15+ 中间件，通过配置文件启用:
+
 ```yaml
 middleware:
   cors:

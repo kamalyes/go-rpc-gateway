@@ -14,11 +14,14 @@ package server
 import (
 	"net/http"
 	"net/http/pprof"
+
+	goconfig "github.com/kamalyes/go-config"
 )
 
 // EnablePProf 启用性能分析功能（使用配置文件）
 func (s *Server) EnablePProf() error {
-	if s.config.Middleware.PProf.Enabled {
+	configSafe := goconfig.SafeConfig(s.config)
+	if configSafe.IsPProfEnabled() {
 		return s.EnablePProfWithConfig()
 	}
 	return nil
@@ -26,17 +29,14 @@ func (s *Server) EnablePProf() error {
 
 // EnablePProfWithConfig 使用自定义配置启用性能分析
 func (s *Server) EnablePProfWithConfig() error {
-	if !s.config.Middleware.PProf.Enabled {
+	configSafe := goconfig.SafeConfig(s.config)
+
+	if !configSafe.IsPProfEnabled() {
 		return nil
 	}
 
 	// 获取路径前缀
-	prefix := s.config.Middleware.PProf.PathPrefix
-	if prefix == "" {
-		prefix = "/debug/pprof"
-	}
-
-	// 注册 pprof 路由
+	prefix := configSafe.GetPProfPathPrefix("/debug/pprof") // 注册 pprof 路由
 	s.RegisterHTTPRoute(prefix+"/", http.HandlerFunc(pprof.Index))
 	s.RegisterHTTPRoute(prefix+"/cmdline", http.HandlerFunc(pprof.Cmdline))
 	s.RegisterHTTPRoute(prefix+"/profile", http.HandlerFunc(pprof.Profile))

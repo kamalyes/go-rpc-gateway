@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-08 00:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 23:59:20
+ * @LastEditTime: 2025-11-13 11:40:03
  * @FilePath: \go-rpc-gateway\server\banner.go
  * @Description: Gateway启动横幅和信息展示
  *
@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"time"
 
+	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
@@ -37,11 +38,13 @@ func NewBannerManager(config *gwconfig.Gateway) *BannerManager {
 
 // getBaseURL 获取基础 URL，处理 0.0.0.0 的情况
 func (b *BannerManager) getBaseURL() string {
-	host := b.config.HTTPServer.Host
+	configSafe := goconfig.SafeConfig(b.config)
+	host := configSafe.Field("HTTPServer").Field("Host").String("localhost")
 	if host == "0.0.0.0" || host == "" {
 		host = "localhost"
 	}
-	return fmt.Sprintf("http://%s:%d", host, b.config.HTTPServer.Port)
+	port := configSafe.Field("HTTPServer").Field("Port").Int(8080)
+	return fmt.Sprintf("http://%s:%d", host, port)
 }
 
 // AddFeature 添加功能特性
@@ -51,11 +54,17 @@ func (b *BannerManager) AddFeature(feature string) {
 
 // PrintStartupBanner 打印启动横幅
 func (b *BannerManager) PrintStartupBanner() {
+	configSafe := goconfig.SafeConfig(b.config)
 	// 使用go-config中的Banner模板
-	if b.config.Banner.Template != "" {
-		global.LOGGER.Info(b.config.Banner.Template)
+	template := configSafe.Field("Banner").Field("Template").String("")
+	if template != "" {
+		global.LOGGER.Info(template)
+	} else {
+		// 如果模板为空，打印默认的艺术字
+		b.printDefaultAsciiArt()
 	}
-	global.LOGGER.Info("🚀 " + b.config.Banner.Title + " - Enterprise Edition")
+	title := configSafe.Field("Banner").Field("Title").String("Gateway")
+	global.LOGGER.Info("🚀 " + title + " - Enterprise Edition")
 	global.LOGGER.Info("")
 
 	// 基础信息
@@ -97,22 +106,31 @@ func (b *BannerManager) PrintShutdownComplete() {
 
 // printBasicInfo 打印基础信息
 func (b *BannerManager) printBasicInfo() {
+	configSafe := goconfig.SafeConfig(b.config)
 	global.LOGGER.Info("📋 基础信息:")
-	global.LOGGER.Info("   🏷️  名称: " + b.config.Banner.Title)
+	title := configSafe.Field("Banner").Field("Title").String("Gateway")
+	global.LOGGER.Info("   🏷️  名称: " + title)
 	global.LOGGER.Info("   📦 版本: v1.0.0")
-	global.LOGGER.Info("   🌍 环境: " + b.config.Environment)
-	global.LOGGER.Info("   🔧 调试模式: " + fmt.Sprintf("%v", b.config.Debug))
+	environment := configSafe.Field("Environment").String("development")
+	global.LOGGER.Info("   🌍 环境: " + environment)
+	debug := configSafe.Field("Debug").Bool(false)
+	global.LOGGER.Info("   🔧 调试模式: " + fmt.Sprintf("%v", debug))
 	global.LOGGER.Info("   🏗️  框架: go-rpc-gateway (基于 go-config & go-logger & go-sqlbuilder & go-toolbox)")
 }
 
 // printServerConfig 打印服务器配置
 func (b *BannerManager) printServerConfig() {
+	configSafe := goconfig.SafeConfig(b.config)
 	global.LOGGER.Info("⚙️  服务器配置:")
-	global.LOGGER.Info("   🌐 HTTP服务器: " + b.config.HTTPServer.Endpoint)
-	global.LOGGER.Info("   📡 gRPC服务器: " + fmt.Sprintf("%s:%d", b.config.HTTPServer.Host, b.config.HTTPServer.GrpcPort))
+	endpoint := configSafe.Field("HTTPServer").Field("Endpoint").String("http://localhost:8080")
+	global.LOGGER.Info("   🌐 HTTP服务器: " + endpoint)
+	host := configSafe.Field("HTTPServer").Field("Host").String("localhost")
+	grpcPort := configSafe.Field("HTTPServer").Field("GrpcPort").Int(9090)
+	global.LOGGER.Info("   📡 gRPC服务器: " + fmt.Sprintf("%s:%d", host, grpcPort))
 
-	if b.config.Health.Enabled {
-		global.LOGGER.Info("   ❤️  健康检查: " + b.config.Health.Path)
+	if configSafe.IsHealthEnabled() {
+		healthPath := configSafe.GetHealthPath("/health")
+		global.LOGGER.Info("   ❤️  健康检查: " + healthPath)
 	}
 }
 
@@ -152,55 +170,66 @@ func (b *BannerManager) printFeatures() {
 
 // printMiddlewareFeatures 打印中间件功能
 func (b *BannerManager) printMiddlewareFeatures() {
+	configSafe := goconfig.SafeConfig(b.config)
 	// 使用go-config的CORS配置
-	if b.config.CORS.AllowedAllOrigins || len(b.config.CORS.AllowedOrigins) > 0 {
+	allowedAllOrigins := configSafe.Field("CORS").Field("AllowedAllOrigins").Bool(false)
+	allowedOrigins := configSafe.Field("CORS").Field("AllowedOrigins").String("")
+	if allowedAllOrigins || allowedOrigins != "" {
 		global.LOGGER.Info("   ✅ CORS跨域支持")
 	}
 
-	if b.config.RateLimit != nil && b.config.RateLimit.Enabled {
+	if configSafe.Field("RateLimit").Field("Enabled").Bool(false) {
 		global.LOGGER.Info("   ✅ 限流控制")
 	}
 
-	if b.config.Middleware.Logging != nil && b.config.Middleware.Logging.Enabled {
+	if configSafe.Field("Middleware").Field("Logging").Field("Enabled").Bool(false) {
 		global.LOGGER.Info("   ✅ 访问日志记录")
 	}
 
 	// 使用go-config的JWT配置来判断认证功能
-	if b.config.JWT.SigningKey != "" {
+	signingKey := configSafe.Field("JWT").Field("SigningKey").String("")
+	if signingKey != "" {
 		global.LOGGER.Info("   ✅ 身份认证 (JWT)")
 	}
 }
 
 // printMonitoringFeatures 打印监控功能
 func (b *BannerManager) printMonitoringFeatures() {
-	if b.config.Monitoring.Metrics.Enabled {
-		global.LOGGER.Info("   ✅ Prometheus指标 (" + b.config.Monitoring.Prometheus.Path + ")")
+	configSafe := goconfig.SafeConfig(b.config)
+	if configSafe.IsMetricsEnabled() {
+		prometheusPath := configSafe.Field("Monitoring").Field("Prometheus").Field("Path").String("/metrics")
+		global.LOGGER.Info("   ✅ Prometheus指标 (" + prometheusPath + ")")
 	}
 
-	if b.config.Monitoring.Jaeger.Enabled {
-		global.LOGGER.Info("   ✅ 链路追踪 (" + b.config.Monitoring.Jaeger.ServiceName + ")")
+	if configSafe.IsJaegerEnabled() {
+		serviceName := configSafe.GetJaegerServiceName("gateway-service")
+		global.LOGGER.Info("   ✅ 链路追踪 (" + serviceName + ")")
 	}
 }
 
 // printEndpoints 打印端点信息
 func (b *BannerManager) printEndpoints() {
 	baseURL := b.getBaseURL()
+	configSafe := goconfig.SafeConfig(b.config)
 
 	global.LOGGER.Info("📡 核心端点:")
 
-	if b.config.Health.Enabled {
-		global.LOGGER.Info("   🏥 健康检查: " + baseURL + b.config.Health.Path)
+	if configSafe.IsHealthEnabled() {
+		healthPath := configSafe.GetHealthPath("/health")
+		global.LOGGER.Info("   🏥 健康检查: " + baseURL + healthPath)
 	}
 
-	if b.config.Monitoring.Prometheus.Enabled {
-		global.LOGGER.Info("   📊 监控指标: " + baseURL + b.config.Monitoring.Prometheus.Path)
+	if configSafe.Field("Monitoring").Field("Prometheus").Field("Enabled").Bool(false) {
+		prometheusPath := configSafe.Field("Monitoring").Field("Prometheus").Field("Path").String("/metrics")
+		global.LOGGER.Info("   📊 监控指标: " + baseURL + prometheusPath)
 	}
 }
 
 // PrintPProfInfo 打印PProf信息
 // go-config 的 Default() 已经设置了所有默认值，无需再次设置
 func (b *BannerManager) PrintPProfInfo(pprofConfig *middleware.PProfGatewayConfig) {
-	if !b.config.Middleware.PProf.Enabled {
+	configSafe := goconfig.SafeConfig(b.config)
+	if !configSafe.IsPProfEnabled() {
 		return
 	}
 
@@ -209,7 +238,8 @@ func (b *BannerManager) PrintPProfInfo(pprofConfig *middleware.PProfGatewayConfi
 	global.LOGGER.Info("🔬 性能分析 (PProf):")
 	global.LOGGER.Info("   🎯 状态: 已启用")
 	global.LOGGER.Info("   🏠 仪表板: " + baseURL + "/")
-	global.LOGGER.Info("   🔍 PProf索引: " + baseURL + b.config.Middleware.PProf.PathPrefix + "/")
+	pprofPrefix := configSafe.GetPProfPathPrefix("/debug/pprof")
+	global.LOGGER.Info("   🔍 PProf索引: " + baseURL + pprofPrefix + "/")
 
 	global.LOGGER.Info("   🧪 性能测试场景:")
 	scenarios := []struct {
@@ -224,7 +254,8 @@ func (b *BannerManager) PrintPProfInfo(pprofConfig *middleware.PProfGatewayConfi
 	}
 
 	for _, scenario := range scenarios {
-		global.LOGGER.Info("     • " + scenario.desc + ": " + baseURL + b.config.Middleware.PProf.PathPrefix + scenario.path)
+		pprofPrefix := configSafe.GetPProfPathPrefix("/debug/pprof")
+		global.LOGGER.Info("     • " + scenario.desc + ": " + baseURL + pprofPrefix + scenario.path)
 	}
 }
 
@@ -240,6 +271,7 @@ func (b *BannerManager) printSystemInfo() {
 
 // PrintMiddlewareStatus 打印中间件状态
 func (b *BannerManager) PrintMiddlewareStatus() {
+	configSafe := goconfig.SafeConfig(b.config)
 	global.LOGGER.Info("🔌 中间件状态:")
 
 	middlewares := []struct {
@@ -247,15 +279,15 @@ func (b *BannerManager) PrintMiddlewareStatus() {
 		enabled bool
 		desc    string
 	}{
-		{"Swagger", b.config.Swagger.Enabled, "Swagger文档"},
-		{"Recovery", b.config.Middleware.Recovery != nil && b.config.Middleware.Recovery.Enabled, "异常恢复"},
-		{"RequestID", b.config.Middleware.RequestID != nil && b.config.Middleware.RequestID.Enabled, "请求ID生成"},
-		{"I18n", b.config.Middleware.I18N != nil && b.config.Middleware.I18N.Enabled, "国际化支持"},
-		{"CORS", b.config.CORS.AllowedAllOrigins || len(b.config.CORS.AllowedOrigins) > 0, "跨域处理"},
-		{"RateLimit", b.config.RateLimit != nil && b.config.RateLimit.Enabled, "限流控制"},
-		{"AccessLog", b.config.Middleware.Logging != nil && b.config.Middleware.Logging.Enabled, "访问日志"},
-		{"Auth", b.config.JWT.SigningKey != "", "身份认证"},
-		{"Security", b.config.Security.Enabled, "安全头设置"},
+		{"Swagger", configSafe.Field("Swagger").Field("Enabled").Bool(false), "Swagger文档"},
+		{"Recovery", configSafe.Field("Middleware").Field("Recovery").Field("Enabled").Bool(false), "异常恢复"},
+		{"RequestID", configSafe.Field("Middleware").Field("RequestID").Field("Enabled").Bool(false), "请求ID生成"},
+		{"I18n", configSafe.Field("Middleware").Field("I18N").Field("Enabled").Bool(false), "国际化支持"},
+		{"CORS", configSafe.Field("CORS").Field("AllowedAllOrigins").Bool(false) || configSafe.Field("CORS").Field("AllowedOrigins").String("") != "", "跨域处理"},
+		{"RateLimit", configSafe.Field("RateLimit").Field("Enabled").Bool(false), "限流控制"},
+		{"AccessLog", configSafe.Field("Middleware").Field("Logging").Field("Enabled").Bool(false), "访问日志"},
+		{"Auth", configSafe.Field("JWT").Field("SigningKey").String("") != "", "身份认证"},
+		{"Security", configSafe.Field("Security").Field("Enabled").Bool(false), "安全头设置"},
 	}
 
 	for _, mw := range middlewares {
@@ -270,17 +302,39 @@ func (b *BannerManager) PrintMiddlewareStatus() {
 // PrintUsageGuide 打印使用指南
 func (b *BannerManager) PrintUsageGuide() {
 	baseURL := b.getBaseURL()
+	configSafe := goconfig.SafeConfig(b.config)
 
 	global.LOGGER.Info("💡 使用指南:")
 	global.LOGGER.Info("   📖 访问主页查看完整信息: " + baseURL + "/")
 
-	if b.config.Health.Enabled {
-		global.LOGGER.Info("   🏥 健康检查: curl " + baseURL + b.config.Health.Path)
+	if configSafe.IsHealthEnabled() {
+		healthPath := configSafe.GetHealthPath("/health")
+		global.LOGGER.Info("   🏥 健康检查: curl " + baseURL + healthPath)
 	}
 
-	if b.config.Monitoring.Prometheus.Enabled {
-		global.LOGGER.Info("   📊 监控指标: curl " + baseURL + b.config.Monitoring.Prometheus.Path)
+	if configSafe.Field("Monitoring").Field("Prometheus").Field("Enabled").Bool(false) {
+		prometheusPath := configSafe.Field("Monitoring").Field("Prometheus").Field("Path").String("/metrics")
+		global.LOGGER.Info("   📊 监控指标: curl " + baseURL + prometheusPath)
 	}
 
 	global.LOGGER.Info("   ⏹️  优雅关闭: 按 Ctrl+C")
+}
+
+// printDefaultAsciiArt 打印默认的艺术字横幅
+func (b *BannerManager) printDefaultAsciiArt() {
+	art := `
+ ██████╗  ██████╗       ██████╗ ██████╗  ██████╗       ██████╗  █████╗ ████████╗███████╗██╗    ██╗ █████╗ ██╗   ██╗
+██╔════╝ ██╔═══██╗      ██╔══██╗██╔══██╗██╔════╝      ██╔════╝ ██╔══██╗╚══██╔══╝██╔════╝██║    ██║██╔══██╗╚██╗ ██╔╝
+██║  ███╗██║   ██║█████╗██████╔╝██████╔╝██║     █████╗██║  ███╗███████║   ██║   █████╗  ██║ █╗ ██║███████║ ╚████╔╝ 
+██║   ██║██║   ██║╚════╝██╔══██╗██╔═══╝ ██║     ╚════╝██║   ██║██╔══██║   ██║   ██╔══╝  ██║███╗██║██╔══██║  ╚██╔╝  
+╚██████╔╝╚██████╔╝      ██║  ██║██║     ╚██████╗      ╚██████╔╝██║  ██║   ██║   ███████╗╚███╔███╔╝██║  ██║   ██║   
+ ╚═════╝  ╚═════╝       ╚═╝  ╚═╝╚═╝      ╚═════╝       ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝   
+                                                                                                                       
+  ██████████████████████████████████████████████████████████████████████████████████████████████████████████████    
+                                                                                                                       
+                        🚀 高性能微服务网关 | Enterprise Edition v2.0                                                  
+                        ⚡ 基于 gRPC-Gateway + OpenTelemetry + Prometheus                                             
+                        🛡️  生产就绪 | 云原生架构 | 企业级功能                                                          
+`
+	global.LOGGER.Info(art)
 }

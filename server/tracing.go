@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	goconfig "github.com/kamalyes/go-config"
 	gojaeger "github.com/kamalyes/go-config/pkg/jaeger"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"go.opentelemetry.io/otel"
@@ -183,7 +184,8 @@ func (tm *TracingManager) StartSpan(ctx context.Context, name string, opts ...tr
 
 // EnableTracing 启用链路追踪功能（使用配置文件）
 func (s *Server) EnableTracing() error {
-	if s.config.Monitoring.Jaeger.Enabled {
+	configSafe := goconfig.SafeConfig(s.config)
+	if configSafe.IsJaegerEnabled() {
 		return s.EnableTracingWithConfig()
 	}
 	return nil
@@ -191,11 +193,20 @@ func (s *Server) EnableTracing() error {
 
 // EnableTracingWithConfig 使用自定义配置启用链路追踪
 func (s *Server) EnableTracingWithConfig() error {
-	if !s.config.Monitoring.Jaeger.Enabled {
+	configSafe := goconfig.SafeConfig(s.config)
+
+	if !configSafe.IsJaegerEnabled() {
 		return nil
 	}
 
 	// 创建 TracingManager
+	// 注意：这里需要传递原始config对象，因为NewTracingManager需要完整结构
+	if !configSafe.IsJaegerEnabled() {
+		return nil // 如果未启用Jaeger，直接返回
+	}
+	
+	// 这里仍然需要传递完整的config.Monitoring.Jaeger给构造函数
+	// 因为NewTracingManager可能需要访问完整的配置结构
 	tracingManager, err := NewTracingManager(s.config.Monitoring.Jaeger)
 	if err != nil {
 		return fmt.Errorf("failed to create tracing manager: %w", err)
@@ -205,11 +216,9 @@ func (s *Server) EnableTracingWithConfig() error {
 	// s.tracingManager = tracingManager
 
 	global.LOGGER.InfoKV("链路追踪已启用",
-		"service", s.config.Monitoring.Jaeger.ServiceName,
-		"endpoint", s.config.Monitoring.Jaeger.Endpoint,
-		"sampling_type", s.config.Monitoring.Jaeger.Sampling.Type)
-
-	// 注册关闭钩子
+		"service", configSafe.GetJaegerServiceName(""),
+		"endpoint", configSafe.GetJaegerEndpoint(""),
+		"sampling_type", configSafe.GetJaegerSamplingType("")) // 注册关闭钩子
 	go func() {
 		<-s.ctx.Done()
 		if err := tracingManager.Shutdown(context.Background()); err != nil {

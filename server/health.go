@@ -11,9 +11,12 @@
 
 package server
 
+import goconfig "github.com/kamalyes/go-config"
+
 // EnableHealth 启用健康检查功能（使用配置文件）
 func (s *Server) EnableHealth() error {
-	if s.config.Health.Enabled {
+	configSafe := goconfig.SafeConfig(s.config)
+	if configSafe.IsHealthEnabled() {
 		return s.EnableHealthWithConfig()
 	}
 	return nil
@@ -21,7 +24,8 @@ func (s *Server) EnableHealth() error {
 
 // EnableHealthWithConfig 使用自定义配置启用健康检查
 func (s *Server) EnableHealthWithConfig() error {
-	if !s.config.Health.Enabled {
+	configSafe := goconfig.SafeConfig(s.config)
+	if !configSafe.IsHealthEnabled() {
 		return nil
 	}
 
@@ -29,15 +33,15 @@ func (s *Server) EnableHealthWithConfig() error {
 	// 这里只需要注册路由
 	if s.healthManager != nil {
 		// 注册主健康检查端点
-		path := s.config.Health.Path
+		path := configSafe.GetHealthPath("/health")
 		if path == "" {
 			path = "/health"
 		}
 		s.RegisterHTTPRoute(path, s.healthManager.HTTPHandler())
 
 		// 注册 Redis 健康检查端点
-		if s.config.Health.Redis != nil && s.config.Health.Redis.Enabled {
-			redisPath := s.config.Health.Redis.Path
+		if configSafe.IsRedisHealthEnabled() {
+			redisPath := configSafe.GetRedisHealthPath("/health/redis")
 			if redisPath == "" {
 				redisPath = "/health/redis"
 			}
@@ -45,8 +49,8 @@ func (s *Server) EnableHealthWithConfig() error {
 		}
 
 		// 注册 MySQL 健康检查端点
-		if s.config.Health.MySQL != nil && s.config.Health.MySQL.Enabled {
-			mysqlPath := s.config.Health.MySQL.Path
+		if configSafe.IsMySQLHealthEnabled() {
+			mysqlPath := configSafe.GetMySQLHealthPath("/health/mysql")
 			if mysqlPath == "" {
 				mysqlPath = "/health/mysql"
 			}

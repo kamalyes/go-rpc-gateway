@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 21:50:15
+ * @LastEditTime: 2025-11-13 15:27:57
  * @FilePath: \go-rpc-gateway\server\server.go
  * @Description: Gateway服务器核心结构定义
  *
@@ -19,10 +19,10 @@ import (
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
+	safe "github.com/kamalyes/go-toolbox/pkg/safe"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -74,16 +74,16 @@ func NewServer() (*Server, error) {
 		return nil, fmt.Errorf("global GATEWAY config is not initialized")
 	}
 
-	// 确保全局日志器被初始化
-	if err := ensureLoggerInitialized(cfg); err != nil {
-		return nil, fmt.Errorf("failed to initialize logger: %w", err)
+	// 记录环境配置应用情况
+	monitoringEnabled := false
+	if cfg.Monitoring != nil {
+		monitoringEnabled = cfg.Monitoring.Enabled
 	}
 
-	// 记录环境配置应用情况
 	global.LOGGER.InfoKV("服务器启动配置",
 		"environment", cfg.Environment,
 		"debug", cfg.Debug,
-		"metrics_enabled", cfg.Monitoring.Enabled)
+		"metrics_enabled", monitoringEnabled)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -167,35 +167,13 @@ func (s *Server) RegisterGRPCService(registerFunc func(*grpc.Server)) {
 
 // RegisterHTTPHandler 注册HTTP处理器到网关
 func (s *Server) RegisterHTTPHandler(ctx context.Context, registerFunc func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error) error {
-	grpcAddress := s.config.GRPC.Server.GetEndpoint()
+	// 使用安全访问获取gRPC地址
+	configSafe := safe.Safe(s.config)
+	host := configSafe.Field("GRPC").Field("Server").Field("Host").String("0.0.0.0")
+	port := configSafe.Field("GRPC").Field("Server").Field("Port").Int(9090)
+	grpcAddress := fmt.Sprintf("%s:%d", host, port)
+
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
 	return registerFunc(ctx, s.gwMux, grpcAddress, opts)
-}
-
-// ensureLoggerInitialized 确保全局日志器被正确初始化
-func ensureLoggerInitialized(cfg *gwconfig.Gateway) error {
-	// 如果全局日志器已经初始化，直接返回
-	if global.LOGGER != nil {
-		return nil
-	}
-
-	// 使用 go-logger 创建一个新的日志器实例
-	// 使用默认日志级别，具体配置交给 go-config 管理
-	level := logger.INFO
-	if cfg.Debug {
-		level = logger.DEBUG
-	}
-
-	// 创建一个简单的 logger 实例
-	newLogger := logger.CreateSimpleLogger(level)
-	if newLogger == nil {
-		return fmt.Errorf("failed to create logger instance")
-	}
-
-	// 将新创建的 logger 赋值给全局变量
-	global.LOGGER = newLogger
-
-	fmt.Println("[INFO] Logger initialized successfully with go-logger")
-	return nil
 }

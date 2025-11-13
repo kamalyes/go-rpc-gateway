@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 09:41:45
+ * @LastEditTime: 2025-11-13 11:33:24
  * @FilePath: \go-rpc-gateway\middleware\breaker.go
  * @Description: CircuitBreaker 中间件适配器 - 在 middleware 模块下统一管理中间件
  * 通过此适配器将 breaker 模块的功能集成到标准的中间件框架中
@@ -278,7 +278,7 @@ func (a *BreakerMiddlewareAdapter) collectMetricsRoutine() {
 
 		// 可选：记录到日志或上报到监控系统
 		if global.LOGGER != nil {
-			global.LOGGER.Debug(
+			global.LOGGER.DebugKV(
 				"CircuitBreaker Stats",
 				"TotalRequests", a.stats.TotalRequests,
 				"FailedRequests", a.stats.FailedRequests,

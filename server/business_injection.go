@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-13 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 06:49:19
+ * @LastEditTime: 2025-11-13 15:30:32
  * @FilePath: \go-rpc-gateway\server\business_injection.go
  * @Description: 业务服务注入管理器 - 为go-rpc-gateway提供业务服务注入能力
  *
@@ -29,16 +29,16 @@ import (
 type BusinessServiceProvider interface {
 	// GetServiceName 获取服务名称
 	GetServiceName() string
-	
+
 	// RegisterGRPCServices 注册gRPC服务
 	RegisterGRPCServices(grpcServer *grpc.Server)
-	
+
 	// Start 启动服务
 	Start() error
-	
+
 	// Stop 停止服务
 	Stop() error
-	
+
 	// IsRunning 检查服务运行状态
 	IsRunning() bool
 }
@@ -47,29 +47,29 @@ type BusinessServiceProvider interface {
 type BusinessConfigAdapter interface {
 	// GetServiceName 获取服务名称
 	GetServiceName() string
-	
+
 	// GetEnvironment 获取环境
 	GetEnvironment() string
-	
+
 	// IsDebug 是否调试模式
 	IsDebug() bool
-	
+
 	// 其他配置获取方法...
 }
 
 // BusinessInjectionManager 业务服务注入管理器
 type BusinessInjectionManager struct {
 	logger logger.ILogger
-	
+
 	// 注册的业务服务
 	services map[string]BusinessServiceProvider
-	
+
 	// 健康检查服务器
 	healthServer *health.Server
-	
+
 	// 连接池管理器
 	poolManager cpool.PoolManager
-	
+
 	// 状态管理
 	isRunning bool
 	mu        sync.RWMutex
@@ -80,7 +80,7 @@ type BusinessInjectionManager struct {
 // NewBusinessInjectionManager 创建业务服务注入管理器
 func NewBusinessInjectionManager() *BusinessInjectionManager {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &BusinessInjectionManager{
 		logger:       global.GetLogger(),
 		services:     make(map[string]BusinessServiceProvider),
@@ -95,16 +95,16 @@ func NewBusinessInjectionManager() *BusinessInjectionManager {
 func (bim *BusinessInjectionManager) RegisterBusinessService(name string, service BusinessServiceProvider) error {
 	bim.mu.Lock()
 	defer bim.mu.Unlock()
-	
+
 	if _, exists := bim.services[name]; exists {
 		return fmt.Errorf("业务服务 %s 已存在", name)
 	}
-	
+
 	bim.services[name] = service
-	bim.logger.Info("业务服务注册成功", 
+	bim.logger.InfoKV("业务服务注册成功",
 		"service_name", name,
 		"service_type", reflect.TypeOf(service).String())
-	
+
 	return nil
 }
 
@@ -112,22 +112,22 @@ func (bim *BusinessInjectionManager) RegisterBusinessService(name string, servic
 func (bim *BusinessInjectionManager) UnregisterBusinessService(name string) error {
 	bim.mu.Lock()
 	defer bim.mu.Unlock()
-	
+
 	service, exists := bim.services[name]
 	if !exists {
 		return fmt.Errorf("业务服务 %s 不存在", name)
 	}
-	
+
 	// 停止服务
 	if service.IsRunning() {
 		if err := service.Stop(); err != nil {
 			bim.logger.Error("停止业务服务失败", "service_name", name, "error", err)
 		}
 	}
-	
+
 	delete(bim.services, name)
 	bim.logger.Info("业务服务注销成功", "service_name", name)
-	
+
 	return nil
 }
 
@@ -135,12 +135,12 @@ func (bim *BusinessInjectionManager) UnregisterBusinessService(name string) erro
 func (bim *BusinessInjectionManager) GetBusinessService(name string) (BusinessServiceProvider, error) {
 	bim.mu.RLock()
 	defer bim.mu.RUnlock()
-	
+
 	service, exists := bim.services[name]
 	if !exists {
 		return nil, fmt.Errorf("业务服务 %s 不存在", name)
 	}
-	
+
 	return service, nil
 }
 
@@ -148,12 +148,12 @@ func (bim *BusinessInjectionManager) GetBusinessService(name string) (BusinessSe
 func (bim *BusinessInjectionManager) ListBusinessServices() map[string]BusinessServiceProvider {
 	bim.mu.RLock()
 	defer bim.mu.RUnlock()
-	
+
 	result := make(map[string]BusinessServiceProvider)
 	for name, service := range bim.services {
 		result[name] = service
 	}
-	
+
 	return result
 }
 
@@ -165,22 +165,22 @@ func (bim *BusinessInjectionManager) RegisterAllGRPCServices(grpcServer *grpc.Se
 		services[name] = service
 	}
 	bim.mu.RUnlock()
-	
+
 	// 注册健康检查服务
 	grpc_health_v1.RegisterHealthServer(grpcServer, bim.healthServer)
-	
+
 	// 注册所有业务服务
 	for name, service := range services {
 		bim.logger.Info("注册业务服务gRPC接口", "service_name", name)
 		service.RegisterGRPCServices(grpcServer)
-		
+
 		// 设置健康状态
 		bim.healthServer.SetServingStatus(name, grpc_health_v1.HealthCheckResponse_SERVING)
 	}
-	
+
 	// 设置总体健康状态
 	bim.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
-	
+
 	bim.logger.Info("所有业务服务gRPC接口注册完成", "service_count", len(services))
 }
 
@@ -188,11 +188,11 @@ func (bim *BusinessInjectionManager) RegisterAllGRPCServices(grpcServer *grpc.Se
 func (bim *BusinessInjectionManager) StartAllBusinessServices() error {
 	bim.mu.Lock()
 	defer bim.mu.Unlock()
-	
+
 	if bim.isRunning {
 		return fmt.Errorf("业务服务管理器已在运行")
 	}
-	
+
 	// 启动所有业务服务
 	for name, service := range bim.services {
 		if !service.IsRunning() {
@@ -204,10 +204,10 @@ func (bim *BusinessInjectionManager) StartAllBusinessServices() error {
 			}
 		}
 	}
-	
+
 	bim.isRunning = true
 	bim.logger.Info("业务服务管理器启动完成", "service_count", len(bim.services))
-	
+
 	return nil
 }
 
@@ -215,14 +215,14 @@ func (bim *BusinessInjectionManager) StartAllBusinessServices() error {
 func (bim *BusinessInjectionManager) StopAllBusinessServices() error {
 	bim.mu.Lock()
 	defer bim.mu.Unlock()
-	
+
 	if !bim.isRunning {
 		return nil
 	}
-	
+
 	// 取消上下文
 	bim.cancel()
-	
+
 	// 停止所有业务服务
 	for name, service := range bim.services {
 		if service.IsRunning() {
@@ -233,16 +233,16 @@ func (bim *BusinessInjectionManager) StopAllBusinessServices() error {
 			}
 		}
 	}
-	
+
 	// 设置健康状态为不可用
 	for name := range bim.services {
 		bim.healthServer.SetServingStatus(name, grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 	}
 	bim.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
-	
+
 	bim.isRunning = false
 	bim.logger.Info("业务服务管理器停止完成")
-	
+
 	return nil
 }
 
@@ -274,11 +274,11 @@ func (bim *BusinessInjectionManager) GetServiceCount() int {
 func (bim *BusinessInjectionManager) GetServiceStatus() map[string]bool {
 	bim.mu.RLock()
 	defer bim.mu.RUnlock()
-	
+
 	status := make(map[string]bool)
 	for name, service := range bim.services {
 		status[name] = service.IsRunning()
 	}
-	
+
 	return status
 }

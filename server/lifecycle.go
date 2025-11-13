@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kamalyes/go-rpc-gateway/global"
+	safe "github.com/kamalyes/go-toolbox/pkg/safe"
 )
 
 // Start 启动服务器
@@ -51,9 +52,17 @@ func (s *Server) Start() error {
 	}()
 
 	s.running = true
+
+	// 使用安全访问获取端点信息
+	configSafe := safe.Safe(s.config)
+	httpHost := configSafe.Field("HTTPServer").Field("Host").String("0.0.0.0")
+	httpPort := configSafe.Field("HTTPServer").Field("Port").Int(8080)
+	grpcHost := configSafe.Field("GRPC").Field("Server").Field("Host").String("0.0.0.0")
+	grpcPort := configSafe.Field("GRPC").Field("Server").Field("Port").Int(9090)
+
 	logger.InfoKV("🚀 Gateway启动成功!",
-		"http_endpoint", s.config.HTTPServer.GetEndpoint(),
-		"grpc_endpoint", s.config.GRPC.Server.GetEndpoint())
+		"http_endpoint", fmt.Sprintf("%s:%d", httpHost, httpPort),
+		"grpc_endpoint", fmt.Sprintf("%s:%d", grpcHost, grpcPort))
 
 	return nil
 }

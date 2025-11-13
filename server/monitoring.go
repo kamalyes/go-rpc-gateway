@@ -11,9 +11,14 @@
 
 package server
 
+import (
+	goconfig "github.com/kamalyes/go-config"
+)
+
 // EnableMonitoring 启用监控功能（使用配置文件）
 func (s *Server) EnableMonitoring() error {
-	if s.config.Monitoring.Enabled {
+	configSafe := goconfig.SafeConfig(s.config)
+	if configSafe.IsMonitoringEnabled() {
 		return s.EnableMonitoringWithConfig()
 	}
 	return nil
@@ -21,19 +26,19 @@ func (s *Server) EnableMonitoring() error {
 
 // EnableMonitoringWithConfig 使用自定义配置启用监控
 func (s *Server) EnableMonitoringWithConfig() error {
-	if !s.config.Monitoring.Enabled {
+	configSafe := goconfig.SafeConfig(s.config)
+
+	if !configSafe.IsMonitoringEnabled() {
 		return nil
 	}
 
 	// 创建 MetricsManager（已有实现）
+	// 注意：这里需要传递原始config对象，因为NewMetricsManager可能需要完整结构
 	metricsManager := NewMetricsManager(s.config.Monitoring)
 
 	// 注册 Prometheus metrics 端点
-	if s.config.Monitoring.Metrics != nil && s.config.Monitoring.Metrics.Enabled {
-		endpoint := s.config.Monitoring.Metrics.Endpoint
-		if endpoint == "" {
-			endpoint = "/metrics"
-		}
+	if configSafe.IsMetricsEnabled() {
+		endpoint := configSafe.GetMetricsEndpoint("/metrics")
 		s.RegisterHTTPRoute(endpoint, metricsManager.Handler())
 	}
 

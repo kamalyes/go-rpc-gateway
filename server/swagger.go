@@ -14,27 +14,114 @@ package server
 import (
 	"net/http"
 
+	goconfig "github.com/kamalyes/go-config"
 	goswagger "github.com/kamalyes/go-config/pkg/swagger"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 )
 
-// EnableSwagger 启用 Swagger 文档服务
-func (s *Server) EnableSwagger() error {
-	// 使用 go-config 的 Swagger 配置
-	swaggerConfig := goswagger.Default().
-		WithEnabled(s.config.Swagger.Enabled).
-		WithJSONPath(s.config.Swagger.JSONPath).
-		WithUIPath(s.config.Swagger.UIPath).
-		WithTitle(s.config.Swagger.Title).
-		WithDescription(s.config.Swagger.Description).
-		WithVersion(s.config.Swagger.Version).
-		WithContact(s.config.Swagger.Contact).
-		WithLicense(s.config.Swagger.License)
-	return s.EnableSwaggerWithConfig(swaggerConfig)
+// getString 安全获取map中的字符串值
+func getString(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		if str, ok := v.(string); ok {
+			return str
+		}
+	}
+	return ""
 }
 
-// EnableSwaggerWithConfig 使用 go-config 的 Swagger 配置启用服务
+// getBool 安全获取map中的布尔值
+func getBool(m map[string]interface{}, key string) bool {
+	if v, ok := m[key]; ok {
+		if b, ok := v.(bool); ok {
+			return b
+		}
+	}
+	return false
+}
+
+// getStringSlice 安全获取map中的字符串切片
+func getStringSlice(m map[string]interface{}, key string) []string {
+	if v, ok := m[key]; ok {
+		if slice, ok := v.([]interface{}); ok {
+			result := make([]string, 0, len(slice))
+			for _, item := range slice {
+				if str, ok := item.(string); ok {
+					result = append(result, str)
+				}
+			}
+			return result
+		}
+	}
+	return nil
+}
+
+// EnableSwagger 启用 Swagger 文档服务
+func (s *Server) EnableSwagger() error {
+	// 使用安全访问模式获取 Swagger 配置
+	configSafe := goconfig.SafeConfig(s.config)
+	swaggerSafe := configSafe.Field("Swagger")
+
+	swaggerConfig := goswagger.Default().
+		WithEnabled(swaggerSafe.Field("Enabled").Bool(false)).
+		WithJSONPath(swaggerSafe.Field("JSONPath").String("")).
+		WithUIPath(swaggerSafe.Field("UIPath").String("/swagger")).
+		WithTitle(swaggerSafe.Field("Title").String("API Documentation")).
+		WithDescription(swaggerSafe.Field("Description").String("")).
+		WithVersion(swaggerSafe.Field("Version").String("1.0.0"))
+
+	// 处理 Aggregate 配置
+	if aggregateSafe := swaggerSafe.Field("Aggregate"); aggregateSafe.IsValid() {
+		aggregate := &goswagger.AggregateConfig{
+			Enabled: aggregateSafe.Field("Enabled").Bool(false),
+			Mode:    aggregateSafe.Field("Mode").String("merge"),
+		}
+
+		// 处理服务列表
+		if servicesSafe := aggregateSafe.Field("Services"); servicesSafe.IsValid() {
+			if servicesValue := servicesSafe.Value(); servicesValue != nil {
+				if servicesSlice, ok := servicesValue.([]interface{}); ok {
+					for _, serviceInterface := range servicesSlice {
+						if serviceMap, ok := serviceInterface.(map[string]interface{}); ok {
+							service := &goswagger.ServiceSpec{
+								Name:        getString(serviceMap, "name"),
+								Description: getString(serviceMap, "description"),
+								SpecPath:    getString(serviceMap, "spec_path"),
+								URL:         getString(serviceMap, "url"),
+								Version:     getString(serviceMap, "version"),
+								Enabled:     getBool(serviceMap, "enabled"),
+								BasePath:    getString(serviceMap, "base_path"),
+								Tags:        getStringSlice(serviceMap, "tags"),
+							}
+							aggregate.Services = append(aggregate.Services, service)
+						}
+					}
+				}
+			}
+		}
+
+		swaggerConfig = swaggerConfig.WithAggregate(aggregate)
+
+		global.LOGGER.InfoKV("🔧 解析聚合配置",
+			"enabled", aggregate.Enabled,
+			"mode", aggregate.Mode,
+			"services_count", len(aggregate.Services))
+	}
+
+	// Contact 和 License 如果不为空则设置
+	if contact := swaggerSafe.Field("Contact").Value(); contact != nil {
+		if contactPtr, ok := contact.(*goswagger.Contact); ok {
+			swaggerConfig = swaggerConfig.WithContact(contactPtr)
+		}
+	}
+	if license := swaggerSafe.Field("License").Value(); license != nil {
+		if licensePtr, ok := license.(*goswagger.License); ok {
+			swaggerConfig = swaggerConfig.WithLicense(licensePtr)
+		}
+	}
+
+	return s.EnableSwaggerWithConfig(swaggerConfig)
+} // EnableSwaggerWithConfig 使用 go-config 的 Swagger 配置启用服务
 func (s *Server) EnableSwaggerWithConfig(config *goswagger.Swagger) error {
 	if !config.Enabled {
 		return nil

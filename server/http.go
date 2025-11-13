@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	goconfig "github.com/kamalyes/go-config"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
@@ -41,8 +42,9 @@ func (w gzipResponseWriter) Write(b []byte) (int, error) {
 // gzipMiddleware HTTP Gzip压缩中间件
 func (s *Server) gzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 检查是否启用压缩
-		if !s.config.HTTPServer.EnableGzipCompress {
+		// 检查是否启用压缩 - 使用安全访问
+		configSafe := goconfig.SafeConfig(s.config)
+		if !configSafe.Field("HTTPServer").Field("EnableGzipCompress").Bool(false) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -78,35 +80,44 @@ func (s *Server) initHTTPGateway() error {
 	// 注册网关路由（默认路由到gwMux）
 	s.httpMux.Handle("/", s.gwMux)
 
-	// 注册健康检查
-	if s.config.Health.Enabled {
-		s.httpMux.HandleFunc(s.config.Health.Path, s.healthCheckHandler)
+	// 注册健康检查 - 使用安全访问
+	configSafe := goconfig.SafeConfig(s.config)
+	if configSafe.Field("Health").Field("Enabled").Bool(false) {
+		healthPath := configSafe.Field("Health").Field("Path").String("/health")
+		s.httpMux.HandleFunc(healthPath, s.healthCheckHandler)
+
+		httpEndpoint := configSafe.Field("HTTPServer").Field("Host").String("0.0.0.0") + ":" +
+			string(rune(configSafe.Field("HTTPServer").Field("Port").Int(8080)))
 		global.LOGGER.InfoKV("❤️  健康检查已启用",
-			"url", s.config.HTTPServer.GetEndpoint()+s.config.Health.Path)
+			"url", "http://"+httpEndpoint+healthPath)
 
 		// 注册组件级健康检查端点
 		s.registerComponentHealthChecks()
 	}
 
-	// 注册监控指标端点
-	if s.config.Monitoring.Metrics.Enabled {
-		s.httpMux.Handle(s.config.Monitoring.Prometheus.Path, promhttp.Handler())
+	// 注册监控指标端点 - 使用安全访问
+	if configSafe.Field("Monitoring").Field("Metrics").Field("Enabled").Bool(false) {
+		prometheusPath := configSafe.Field("Monitoring").Field("Prometheus").Field("Path").String("/metrics")
+		s.httpMux.Handle(prometheusPath, promhttp.Handler())
+
+		httpEndpoint := configSafe.Field("HTTPServer").Field("Host").String("0.0.0.0") + ":" +
+			string(rune(configSafe.Field("HTTPServer").Field("Port").Int(8080)))
 		global.LOGGER.InfoKV("📊 监控指标服务可用",
-			"url", s.config.HTTPServer.GetEndpoint()+s.config.Monitoring.Prometheus.Path)
+			"url", "http://"+httpEndpoint+prometheusPath)
 	}
 
 	// 应用中间件
 	var handler http.Handler = s.httpMux
 
 	// 首先应用Gzip压缩中间件（如果启用）
-	if s.config.HTTPServer.EnableGzipCompress {
+	if configSafe.Field("HTTPServer").Field("EnableGzipCompress").Bool(false) {
 		handler = s.gzipMiddleware(handler)
 		global.LOGGER.InfoMsg("✅ HTTP Gzip压缩已启用")
 	}
 
 	if s.middlewareManager != nil {
 		var middlewares []middleware.MiddlewareFunc
-		if s.config.Debug {
+		if configSafe.Field("Debug").Bool(false) {
 			middlewares = s.middlewareManager.GetDevelopmentMiddlewares()
 		} else {
 			middlewares = s.middlewareManager.GetDefaultMiddlewares()
@@ -114,14 +125,15 @@ func (s *Server) initHTTPGateway() error {
 		handler = middleware.ApplyMiddlewares(handler, middlewares...)
 	}
 
-	// 创建HTTP服务器
+	// 创建HTTP服务器 - 使用安全访问
+	httpSafe := configSafe.Field("HTTPServer")
 	s.httpServer = &http.Server{
-		Addr:           fmt.Sprintf("%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port),
+		Addr:           fmt.Sprintf("%s:%d", httpSafe.Field("Host").String("0.0.0.0"), httpSafe.Field("Port").Int(8080)),
 		Handler:        handler,
-		ReadTimeout:    time.Duration(s.config.HTTPServer.ReadTimeout) * time.Second,
-		WriteTimeout:   time.Duration(s.config.HTTPServer.WriteTimeout) * time.Second,
-		IdleTimeout:    time.Duration(s.config.HTTPServer.IdleTimeout) * time.Second,
-		MaxHeaderBytes: s.config.HTTPServer.MaxHeaderBytes,
+		ReadTimeout:    time.Duration(httpSafe.Field("ReadTimeout").Int(30)) * time.Second,
+		WriteTimeout:   time.Duration(httpSafe.Field("WriteTimeout").Int(30)) * time.Second,
+		IdleTimeout:    time.Duration(httpSafe.Field("IdleTimeout").Int(60)) * time.Second,
+		MaxHeaderBytes: httpSafe.Field("MaxHeaderBytes").Int(1048576), // 1MB
 	}
 
 	return nil
@@ -129,20 +141,27 @@ func (s *Server) initHTTPGateway() error {
 
 // registerComponentHealthChecks 注册组件级健康检查端点
 func (s *Server) registerComponentHealthChecks() {
-	baseURL := s.config.HTTPServer.GetEndpoint()
+	configSafe := goconfig.SafeConfig(s.config)
+	httpSafe := configSafe.Field("HTTPServer")
+	baseURL := fmt.Sprintf("http://%s:%d",
+		httpSafe.Field("Host").String("0.0.0.0"),
+		httpSafe.Field("Port").Int(8080))
 
 	// 注册Redis健康检查
-	if s.config.Health.Redis.Enabled {
-		s.httpMux.HandleFunc(s.config.Health.Redis.Path, s.redisHealthCheckHandler)
+	healthSafe := configSafe.Field("Health")
+	if healthSafe.Field("Redis").Field("Enabled").Bool(false) {
+		redisPath := healthSafe.Field("Redis").Field("Path").String("/health/redis")
+		s.httpMux.HandleFunc(redisPath, s.redisHealthCheckHandler)
 		global.LOGGER.InfoKV("🔴 Redis健康检查已启用",
-			"url", baseURL+s.config.Health.Redis.Path)
+			"url", baseURL+redisPath)
 	}
 
 	// 注册MySQL健康检查
-	if s.config.Health.MySQL.Enabled {
-		s.httpMux.HandleFunc(s.config.Health.MySQL.Path, s.mysqlHealthCheckHandler)
+	if healthSafe.Field("MySQL").Field("Enabled").Bool(false) {
+		mysqlPath := healthSafe.Field("MySQL").Field("Path").String("/health/mysql")
+		s.httpMux.HandleFunc(mysqlPath, s.mysqlHealthCheckHandler)
 		global.LOGGER.InfoKV("🗃️  MySQL健康检查已启用",
-			"url", baseURL+s.config.Health.MySQL.Path)
+			"url", baseURL+mysqlPath)
 	}
 
 	// 后续可以在这里继续添加其他组件的健康检查
