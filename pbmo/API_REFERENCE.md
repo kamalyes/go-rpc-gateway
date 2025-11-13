@@ -26,12 +26,16 @@ func NewBidiConverter(pbType, modelType interface{}) *BidiConverter
 ```
 
 **参数：**
+
+
 - `pbType`: Protocol Buffer 类型的实例（如 `&pb.User{}`）
 - `modelType`: Model 类型的实例（如 `&User{}`）
 
 **返回：** `*BidiConverter` 实例
 
+
 **示例：**
+
 ```go
 converter := pbmo.NewBidiConverter(&pb.User{}, &User{})
 ```
@@ -46,15 +50,19 @@ func (bc *BidiConverter) ConvertPBToModel(pb interface{}, modelPtr interface{}) 
 
 将 Protocol Buffer 消息转换为 Model。
 
+
 **参数：**
+
 - `pb`: Protocol Buffer 消息实例
 - `modelPtr`: Model 指针，用于接收转换结果
 
 **返回：** `error` - 转换错误，如果成功则为 nil
 
+
 **性能：** ~130ns/op
 
 **示例：**
+
 ```go
 var user User
 if err := converter.ConvertPBToModel(pbUser, &user); err != nil {
@@ -68,17 +76,21 @@ if err := converter.ConvertPBToModel(pbUser, &user); err != nil {
 func (bc *BidiConverter) ConvertModelToPB(model interface{}, pbPtr interface{}) error
 ```
 
+
 将 Model 转换为 Protocol Buffer 消息。
 
 **参数：**
+
 - `model`: Model 实例或指针
 - `pbPtr`: Protocol Buffer 消息指针，用于接收转换结果
+
 
 **返回：** `error` - 转换错误，如果成功则为 nil
 
 **性能：** ~101ns/op
 
 **示例：**
+
 ```go
 var pbUser pb.User
 if err := converter.ConvertModelToPB(&user, &pbUser); err != nil {
@@ -89,18 +101,22 @@ if err := converter.ConvertModelToPB(&user, &pbUser); err != nil {
 ##### BatchConvertPBToModel
 
 ```go
+
 func (bc *BidiConverter) BatchConvertPBToModel(pbSlice interface{}, modelSlicePtr interface{}) error
 ```
 
 批量转换 Protocol Buffer 消息列表为 Model 列表。
 
 **参数：**
+
+
 - `pbSlice`: Protocol Buffer 消息切片
 - `modelSlicePtr`: Model 切片指针，用于接收转换结果
 
 **返回：** `error` - 转换错误，如果成功则为 nil
 
 **示例：**
+
 ```go
 var users []User
 if err := converter.BatchConvertPBToModel(pbUsers, &users); err != nil {
@@ -110,6 +126,7 @@ if err := converter.BatchConvertPBToModel(pbUsers, &users); err != nil {
 
 ##### BatchConvertModelToPB
 
+
 ```go
 func (bc *BidiConverter) BatchConvertModelToPB(modelSlice interface{}, pbSlicePtr interface{}) error
 ```
@@ -117,24 +134,29 @@ func (bc *BidiConverter) BatchConvertModelToPB(modelSlice interface{}, pbSlicePt
 批量转换 Model 列表为 Protocol Buffer 消息列表。
 
 **参数：**
+
 - `modelSlice`: Model 切片
 - `pbSlicePtr`: Protocol Buffer 消息切片指针，用于接收转换结果
 
 **返回：** `error` - 转换错误，如果成功则为 nil
 
+
 ##### RegisterTransformer
 
 ```go
 func (bc *BidiConverter) RegisterTransformer(field string, transformer func(interface{}) interface{})
+
 ```
 
 为特定字段注册自定义转换函数。
 
 **参数：**
+
 - `field`: 字段名称
 - `transformer`: 转换函数，接收原值并返回转换后的值
 
 **示例：**
+
 ```go
 // 价格从分转换为元
 converter.RegisterTransformer("Price", func(v interface{}) interface{} {
@@ -147,6 +169,7 @@ converter.RegisterTransformer("Price", func(v interface{}) interface{} {
 
 ## 增强转换器
 
+
 ### EnhancedBidiConverter
 
 带有日志记录、性能监控和错误处理的增强转换器。
@@ -154,10 +177,12 @@ converter.RegisterTransformer("Price", func(v interface{}) interface{} {
 #### 构造函数
 
 ```go
+
 func NewEnhancedBidiConverter(pbType, modelType interface{}, log logger.ILogger) *EnhancedBidiConverter
 ```
 
 **参数：**
+
 - `pbType`: Protocol Buffer 类型的实例
 - `modelType`: Model 类型的实例
 - `log`: 日志实例，用于记录转换过程和错误
@@ -165,8 +190,10 @@ func NewEnhancedBidiConverter(pbType, modelType interface{}, log logger.ILogger)
 **返回：** `*EnhancedBidiConverter` 实例
 
 **示例：**
+
 ```go
 converter := pbmo.NewEnhancedBidiConverter(&pb.User{}, &User{}, logger)
+
 ```
 
 #### 方法
@@ -180,6 +207,7 @@ func (ebc *EnhancedBidiConverter) ConvertPBToModelWithLog(pb interface{}, modelP
 带日志记录的 PB → Model 转换。
 
 **特性：**
+
 - 自动记录转换开始和结束
 - 记录转换耗时
 - 自动更新性能指标
@@ -190,6 +218,7 @@ func (ebc *EnhancedBidiConverter) ConvertPBToModelWithLog(pb interface{}, modelP
 ##### ConvertModelToPBWithLog
 
 ```go
+
 func (ebc *EnhancedBidiConverter) ConvertModelToPBWithLog(model interface{}, pbPtr interface{}) error
 ```
 
@@ -204,6 +233,7 @@ func (ebc *EnhancedBidiConverter) GetMetrics() *ConversionMetrics
 获取转换性能指标。
 
 **返回：** `*ConversionMetrics` 包含以下字段：
+
 - `TotalConversions int64` - 总转换次数
 - `SuccessfulConversions int64` - 成功转换次数
 - `FailedConversions int64` - 失败转换次数
@@ -237,6 +267,7 @@ func (ebc *EnhancedBidiConverter) ConvertPBToModelBatchSafe(pbSlice interface{},
 
 #### 构造函数
 
+
 ```go
 func NewSafeConverter(pbType, modelType interface{}) *SafeConverter
 ```
@@ -251,10 +282,13 @@ func (sc *SafeConverter) SafeConvertPBToModel(pb interface{}, modelPtr interface
 
 安全转换，自动处理 nil 指针。
 
+
 **特性：**
+
 - 自动检查 nil 指针
 - 详细的错误信息
 - 安全的字段访问
+
 
 ##### SafeFieldAccess
 
@@ -265,12 +299,14 @@ func (sc *SafeConverter) SafeFieldAccess(obj interface{}, fieldPath ...string) *
 链式安全字段访问，类似 JavaScript 的可选链操作符。
 
 **参数：**
+
 - `obj`: 要访问的对象
 - `fieldPath`: 字段路径，支持多层嵌套
 
 **返回：** `*SafeValue` 安全值包装器
 
 **示例：**
+
 ```go
 // 安全访问 user.Profile.Address.City
 value := converter.SafeFieldAccess(user, "Profile", "Address", "City")
@@ -309,6 +345,7 @@ func (sv *SafeValue) Bool(defaultValue bool) bool        // 获取布尔值
 
 完整的 gRPC 服务集成解决方案，集成转换、校验、错误处理。
 
+
 #### 构造函数
 
 ```go
@@ -326,6 +363,7 @@ func (si *ServiceIntegration) RegisterValidationRules(typeName string, rules ...
 注册字段校验规则。
 
 **参数：**
+
 - `typeName`: 类型名称
 - `rules`: 校验规则列表
 
@@ -373,6 +411,7 @@ func (fv *FieldValidator) Validate(obj interface{}) error
 
 执行字段校验。
 
+
 ### FieldRule
 
 字段校验规则定义。
@@ -391,6 +430,7 @@ type FieldRule struct {
 ```
 
 **示例：**
+
 ```go
 rules := []pbmo.FieldRule{
     {
@@ -584,51 +624,69 @@ converter.ConvertPBToModel(pb, &model) // 危险！
 
 ### 校验规则
 
+
 ```go
 // ✅ 正确：在服务初始化时注册
+
 func NewUserService() *UserService {
     service := pbmo.NewServiceIntegration(&pb.User{}, &User{}, logger)
     service.RegisterValidationRules("User", userRules...)
+
     return &UserService{service: service}
 }
+
 
 // ❌ 错误：在每次请求时注册
 func (s *UserService) CreateUser(req *pb.CreateUserRequest) {
     s.service.RegisterValidationRules("User", rules...) // 浪费！
+
 }
 ```
+
 
 ## 故障排除
 
 ### 常见错误
 
 1. **类型不匹配**
+
+
    ```
    failed to convert field Name: cannot assign string to int32
    ```
+
    **解决：** 确保 PB 和 Model 字段类型兼容
 
+
 2. **nil 指针错误**
+
    ```
    pb message cannot be nil
    ```
+
    **解决：** 使用 SafeConverter 或检查输入
 
+
 3. **字段未找到**
+
    ```
    field "NonExistentField" not found in destination type
    ```
+
    **解决：** 确保字段名称匹配或使用 struct tag
 
 ### 调试技巧
 
 1. **启用详细日志**
+
    ```go
+
    logger := logger.NewLogger(logger.WithLevel(logger.DebugLevel))
    converter := pbmo.NewEnhancedBidiConverter(&pb.User{}, &User{}, logger)
    ```
 
 2. **使用性能监控**
+
    ```go
    metrics := converter.GetMetrics()
    if metrics.FailedConversions > 0 {
@@ -638,6 +696,7 @@ func (s *UserService) CreateUser(req *pb.CreateUserRequest) {
    ```
 
 3. **使用安全转换器调试复杂嵌套**
+
    ```go
    safeConverter := pbmo.NewSafeConverter(&pb.Complex{}, &Complex{})
    result := safeConverter.SafeBatchConvertPBToModel(pbList, &modelList)
