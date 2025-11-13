@@ -153,19 +153,25 @@ func initDB(provider database.DatabaseProvider, dbType database.DBType, log golo
 
 // buildDSN 构建数据库连接字符串
 func buildDSN(provider database.DatabaseProvider, dbType database.DBType) string {
-	host := url.QueryEscape(provider.GetHost())
-	user := url.QueryEscape(provider.GetUsername())
-	password := url.QueryEscape(provider.GetPassword())
-	dbname := url.QueryEscape(provider.GetDBName())
-	port := url.QueryEscape(provider.GetPort())
-	configString := url.QueryEscape(provider.GetConfig())
+	host := provider.GetHost()
+	user := provider.GetUsername()
+	password := url.QueryEscape(provider.GetPassword()) // 只对密码进行编码
+	dbname := provider.GetDBName()
+	port := provider.GetPort()
+	configString := provider.GetConfig() // 配置字符串不编码
 
 	var dsn string
 	switch dbType {
 	case database.DBTypeMySQL:
 		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?%s", user, password, host, port, dbname, configString)
 	case database.DBTypePostgreSQL:
-		dsn = fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s %s", host, user, password, dbname, port, configString)
+		// PostgreSQL需要对所有参数进行适当编码
+		hostEscaped := url.QueryEscape(host)
+		userEscaped := url.QueryEscape(user)
+		passwordEscaped := url.QueryEscape(provider.GetPassword())
+		dbnameEscaped := url.QueryEscape(dbname)
+		portEscaped := url.QueryEscape(port)
+		dsn = fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s %s", hostEscaped, userEscaped, passwordEscaped, dbnameEscaped, portEscaped, configString)
 	case database.DBTypeSQLite:
 		dsn = provider.GetDBName() // SQLite使用DbPath
 	}
