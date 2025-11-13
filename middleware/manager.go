@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 13:55:11
+ * @LastEditTime: 2025-11-14 00:01:16
  * @FilePath: \go-rpc-gateway\middleware\manager.go
  * @Description: 中间件管理器
  *
@@ -31,13 +31,14 @@ type Manager struct {
 	// 统一配置 - 使用 go-config 的 Gateway
 	cfg *gwconfig.Gateway
 	// 功能组件
-	rateLimiter         RateLimiter
-	accessRecordHandler AccessRecordHandler
-	signatureValidator  SignatureValidator
-	pprofScenarios      *PProfScenarios
-	pprofAdapter        *PProfConfigAdapter
-	i18nManager         *I18nManager
-	breakerAdapter      *BreakerMiddlewareAdapter
+	rateLimiter            RateLimiter
+	accessRecordHandler    AccessRecordHandler
+	signatureValidator     SignatureValidator
+	pprofScenarios         *PProfScenarios
+	pprofAdapter           *PProfConfigAdapter
+	i18nManager            *I18nManager
+	breakerAdapter         *BreakerMiddlewareAdapter
+	pbValidationMiddleware *PBValidationMiddleware
 }
 
 // NewManager 创建中间件管理器 - 使用全局 GATEWAY 配置
@@ -93,6 +94,9 @@ func NewManager() (*Manager, error) {
 
 	// 初始化熔断中间件适配器（使用 go-config 的 CircuitBreaker 配置）
 	manager.breakerAdapter = NewBreakerMiddlewareAdapter(breakercof.Default())
+
+	// 初始化PB验证中间件
+	manager.pbValidationMiddleware = NewPBValidationMiddleware()
 
 	return manager, nil
 }
@@ -214,6 +218,19 @@ func (m *Manager) TimestampMiddleware() MiddlewareFunc {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// I18nMiddleware 国际化中间件
+// TODO: 重构为使用 go-config 的 i18n.I18N 配置
+func (m *Manager) I18nMiddleware() MiddlewareFunc {
+	// if m.cfg.Middleware.I18N != nil && m.cfg.Middleware.I18N.Enabled {
+	// 	return MiddlewareFunc(ConfigurableI18nMiddleware(m.cfg.Middleware.I18N))
+	// }
+	// 使用内部 i18n 管理器
+	if m.i18nManager != nil {
+		return I18nWithManager(m.i18nManager)
+	}
+	return I18n() // 回退到默认配置
 }
 
 // I18nMiddleware 国际化中间件
