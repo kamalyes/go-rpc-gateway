@@ -50,12 +50,13 @@ func Redis(cfg *gwconfig.Gateway, log logger.ILogger) *redis.Client {
 	}
 
 	client := redis.NewClient(&redis.Options{
-		Addr:         redisCfg.Addr,
-		Password:     redisCfg.Password,
-		DB:           db,
-		MaxRetries:   redisCfg.MaxRetries,
-		PoolSize:     redisCfg.PoolSize,
-		MinIdleConns: redisCfg.MinIdleConns,
+		Addr:             redisCfg.Addr,
+		Password:         redisCfg.Password,
+		DB:               db,
+		MaxRetries:       redisCfg.MaxRetries,
+		PoolSize:         redisCfg.PoolSize,
+		MinIdleConns:     redisCfg.MinIdleConns,
+		DisableIndentity: true, // 禁用客户端身份标识，避免 maint_notifications 错误
 	})
 
 	// 测试连接
