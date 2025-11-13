@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2023-07-28 00:50:58
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 22:06:19
+ * @LastEditTime: 2025-11-13 07:50:57
  * @FilePath: \go-rpc-gateway\cpool\redis\redis.go
  * @Description: Redis连接客户端，兼容Gateway结构
  *
@@ -13,25 +13,24 @@ package redis
 import (
 	"context"
 
-	"github.com/kamalyes/go-rpc-gateway/global"
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	"github.com/kamalyes/go-logger"
 	"github.com/redis/go-redis/v9"
 )
 
 // Redis 初始化redis客户端
-func Redis() *redis.Client {
-	// 使用 global.GATEWAY 配置
-	cfg := global.GATEWAY
+func Redis(cfg *gwconfig.Gateway, log logger.ILogger) *redis.Client {
 	if cfg == nil {
-		if global.LOGGER != nil {
-			global.LOGGER.Warn("Gateway configuration not found")
+		if log != nil {
+			log.Warn("Gateway configuration not found")
 		}
 		return nil
 	}
 
 	// 检查Redis配置
 	if cfg.Cache == nil {
-		if global.LOGGER != nil {
-			global.LOGGER.Warn("Redis configuration not found")
+		if log != nil {
+			log.Warn("Redis configuration not found")
 		}
 		return nil
 	}
@@ -39,8 +38,8 @@ func Redis() *redis.Client {
 	// 使用配置创建Redis客户端
 	redisCfg := cfg.Cache.Redis
 	if redisCfg.Addr == "" {
-		if global.LOGGER != nil {
-			global.LOGGER.Warn("Redis address not configured")
+		if log != nil {
+			log.Warn("Redis address not configured")
 		}
 		return nil
 	}
@@ -62,14 +61,14 @@ func Redis() *redis.Client {
 	// 测试连接
 	pong, err := client.Ping(context.Background()).Result()
 	if err != nil {
-		if global.LOGGER != nil {
-			global.LOGGER.ErrorKV("Redis connect ping failed", "err", err)
+		if log != nil {
+			log.ErrorKV("Redis connect ping failed", "err", err)
 		}
 		return nil
 	}
 
-	if global.LOGGER != nil {
-		global.LOGGER.InfoKV("Redis connect ping response", "pong", pong)
+	if log != nil {
+		log.InfoKV("Redis connect ping response", "pong", pong)
 	}
 
 	return client

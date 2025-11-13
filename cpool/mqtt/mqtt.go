@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2023-07-28 00:50:58
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2024-08-09 09:22:00
- * @FilePath: \go-rpc-gateway\mqtt\mqtt.go
+ * @LastEditTime: 2025-11-13 07:49:19
+ * @FilePath: \go-rpc-gateway\cpool\mqtt\mqtt.go
  * @Description:
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
@@ -14,36 +14,36 @@ import (
 	"time"
 
 	pahoMqtt "github.com/eclipse/paho.mqtt.golang"
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gologger "github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/global"
 )
 
 // DefaultMqtt 创建默认的mqtt客户端
-func DefaultMqtt(clientId string) *pahoMqtt.Client {
-	global.LOGGER.Info("MQTT开始连接......")
-	config := global.GATEWAY.Mqtt
-	global.LOGGER.Info("MQTT连接地址：" + config.Endpoint)
-	opts := pahoMqtt.NewClientOptions().AddBroker(config.Endpoint).SetClientID(clientId)
+func DefaultMqtt(cfg *gwconfig.Gateway, log gologger.ILogger) *pahoMqtt.Client {
+	global.LOGGER.Info("MQTT连接地址：" + cfg.Mqtt.Endpoint)
+	opts := pahoMqtt.NewClientOptions().AddBroker(cfg.Mqtt.Endpoint).SetClientID(cfg.Mqtt.ClientID)
 	// 设置mqtt协议版本 4是3.1.1，3是3.1
-	opts.SetProtocolVersion(config.ProtocolVersion)
+	opts.SetProtocolVersion(cfg.Mqtt.ProtocolVersion)
 	// 客户端掉线服务端不清除session
-	opts.SetCleanSession(config.CleanSession)
+	opts.SetCleanSession(cfg.Mqtt.CleanSession)
 	// 设置断开后重新连接
-	opts.SetAutoReconnect(config.AutoReconnect)
+	opts.SetAutoReconnect(cfg.Mqtt.AutoReconnect)
 	// 保活时间
-	opts.SetKeepAlive(time.Duration(config.KeepAlive) * time.Second)
+	opts.SetKeepAlive(time.Duration(cfg.Mqtt.KeepAlive) * time.Second)
 	// 用户名和密码
-	opts.SetUsername(config.Username)
-	opts.SetPassword(config.Password)
+	opts.SetUsername(cfg.Mqtt.Username)
+	opts.SetPassword(cfg.Mqtt.Password)
 	// 最大重连间隔
-	opts.SetMaxReconnectInterval(time.Duration(config.MaxReconnectInterval) * time.Second)
+	opts.SetMaxReconnectInterval(time.Duration(cfg.Mqtt.MaxReconnectInterval) * time.Second)
 	// 最大ping超时时间
-	opts.SetPingTimeout(time.Duration(config.PingTimeout) * time.Second)
+	opts.SetPingTimeout(time.Duration(cfg.Mqtt.PingTimeout) * time.Second)
 	// 最大写超时时间
-	opts.SetWriteTimeout(time.Duration(config.WriteTimeout) * time.Second)
+	opts.SetWriteTimeout(time.Duration(cfg.Mqtt.WriteTimeout) * time.Second)
 	// 最大连接超时时间
-	opts.SetConnectTimeout(time.Duration(config.ConnectTimeout) * time.Second)
+	opts.SetConnectTimeout(time.Duration(cfg.Mqtt.ConnectTimeout) * time.Second)
 	// 设置遗言
-	opts.SetWill(config.WillTopic, clientId, 1, false)
+	opts.SetWill(cfg.Mqtt.WillTopic, cfg.Mqtt.ClientID, 1, false)
 	client := pahoMqtt.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		global.LOGGER.ErrorKV("MQTT连接异常", "mqtt_error", token.Error())
@@ -52,32 +52,31 @@ func DefaultMqtt(clientId string) *pahoMqtt.Client {
 }
 
 // Mqtt 连接和订阅
-func Mqtt(clientId string, onConn pahoMqtt.OnConnectHandler, onLost pahoMqtt.ConnectionLostHandler, reConn pahoMqtt.ReconnectHandler) *pahoMqtt.Client {
+func Mqtt(cfg *gwconfig.Gateway, log gologger.ILogger, onConn pahoMqtt.OnConnectHandler, onLost pahoMqtt.ConnectionLostHandler, reConn pahoMqtt.ReconnectHandler) *pahoMqtt.Client {
 	global.LOGGER.Info("MQTT开始连接......")
-	config := global.GATEWAY.Mqtt
-	global.LOGGER.Info("MQTT连接地址：" + config.Endpoint)
-	opts := pahoMqtt.NewClientOptions().AddBroker(config.Endpoint).SetClientID(clientId)
+	global.LOGGER.Info("MQTT连接地址：" + cfg.Mqtt.Endpoint)
+	opts := pahoMqtt.NewClientOptions().AddBroker(cfg.Mqtt.Endpoint).SetClientID(cfg.Mqtt.ClientID)
 	// 设置mqtt协议版本 4是3.1.1，3是3.1
-	opts.SetProtocolVersion(config.ProtocolVersion)
+	opts.SetProtocolVersion(cfg.Mqtt.ProtocolVersion)
 	// 客户端掉线服务端不清除session
-	opts.SetCleanSession(config.CleanSession)
+	opts.SetCleanSession(cfg.Mqtt.CleanSession)
 	// 设置断开后重新连接
-	opts.SetAutoReconnect(config.AutoReconnect)
+	opts.SetAutoReconnect(cfg.Mqtt.AutoReconnect)
 	// 保活时间
-	opts.SetKeepAlive(time.Duration(config.KeepAlive) * time.Second)
+	opts.SetKeepAlive(time.Duration(cfg.Mqtt.KeepAlive) * time.Second)
 	// 用户名和密码
-	opts.SetUsername(config.Username)
-	opts.SetPassword(config.Password)
+	opts.SetUsername(cfg.Mqtt.Username)
+	opts.SetPassword(cfg.Mqtt.Password)
 	// 最大重连间隔
-	opts.SetMaxReconnectInterval(time.Duration(config.MaxReconnectInterval) * time.Second)
+	opts.SetMaxReconnectInterval(time.Duration(cfg.Mqtt.MaxReconnectInterval) * time.Second)
 	// 最大ping超时时间
-	opts.SetPingTimeout(time.Duration(config.PingTimeout) * time.Second)
+	opts.SetPingTimeout(time.Duration(cfg.Mqtt.PingTimeout) * time.Second)
 	// 最大写超时时间
-	opts.SetWriteTimeout(time.Duration(config.WriteTimeout) * time.Second)
+	opts.SetWriteTimeout(time.Duration(cfg.Mqtt.WriteTimeout) * time.Second)
 	// 最大连接超时时间
-	opts.SetConnectTimeout(time.Duration(config.ConnectTimeout) * time.Second)
+	opts.SetConnectTimeout(time.Duration(cfg.Mqtt.ConnectTimeout) * time.Second)
 	// 设置遗言
-	opts.SetWill(config.WillTopic, clientId, 1, false)
+	opts.SetWill(cfg.Mqtt.WillTopic, cfg.Mqtt.ClientID, 1, false)
 	if onConn != nil {
 		opts.SetOnConnectHandler(onConn)
 	}

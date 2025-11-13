@@ -277,15 +277,15 @@ func (a *BreakerMiddlewareAdapter) collectMetricsRoutine() {
 		a.statsLock.Unlock()
 
 		// 可选：记录到日志或上报到监控系统
-		if global.LOG != nil {
-			global.LOG.Sugar().Debugf(
-				"CircuitBreaker Stats - Total: %d, Failed: %d, Success: %d, Blocked: %d, Open: %d, HalfOpen: %d",
-				a.stats.TotalRequests,
-				a.stats.FailedRequests,
-				a.stats.SuccessRequests,
-				a.stats.BlockedRequests,
-				a.stats.OpenBreakers,
-				a.stats.HalfOpenBreakers,
+		if global.LOGGER != nil {
+			global.LOGGER.Debug(
+				"CircuitBreaker Stats",
+				"TotalRequests", a.stats.TotalRequests,
+				"FailedRequests", a.stats.FailedRequests,
+				"SuccessRequests", a.stats.SuccessRequests,
+				"BlockedRequests", a.stats.BlockedRequests,
+				"OpenBreakers", a.stats.OpenBreakers,
+				"HalfOpenBreakers", a.stats.HalfOpenBreakers,
 			)
 		}
 	}

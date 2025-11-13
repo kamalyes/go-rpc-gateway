@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/bwmarrin/snowflake"
@@ -26,6 +25,7 @@ import (
 	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/server"
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
@@ -36,8 +36,9 @@ import (
 // Gateway 是主要的网关服务器
 type Gateway struct {
 	*server.Server
-	configManager *goconfig.IntegratedConfigManager
-	gatewayConfig *gwconfig.Gateway
+	configManager  *goconfig.IntegratedConfigManager
+	gatewayConfig  *gwconfig.Gateway
+	enhancedServer *server.EnhancedServer // 新增增强服务器
 }
 
 // ServiceRegisterFunc gRPC服务注册函数类型
@@ -46,16 +47,28 @@ type ServiceRegisterFunc func(*grpc.Server)
 // HandlerRegisterFunc HTTP处理器注册函数类型
 type HandlerRegisterFunc func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error
 
-// New 创建新的网关实例 - 使用全局配置
+// New 创建新的网关实例 - 使用go-config全局配置
 func New() (*Gateway, error) {
-	srv, err := server.NewServer()
-	if err != nil {
-		return nil, err
+	// 确保全局配置已初始化
+	if !global.IsInitialized() {
+		return nil, fmt.Errorf("全局配置未初始化，请先调用 global.InitializeGateway... 方法")
 	}
 
-	return &Gateway{
-		Server: srv,
-	}, nil
+	srv, err := server.NewServer()
+	if err != nil {
+		return nil, fmt.Errorf("创建服务器失败: %w", err)
+	}
+
+	gateway := &Gateway{
+		Server:        srv,
+		configManager: global.GetConfigManager(),
+		gatewayConfig: global.GetConfig(),
+	}
+
+	// 注册配置变更回调
+	gateway.RegisterConfigCallbacks()
+
+	return gateway, nil
 }
 
 // RegisterService 注册gRPC服务
@@ -238,29 +251,10 @@ func (g *Gateway) GetGatewayConfig() *gwconfig.Gateway {
 	return g.gatewayConfig
 }
 
-// CreateConfigManager 创建配置管理器
+// CreateConfigManager 创建配置管理器 (已废弃，请使用global.InitializeGateway...方法)
 func (g *Gateway) CreateConfigManager(config *gwconfig.Gateway, configPath string) (*goconfig.IntegratedConfigManager, error) {
-	// 检查configPath是文件还是目录
-	if stat, err := os.Stat(configPath); err == nil && stat.IsDir() {
-		fmt.Printf("🔍 使用自动发现模式，搜索路径: %s\n", configPath)
-
-		// 使用自动发现创建管理器
-		return goconfig.CreateAndStartIntegratedManagerWithAutoDiscovery(
-			config,
-			configPath,
-			goconfig.GetEnvironment(),
-			"gateway",
-		)
-	} else {
-		fmt.Printf("📄 使用指定配置文件: %s\n", configPath)
-
-		// 使用传统方式
-		return goconfig.CreateAndStartIntegratedManager(
-			config,
-			configPath,
-			goconfig.GetEnvironment(),
-		)
-	}
+	fmt.Printf("⚠️  警告: CreateConfigManager 方法已废弃，请使用 global.InitializeGateway... 方法\n")
+	return nil, fmt.Errorf("方法已废弃，请使用 global.InitializeGateway... 方法")
 }
 
 // RegisterConfigCallbacks 注册配置变更回调

@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 14:32:08
+ * @LastEditTime: 2025-11-13 06:43:40
  * @FilePath: \go-rpc-gateway\errors\error.go
  * @Description: 统一的错误定义和管理
  *

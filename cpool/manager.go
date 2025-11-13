@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 21:49:01
+ * @LastEditTime: 2025-11-13 07:50:41
  * @FilePath: \go-rpc-gateway\cpool\manager.go
  * @Description: 连接池管理器，统一管理数据库、Redis、OSS等客户端连接
  *
@@ -20,11 +20,10 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	cachex "github.com/kamalyes/go-cachex"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	logger "github.com/kamalyes/go-logger"
+	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool/database"
 	"github.com/kamalyes/go-rpc-gateway/cpool/oss"
 	"github.com/kamalyes/go-rpc-gateway/cpool/redis"
-	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/minio/minio-go/v7"
 	redisClient "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -56,6 +55,33 @@ type PoolManager interface {
 	// 获取Casbin执行器
 	GetCasbin() casbin.IEnforcer
 	
+	// 设置数据库连接
+	SetDB(db *gorm.DB)
+	
+	// 设置Redis客户端
+	SetRedis(rdb *redisClient.Client)
+	
+	// 设置缓存客户端
+	SetCache(cache cachex.CtxCache)
+	
+	// 设置MinIO客户端
+	SetMinIO(minio *minio.Client)
+	
+	// 设置MQTT客户端
+	SetMQTT(mqtt mqtt.Client)
+	
+	// 设置雪花ID生成器
+	SetSnowflake(node *snowflake.Node)
+	
+	// 设置Casbin执行器
+	SetCasbin(enforcer casbin.IEnforcer)
+	
+	// 设置国际化管理器
+	SetI18n(i18n interface{})
+	
+	// 获取国际化管理器
+	GetI18n() interface{}
+	
 	// 关闭所有连接
 	Close() error
 	
@@ -66,7 +92,7 @@ type PoolManager interface {
 // Manager 连接池管理器实现
 type Manager struct {
 	cfg    *gwconfig.Gateway
-	logger *logger.Logger
+	logger logger.ILogger
 	
 	// 连接实例
 	db        *gorm.DB
@@ -76,6 +102,7 @@ type Manager struct {
 	mqtt      mqtt.Client
 	snowflake *snowflake.Node
 	casbin    casbin.IEnforcer
+	i18n      interface{}
 	
 	// 状态管理
 	initialized bool
@@ -85,9 +112,10 @@ type Manager struct {
 }
 
 // NewManager 创建新的连接池管理器
-func NewManager() *Manager {
+func NewManager(log logger.ILogger) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
+		logger: log,
 		ctx:    ctx,
 		cancel: cancel,
 	}
@@ -103,14 +131,10 @@ func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
 	}
 	
 	m.cfg = cfg
-	m.logger = global.LOGGER
 	
 	if m.logger == nil {
-		return fmt.Errorf("global logger not initialized")
+		return fmt.Errorf("logger not initialized")
 	}
-	
-	// 设置全局配置
-	global.GATEWAY = cfg
 	
 	// 初始化各个连接池
 	if err := m.initDatabase(); err != nil {
@@ -149,10 +173,9 @@ func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
 
 // initDatabase 初始化数据库连接
 func (m *Manager) initDatabase() error {
-	db := database.Gorm()
+	db := database.Gorm(m.cfg, m.logger)
 	if db != nil {
 		m.db = db
-		global.DB = db
 		m.logger.Info("Database initialized successfully")
 	} else {
 		m.logger.Warn("Failed to initialize database")
@@ -164,10 +187,9 @@ func (m *Manager) initDatabase() error {
 // initRedis 初始化Redis连接
 func (m *Manager) initRedis() error {
 	// 检查 Redis 配置是否存在
-	rdb := redis.Redis()
+	rdb := redis.Redis(m.cfg, m.logger)
 	if rdb != nil {
 		m.redis = rdb
-		global.REDIS = rdb
 		m.logger.Info("Redis initialized successfully")
 	} else {
 		m.logger.Warn("Failed to initialize Redis")
@@ -189,10 +211,9 @@ func (m *Manager) initCache() error {
 // initMinIO 初始化MinIO客户端
 func (m *Manager) initMinIO() error {
 	// 检查 MinIO 配置是否存在  
-	minio := oss.Minio()
+	minio := oss.Minio(m.cfg, m.logger)
 	if minio != nil {
 		m.minio = minio
-		global.MinIO = minio
 		m.logger.Info("MinIO initialized successfully")
 	} else {
 		m.logger.Warn("Failed to initialize MinIO")
@@ -218,7 +239,6 @@ func (m *Manager) initSnowflake() error {
 	}
 	
 	m.snowflake = node
-	global.Node = node
 	m.logger.Info("Snowflake ID generator initialized successfully")
 	
 	return nil
@@ -273,6 +293,61 @@ func (m *Manager) GetCasbin() casbin.IEnforcer {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.casbin
+}
+
+// Setter methods
+func (m *Manager) SetDB(db *gorm.DB) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.db = db
+}
+
+func (m *Manager) SetRedis(rdb *redisClient.Client) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.redis = rdb
+}
+
+func (m *Manager) SetCache(cache cachex.CtxCache) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cache = cache
+}
+
+func (m *Manager) SetMinIO(minio *minio.Client) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.minio = minio
+}
+
+func (m *Manager) SetMQTT(mqtt mqtt.Client) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.mqtt = mqtt
+}
+
+func (m *Manager) SetSnowflake(node *snowflake.Node) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.snowflake = node
+}
+
+func (m *Manager) SetCasbin(enforcer casbin.IEnforcer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.casbin = enforcer
+}
+
+func (m *Manager) SetI18n(i18n interface{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.i18n = i18n
+}
+
+func (m *Manager) GetI18n() interface{} {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.i18n
 }
 
 // Close 关闭所有连接

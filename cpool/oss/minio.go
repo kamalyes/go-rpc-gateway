@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2023-07-28 00:50:58
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 22:55:49
+ * @LastEditTime: 2025-11-13 07:49:43
  * @FilePath: \go-rpc-gateway\cpool\oss\minio.go
  * @Description: MinIO客户端，兼容Gateway结构
  *
@@ -13,34 +13,25 @@ package oss
 import (
 	"time"
 
-	"github.com/kamalyes/go-rpc-gateway/global"
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	"github.com/kamalyes/go-logger"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 // Minio 初始化minio客户端
-func Minio() *minio.Client {
-	// 使用 global.GATEWAY 配置
-	cfg := global.GATEWAY
-	if cfg == nil {
-		if global.LOGGER != nil {
-			global.LOGGER.Warn("Gateway configuration not found")
-		}
-		return nil
-	}
-
-	// 检查MinIO配置
+func Minio(cfg *gwconfig.Gateway, log logger.ILogger) *minio.Client {
 	if cfg.OSS == nil || cfg.OSS.Minio == nil {
-		if global.LOGGER != nil {
-			global.LOGGER.Warn("MinIO configuration not found")
+		if log != nil {
+			log.Warn("MinIO configuration not found")
 		}
 		return nil
 	}
 
 	minioCfg := cfg.OSS.Minio
 	if minioCfg.Endpoint == "" {
-		if global.LOGGER != nil {
-			global.LOGGER.Warn("MinIO endpoint not configured")
+		if log != nil {
+			log.Warn("MinIO endpoint not configured")
 		}
 		return nil
 	}
@@ -51,8 +42,8 @@ func Minio() *minio.Client {
 		Secure: minioCfg.UseSSL,
 	})
 	if err != nil {
-		if global.LOGGER != nil {
-			global.LOGGER.ErrorKV("MinIO new client failed", "err", err)
+		if log != nil {
+			log.ErrorKV("MinIO new client failed", "err", err)
 		}
 		return nil
 	}
@@ -60,14 +51,14 @@ func Minio() *minio.Client {
 	// 检查服务状态
 	_, err = client.HealthCheck(5 * time.Second)
 	if err != nil {
-		if global.LOGGER != nil {
-			global.LOGGER.ErrorKV("MinIO connect ping failed", "err", err)
+		if log != nil {
+			log.ErrorKV("MinIO connect ping failed", "err", err)
 		}
 		return nil
 	}
 
-	if global.LOGGER != nil {
-		global.LOGGER.Info("MinIO client initialized successfully")
+	if log != nil {
+		log.Info("MinIO client initialized successfully")
 	}
 
 	return client

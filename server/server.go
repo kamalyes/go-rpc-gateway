@@ -19,7 +19,7 @@ import (
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	logger "github.com/kamalyes/go-logger"
+	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"

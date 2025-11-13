@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2023-07-28 00:50:58
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 21:55:30
+ * @LastEditTime: 2025-11-13 07:40:59
  * @FilePath: \go-rpc-gateway\cpool\database\client.go
  * @Description:
  *
@@ -17,19 +17,18 @@ import (
 	"time"
 
 	"github.com/kamalyes/go-config/pkg/database"
-	"github.com/kamalyes/go-rpc-gateway/global"
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gologger "github.com/kamalyes/go-logger"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	gormlogger "gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 )
 
 // Gorm 初始化数据库并产生数据库全局变量
-func Gorm() *gorm.DB {
-	// 使用 global.GATEWAY 配置
-	cfg := global.GATEWAY
+func Gorm(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil {
 		return nil
 	}
@@ -38,74 +37,81 @@ func Gorm() *gorm.DB {
 	if cfg.Database != nil && cfg.Database.Type != "" {
 		switch cfg.Database.Type {
 		case database.DBTypeMySQL:
-			return GormMySQL()
+			return GormMySQL(cfg, log)
 		case database.DBTypePostgreSQL:
-			return GormPostgreSQL()
+			return GormPostgreSQL(cfg, log)
 		case database.DBTypeSQLite:
-			return GormSQLite()
+			return GormSQLite(cfg, log)
 		default:
-			return GormMySQL() // 默认使用 MySQL
+			return GormMySQL(cfg, log) // 默认使用 MySQL
 		}
 	}
 	
 	// 默认尝试MySQL
-	return GormMySQL()
+	return GormMySQL(cfg, log)
 }
 
 // GormMySQL 初始化MySQL数据库
-func GormMySQL() *gorm.DB {
-	cfg := global.GATEWAY
+func GormMySQL(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.MySQL == nil {
-		global.LOGGER.Error("MySQL config not found")
+		if log != nil {
+			log.Error("MySQL config not found")
+		}
 		return nil
 	}
 	
 	config := cfg.Database.MySQL
-	return initDB(config, database.DBTypeMySQL, func(dsn string) (*gorm.DB, error) {
+	return initDB(config, database.DBTypeMySQL, log, func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(mysql.New(mysql.Config{DSN: dsn}), gormConfig(config.LogLevel))
 	})
 }
 
 // GormPostgreSQL 初始化PostgreSQL数据库
-func GormPostgreSQL() *gorm.DB {
-	cfg := global.GATEWAY
+func GormPostgreSQL(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.PostgreSQL == nil {
-		global.LOGGER.Error("PostgreSQL config not found")
+		if log != nil {
+			log.Error("PostgreSQL config not found")
+		}
 		return nil
 	}
 	
 	config := cfg.Database.PostgreSQL
-	return initDB(config, database.DBTypePostgreSQL, func(dsn string) (*gorm.DB, error) {
+	return initDB(config, database.DBTypePostgreSQL, log, func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), gormConfig(config.LogLevel))
 	})
 }
 
 // GormSQLite 连接SQLite数据库
-func GormSQLite() *gorm.DB {
-	cfg := global.GATEWAY
+func GormSQLite(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.SQLite == nil {
-		global.LOGGER.Error("SQLite config not found")
+		if log != nil {
+			log.Error("SQLite config not found")
+		}
 		return nil
 	}
 	
 	config := cfg.Database.SQLite
-	return initDB(config, database.DBTypeSQLite, func(dsn string) (*gorm.DB, error) {
+	return initDB(config, database.DBTypeSQLite, log, func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(sqlite.Open(config.DbPath), gormConfig(config.LogLevel))
 	})
 }
 
 // initDB 初始化数据库连接
-func initDB(provider database.DatabaseProvider, dbType database.DBType, openFunc func(string) (*gorm.DB, error)) *gorm.DB {
+func initDB(provider database.DatabaseProvider, dbType database.DBType, log gologger.ILogger, openFunc func(string) (*gorm.DB, error)) *gorm.DB {
 	host := provider.GetHost()
 	if dbType != database.DBTypeSQLite && host == "" {
-		global.LOGGER.Error("Database host is empty")
+		if log != nil {
+			log.Error("Database host is empty")
+		}
 		return nil
 	}
 
 	dsn := buildDSN(provider, dbType)
 	db, err := openFunc(dsn)
 	if err != nil {
-		global.LOGGER.ErrorKV(fmt.Sprintf("%s database startup error", dbType), "err", err)
+		if log != nil {
+			log.ErrorKV(fmt.Sprintf("%s database startup error", dbType), "err", err)
+		}
 		os.Exit(0)
 		return nil
 	}
@@ -177,15 +183,15 @@ func gormConfig(logLevel string) *gorm.Config {
 
 	switch logLevel {
 	case "silent", "Silent":
-		config.Logger = logger.Default.LogMode(logger.Silent)
+		config.Logger = gormlogger.Default.LogMode(gormlogger.Silent)
 	case "error", "Error":
-		config.Logger = logger.Default.LogMode(logger.Error)
+		config.Logger = gormlogger.Default.LogMode(gormlogger.Error)
 	case "warn", "Warn":
-		config.Logger = logger.Default.LogMode(logger.Warn)
+		config.Logger = gormlogger.Default.LogMode(gormlogger.Warn)
 	case "info", "Info":
-		config.Logger = logger.Default.LogMode(logger.Info)
+		config.Logger = gormlogger.Default.LogMode(gormlogger.Info)
 	default:
-		config.Logger = logger.Default.LogMode(logger.Error)
+		config.Logger = gormlogger.Default.LogMode(gormlogger.Error)
 	}
 	return config
 }
