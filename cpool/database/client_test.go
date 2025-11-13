@@ -32,7 +32,7 @@ func TestBuildDSN(t *testing.T) {
 
 	// 测试MySQL DSN
 	mysqlDSN := buildDSN(mysqlConfig, database.DBTypeMySQL)
-	expected := "user:pass@tcp(localhost:3306)/testdb?charset%3Dutf8mb4%26parseTime%3DTrue%26loc%3DLocal"
+	expected := "user:pass@tcp(localhost:3306)/testdb?charset=utf8mb4&parseTime=True&loc=Local"
 	assert.Equal(t, expected, mysqlDSN)
 
 	// 创建PostgreSQL配置
@@ -47,7 +47,7 @@ func TestBuildDSN(t *testing.T) {
 
 	// 测试PostgreSQL DSN
 	postgresDSN := buildDSN(postgresConfig, database.DBTypePostgreSQL)
-	expected = "host=localhost user=user password=pass dbname=testdb port=5432 sslmode%3Ddisable"
+	expected = "host=localhost user=user password=pass dbname=testdb port=5432 sslmode=disable"
 	assert.Equal(t, expected, postgresDSN)
 
 	// 创建SQLite配置

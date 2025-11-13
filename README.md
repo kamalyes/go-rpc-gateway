@@ -447,6 +447,9 @@ gw, err := gateway.NewGateway().
 | **Global** | 全局状态管理 | `global/` |
 | **Breaker** | 熔断器 | `breaker/` |
 | **Response** | 响应处理 | `response/` |
+| **PBMO** | PB↔Model 高性能转换 | `pbmo/` |
+
+> 🔄 **PBMO**: Protocol Buffer Model Object Converter，提供 PB ↔ GORM Model 的高性能双向转换，单次转换仅需 3μs，比标准反射快 17-22倍。[详细文档 →](./pbmo/README.md)
 
 ### 🔄 请求处理流程
 

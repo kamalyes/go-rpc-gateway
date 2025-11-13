@@ -44,9 +44,9 @@ go run main.go
 
 **访问：**
 
-- HTTP API: http://localhost:8080
-- 健康检查: http://localhost:8080/health
-- 指标监控: http://localhost:8080/metrics
+- HTTP API: <http://localhost:8080>
+- 健康检查: <http://localhost:8080/health>
+- 指标监控: <http://localhost:8080/metrics>
 - gRPC: localhost:9090
 
 ---
@@ -1346,6 +1346,214 @@ tail -f app.log | jq 'select(.request_id=="your-request-id")'
 
 ---
 
+## 🔄 PBMO - Protocol Buffer 模型转换
+
+### 概述
+
+Go RPC Gateway 内置了强大的 **PBMO (Protocol Buffer Model Object)** 转换系统，提供 Protocol Buffer 和 GORM Model 之间的高性能双向转换。
+
+**核心优势：**
+
+
+- 🚄 **极致性能**: 单次转换仅需 3μs，比标准反射快 17-22倍
+- 🔄 **双向转换**: 完全支持 PB ↔ Model 转换
+- 🛡️ **安全可靠**: 自动处理 nil 指针和类型转换
+- ✅ **智能校验**: 内置字段校验和自定义规则
+- 📊 **可观测性**: 详细日志和性能监控
+
+### 30秒快速上手
+
+#### 1. 基础转换
+
+```go
+import "github.com/kamalyes/go-rpc-gateway/pbmo"
+
+// 定义 GORM 模型
+type User struct {
+    ID       uint   `gorm:"primarykey"`
+    Name     string `gorm:"size:100"`
+    Email    string `gorm:"uniqueIndex"`
+    Age      int32
+    IsActive bool
+}
+
+func quickStart() {
+    // 创建转换器（一次创建，重复使用）
+    converter := pbmo.NewBidiConverter(&pb.User{}, &User{})
+    
+    // PB → Model 转换
+    pbUser := &pb.User{
+        Name:     "张三",
+        Email:    "zhangsan@example.com",
+        Age:      25,
+        IsActive: true,
+    }
+    
+    var user User
+    if err := converter.ConvertPBToModel(pbUser, &user); err != nil {
+        panic(err)
+    }
+    
+    // Model → PB 转换
+    user.ID = 123
+    var pbResult pb.User
+    if err := converter.ConvertModelToPB(&user, &pbResult); err != nil {
+        panic(err)
+    }
+    
+    fmt.Printf("转换成功: %+v\n", pbResult)
+}
+```
+
+#### 2. 生产级转换（推荐）
+
+```go
+// 带日志和性能监控的增强转换器
+converter := pbmo.NewEnhancedBidiConverter(
+    &pb.User{}, &User{}, logger,
+)
+
+// 转换时自动记录日志和性能指标
+if err := converter.ConvertPBToModelWithLog(pbUser, &user); err != nil {
+    return err // 已自动转换为 gRPC status error
+}
+
+// 查看性能统计
+metrics := converter.GetMetrics()
+fmt.Printf("转换成功率: %.2f%%\n", 
+    float64(metrics.SuccessfulConversions) / float64(metrics.TotalConversions) * 100)
+```
+
+#### 3. 安全转换（处理复杂嵌套）
+
+```go
+// 安全处理 nil 指针和深度嵌套
+safeConverter := pbmo.NewSafeConverter(&pb.UserProfile{}, &UserProfile{})
+
+// 链式安全访问（类似 JavaScript 的 ?. 操作符）
+value := safeConverter.SafeFieldAccess(obj, "Profile", "Address", "City")
+if value.IsValid() {
+    city := value.String("默认城市")
+}
+```
+
+### gRPC 服务集成
+
+在实际的 gRPC 服务中使用 PBMO：
+
+```go
+type UserService struct {
+    pb.UnimplementedUserServiceServer
+    converter *pbmo.EnhancedBidiConverter
+    logger    logger.ILogger
+}
+
+func NewUserService(logger logger.ILogger) *UserService {
+    converter := pbmo.NewEnhancedBidiConverter(&pb.User{}, &User{}, logger)
+    
+    // 注册校验规则
+    converter.RegisterValidationRules("User",
+        pbmo.FieldRule{
+            Name:     "Name",
+            Required: true,
+            MinLen:   2,
+            MaxLen:   50,
+        },
+        pbmo.FieldRule{
+            Name:    "Email", 
+            Pattern: `^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`,
+        },
+    )
+    
+    return &UserService{
+        converter: converter,
+        logger:    logger,
+    }
+}
+
+func (s *UserService) CreateUser(ctx context.Context, req *pb.CreateUserRequest) (*pb.User, error) {
+    var user User
+    
+    // 转换并校验，一步完成
+    if err := s.converter.ConvertAndValidatePBToModel(req.User, &user); err != nil {
+        return nil, err
+    }
+    
+    // 保存到数据库
+    if err := global.DB.Create(&user).Error; err != nil {
+        return nil, s.converter.HandleError(err, "CreateUser")
+    }
+    
+    // 转换响应
+    var pbUser pb.User
+    if err := s.converter.ConvertModelToPBWithLog(&user, &pbUser); err != nil {
+        return nil, err
+    }
+    
+    return &pbUser, nil
+}
+```
+
+### 支持的类型转换
+
+| PB 类型 | GORM 类型 | 说明 |
+|---------|----------|------|
+| `string` | `string` | 直接映射 |
+| `int32/int64` | `int/uint` | 自动转换 |
+| `bool` | `bool` | 直接映射 |
+| `double` | `float64` | 精度保持 |
+| `google.protobuf.Timestamp` | `time.Time` | 时间转换 ⭐ |
+| `repeated T` | `[]T` | 切片转换 |
+| 嵌套消息 | 嵌套结构体 | 递归转换 |
+
+### 性能对比
+
+| 转换方法 | 性能 | 适用场景 |
+|---------|------|---------|
+| **PBMO BidiConverter** | 130ns/op | 高频转换，性能要求极高 |
+| **PBMO EnhancedConverter** | 200ns/op | 生产环境，需要监控和日志 |
+| **PBMO SafeConverter** | 150ns/op | 复杂嵌套，安全要求高 |
+| 手动转换 | 50-100ns/op | 简单场景，无复杂逻辑 |
+| 标准反射 | 2260ns/op | 原始方法（不推荐） |
+
+### 最佳实践
+
+#### ✅ 推荐做法
+
+```go
+// 1. 重复使用转换器实例
+converter := pbmo.NewEnhancedBidiConverter(&pb.User{}, &User{}, logger)
+
+// 2. 使用服务集成进行生产部署
+service := pbmo.NewServiceIntegration(&pb.User{}, &User{}, logger)
+service.RegisterValidationRules("User", rules...)
+
+// 3. 为复杂嵌套使用安全转换器
+safeConverter := pbmo.NewSafeConverter(&pb.ComplexMessage{}, &ComplexModel{})
+```
+
+#### ❌ 避免做法
+
+```go
+// ❌ 不要频繁创建转换器
+for _, pb := range pbList {
+    converter := pbmo.NewBidiConverter(&pb.User{}, &User{})  // 浪费！
+}
+
+// ❌ 不要忽略错误处理
+converter.ConvertPBToModel(pb, &model)  // 没有检查 err
+```
+
+### 详细文档
+
+- 📖 [PBMO 完整指南](./pbmo/README.md)
+- 🚀 [快速开始](./pbmo/QUICK_START.md)  
+- 📚 [使用示例大全](./pbmo/USAGE_EXAMPLES.md)
+- 🛡️ [安全转换器指南](./pbmo/SAFE_CONVERTER_GUIDE.md)
+- 📊 [性能优化说明](./pbmo/PERFORMANCE_OPTIMIZATION.md)
+
+---
+
 ## ❓ 常见问题
 
 ### Q: 如何自定义端口配置?
@@ -1538,11 +1746,12 @@ middleware:
 - 📖 **详细文档**: 查看 `docs/` 目录下的详细文档
 - 🔍 **示例代码**: 参考 `examples/` 目录下的示例项目
 - 🐛 **问题反馈**: [GitHub Issues](https://github.com/kamalyes/go-rpc-gateway/issues)
-- 💬 **讨论交流**: [GitHub Discussions](https://github.com/kamalyes/go-rpc-gateway/discussions)
+- 💬 **讨论交流**: <501893067@qq.com>ons](https://github.com/kamalyes/go-rpc-gateway/discussions)
 - 📫 **邮件支持**: 501893067@qq.com
 
 ---
 
 **🎉 现在开始使用 Go RPC Gateway 构建你的微服务吧！** 🚀
+
 
 从最简单的3行代码开始，逐步构建你的企业级微服务应用。框架的链式构建器设计让你可以从简单开始，随着项目复杂度的增加，逐步添加更多功能特性。
