@@ -954,9 +954,10 @@ validator.RegisterRules("User",
 ## 📚 相关文档
 
 - 🚀 [快速开始指南](./QUICK_START.md) - 30秒上手 PBMO
+- 🌟 [高级API使用指南](./ADVANCED_USAGE.md) - 傻瓜式API，一行代码搞定复杂操作 ⭐
 - 📖 [使用示例大全](./USAGE_EXAMPLES.md) - 各种场景的详细代码示例
 - 📋 [API 参考文档](./API_REFERENCE.md) - 完整的 API 文档
-- 🎯 [最佳实践指南](./BEST_PRACTICES.md) - 性能优化和常见场景处理 ⭐
+- 🎯 [最佳实践指南](./BEST_PRACTICES.md) - 性能优化和常见场景处理
 - 🛡️ [安全转换器指南](./SAFE_CONVERTER_GUIDE.md) - SafeConverter 使用指南
 - 📊 [性能优化说明](./PERFORMANCE_OPTIMIZATION.md) - 详细性能分析
 - 🔧 [集成总结](./INTEGRATION_SUMMARY.md) - 模块集成说明

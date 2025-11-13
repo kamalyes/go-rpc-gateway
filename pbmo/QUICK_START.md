@@ -208,7 +208,8 @@ if err != nil {
 ## 🔗 相关链接
 
 - 📖 [完整文档](./README.md)
-- 🎯 [最佳实践指南](./BEST_PRACTICES.md) - 常见场景处理和性能优化 ⭐
+- 🌟 [高级API使用指南](./ADVANCED_USAGE.md) - 傻瓜式API，一行代码搞定复杂操作 ⭐
+- 🎯 [最佳实践指南](./BEST_PRACTICES.md) - 常见场景处理和性能优化 
 - 📚 [使用示例大全](./USAGE_EXAMPLES.md)
 - 🛡️ [安全转换器指南](./SAFE_CONVERTER_GUIDE.md)
 - 📊 [性能优化说明](./PERFORMANCE_OPTIMIZATION.md)
