@@ -196,9 +196,49 @@ func (b *BannerManager) printMiddlewareFeatures() {
 // printMonitoringFeatures 打印监控功能
 func (b *BannerManager) printMonitoringFeatures() {
 	configSafe := goconfig.SafeConfig(b.config)
+
+	// Prometheus Metrics 功能
 	if configSafe.IsMetricsEnabled() {
+		metricsHost := configSafe.Field("metrics").Field("host").String("0.0.0.0")
+		metricsPort := configSafe.Field("metrics").Field("port").Int(9090)
 		prometheusPath := configSafe.Field("Monitoring").Field("Prometheus").Field("Path").String("/metrics")
-		global.LOGGER.Info("   ✅ Prometheus指标 (" + prometheusPath + ")")
+
+		displayHost := metricsHost
+		if metricsHost == "0.0.0.0" {
+			displayHost = "localhost"
+		}
+		global.LOGGER.Info(fmt.Sprintf("   ✅ Prometheus指标 (http://%s:%d%s)",
+			displayHost, metricsPort, prometheusPath))
+
+		// 显示自定义指标配置状态
+		httpMetrics := configSafe.Field("metrics").Field("custom_metrics").Field("http_requests_total").Field("enabled").Bool(false)
+		grpcMetrics := configSafe.Field("metrics").Field("custom_metrics").Field("grpc_requests_total").Field("enabled").Bool(false)
+		redisMetrics := configSafe.Field("metrics").Field("custom_metrics").Field("redis_operations_total").Field("enabled").Bool(false)
+		if httpMetrics || grpcMetrics || redisMetrics {
+			global.LOGGER.Info(fmt.Sprintf("     📈 自定义指标: HTTP:%v, gRPC:%v, Redis:%v", httpMetrics, grpcMetrics, redisMetrics))
+		}
+	}
+
+	// PProf 性能分析功能
+	if configSafe.IsPProfEnabled() {
+		pprofHost := configSafe.Field("pprof").Field("host").String("0.0.0.0")
+		pprofPort := configSafe.Field("pprof").Field("port").Int(6060)
+		pprofPath := configSafe.GetPProfPathPrefix("/debug/pprof")
+
+		displayHost := pprofHost
+		if pprofHost == "0.0.0.0" {
+			displayHost = "localhost"
+		}
+		global.LOGGER.Info(fmt.Sprintf("   ✅ PProf性能分析 (http://%s:%d%s/)",
+			displayHost, pprofPort, pprofPath))
+
+		// 显示认证状态
+		pprofAuth := configSafe.Field("pprof").Field("auth").Field("enabled").Bool(false)
+		authStatus := "已禁用 (开发模式)"
+		if pprofAuth {
+			authStatus = "已启用"
+		}
+		global.LOGGER.Info("     🔐 认证状态: " + authStatus)
 	}
 
 	if configSafe.IsJaegerEnabled() {
@@ -214,14 +254,44 @@ func (b *BannerManager) printEndpoints() {
 
 	global.LOGGER.Info("📡 核心端点:")
 
+	// 健康检查端点
 	if configSafe.IsHealthEnabled() {
 		healthPath := configSafe.GetHealthPath("/health")
 		global.LOGGER.Info("   🏥 健康检查: " + baseURL + healthPath)
 	}
 
-	if configSafe.Field("Monitoring").Field("Prometheus").Field("Enabled").Bool(false) {
-		prometheusPath := configSafe.Field("Monitoring").Field("Prometheus").Field("Path").String("/metrics")
-		global.LOGGER.Info("   📊 监控指标: " + baseURL + prometheusPath)
+	// Swagger 文档端点
+	if configSafe.Field("Swagger").Field("Enabled").Bool(false) {
+		swaggerPath := configSafe.Field("Swagger").Field("UIPath").String("/swagger")
+		global.LOGGER.Info("   📚 API文档: " + baseURL + swaggerPath)
+	}
+
+	// Prometheus 指标端点
+	if configSafe.IsMetricsEnabled() {
+		metricsHost := configSafe.Field("metrics").Field("host").String("0.0.0.0")
+		metricsPort := configSafe.Field("metrics").Field("port").Int(9090)
+		prometheusPath := configSafe.Field("metrics").Field("path").String("/metrics")
+
+		displayHost := metricsHost
+		if metricsHost == "0.0.0.0" {
+			displayHost = "localhost"
+		}
+		metricsURL := fmt.Sprintf("http://%s:%d%s", displayHost, metricsPort, prometheusPath)
+		global.LOGGER.Info("   📊 监控指标: " + metricsURL)
+	}
+
+	// PProf 性能分析端点
+	if configSafe.IsPProfEnabled() {
+		pprofHost := configSafe.Field("pprof").Field("host").String("0.0.0.0")
+		pprofPort := configSafe.Field("pprof").Field("port").Int(6060)
+		pprofPath := configSafe.GetPProfPathPrefix("/debug/pprof")
+
+		displayHost := pprofHost
+		if pprofHost == "0.0.0.0" {
+			displayHost = "localhost"
+		}
+		pprofURL := fmt.Sprintf("http://%s:%d%s/", displayHost, pprofPort, pprofPath)
+		global.LOGGER.Info("   🔬 性能分析: " + pprofURL)
 	}
 }
 

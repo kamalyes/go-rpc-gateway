@@ -564,6 +564,15 @@ func (g *Gateway) StartSilent() error {
 
 // StartWithBanner 启动网关服务并显示banner
 func (g *Gateway) StartWithBanner() error {
+	// 创建并使用启动状态报告器
+	startupReporter := server.NewStartupReporter(g.configManager.GetConfig())
+
+	// 打印启动时间戳
+	startupReporter.PrintStartupTimestamp()
+
+	// 打印详细的启动状态检查
+	startupReporter.PrintStartupStatus()
+
 	// 默认启用Swagger文档服务
 	if g.gatewayConfig != nil && g.gatewayConfig.Swagger != nil && g.gatewayConfig.Swagger.Enabled {
 		// 直接传递Swagger配置指针
@@ -586,8 +595,10 @@ func (g *Gateway) StartWithBanner() error {
 		return err
 	}
 
-	// 显示启动banner
+	// 显示启动banner和启动摘要
 	g.PrintStartupInfo()
+	startupReporter.PrintStartupSummary()
+
 	return nil
 }
 
