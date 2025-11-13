@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+package pbmo;
+
+option go_package = "./;pbmo";
+
+// 基础枚举类型
+enum Status {
+  STATUS_UNKNOWN = 0;
+  STATUS_ACTIVE = 1;
+  STATUS_INACTIVE = 2;
+  STATUS_PENDING = 3;
+}
+
+enum Priority {
+  PRIORITY_LOW = 0;
+  PRIORITY_MEDIUM = 1;
+  PRIORITY_HIGH = 2;
+  PRIORITY_CRITICAL = 3;
+}
+
+// 嵌套消息类型
+message Address {
+  // @inject_tag: json:"street" gorm:"column:street" validate:"required"
+  string street = 1;
+  // @inject_tag: json:"city" gorm:"column:city" validate:"required"
+  string city = 2;
+  // @inject_tag: json:"country" gorm:"column:country" validate:"required"
+  string country = 3;
+  // @inject_tag: json:"postal_code" gorm:"column:postal_code" validate:"required"
+  string postal_code = 4;
+}
+
+message Contact {
+  // @inject_tag: json:"email" gorm:"column:email" validate:"email"
+  string email = 1;
+  // @inject_tag: json:"phone" gorm:"column:phone" validate:"required"
+  string phone = 2;
+  // @inject_tag: json:"website" gorm:"column:website"
+  string website = 3;
+}
+
+// 主要消息类型 - 覆盖所有基础类型
+message User {
+  // 数值类型
+  // @inject_tag: json:"id" gorm:"primaryKey;column:id"
+  int64 id = 1;
+  // @inject_tag: json:"age" gorm:"column:age" validate:"min=0,max=150"
+  int32 age = 2;
+  // @inject_tag: json:"score" gorm:"column:score"
+  uint32 score = 3;
+  // @inject_tag: json:"balance" gorm:"column:balance;type:decimal(10,2)"
+  uint64 balance = 4;
+  // @inject_tag: json:"rating" gorm:"column:rating"
+  float rating = 5;
+  // @inject_tag: json:"salary" gorm:"column:salary;type:decimal(15,2)"
+  double salary = 6;
+
+  // 字符串类型
+  // @inject_tag: json:"name" gorm:"column:name" validate:"required,min=2,max=50"
+  string name = 7;
+  // @inject_tag: json:"username" gorm:"column:username;unique" validate:"required,alphanum"
+  string username = 8;
+  // @inject_tag: json:"bio" gorm:"column:bio;type:text"
+  string bio = 9;
+
+  // 布尔类型
+  // @inject_tag: json:"is_active" gorm:"column:is_active;default:true"
+  bool is_active = 10;
+  // @inject_tag: json:"is_verified" gorm:"column:is_verified;default:false"
+  bool is_verified = 11;
+
+  // 字节类型
+  // @inject_tag: json:"avatar" gorm:"column:avatar;type:blob"
+  bytes avatar = 12;
+  // @inject_tag: json:"signature" gorm:"column:signature"
+  bytes signature = 13;
+
+  // 枚举类型
+  // @inject_tag: json:"status" gorm:"column:status;type:int" validate:"required"
+  Status status = 14;
+  // @inject_tag: json:"priority" gorm:"column:priority;type:int"
+  Priority priority = 15;
+
+  // 嵌套消息类型
+  // @inject_tag: json:"address" gorm:"embedded;embeddedPrefix:address_"
+  Address address = 16;
+  // @inject_tag: json:"contact" gorm:"embedded;embeddedPrefix:contact_"
+  Contact contact = 17;
+
+  // 重复字段（数组/切片）
+  // @inject_tag: json:"tags" gorm:"type:json"
+  repeated string tags = 18;
+  // @inject_tag: json:"scores" gorm:"type:json"
+  repeated int32 scores = 19;
+  // @inject_tag: json:"preferences" gorm:"type:json"
+  repeated bool preferences = 20;
+
+  // 可选字段
+  // @inject_tag: json:"nickname,omitempty" gorm:"column:nickname"
+  optional string nickname = 21;
+  // @inject_tag: json:"middle_age,omitempty" gorm:"column:middle_age"
+  optional int32 middle_age = 22;
+  // @inject_tag: json:"is_premium,omitempty" gorm:"column:is_premium"
+  optional bool is_premium = 23;
+
+  // Map类型
+  // @inject_tag: json:"metadata" gorm:"type:json"
+  map<string, string> metadata = 24;
+  // @inject_tag: json:"settings" gorm:"type:json"
+  map<string, int32> settings = 25;
+  // @inject_tag: json:"flags" gorm:"type:json"
+  map<string, bool> flags = 26;
+}
+
+// 产品消息 - 更多类型示例
+message Product {
+  // @inject_tag: json:"id" gorm:"primaryKey;column:id"
+  uint64 id = 1;
+  // @inject_tag: json:"name" gorm:"column:name" validate:"required"
+  string name = 2;
+  // @inject_tag: json:"price" gorm:"column:price;type:decimal(10,2)" validate:"min=0"
+  double price = 3;
+  // @inject_tag: json:"in_stock" gorm:"column:in_stock;default:true"
+  bool in_stock = 4;
+  // @inject_tag: json:"category" gorm:"column:category;type:int"
+  Status category = 5;
+  // @inject_tag: json:"images" gorm:"type:json"
+  repeated string images = 6;
+  // @inject_tag: json:"properties" gorm:"type:json"
+  map<string, string> properties = 7;
+  // @inject_tag: json:"description,omitempty" gorm:"column:description;type:text"
+  optional string description = 8;
+}
+
+// 订单消息 - 展示关联关系
+message Order {
+  // @inject_tag: json:"id" gorm:"primaryKey;column:id"
+  int64 id = 1;
+  // @inject_tag: json:"user_id" gorm:"column:user_id" validate:"required"
+  int64 user_id = 2;
+  // @inject_tag: json:"total" gorm:"column:total;type:decimal(10,2)"
+  double total = 3;
+  // @inject_tag: json:"status" gorm:"column:status;type:int"
+  Status status = 4;
+  // @inject_tag: json:"items" gorm:"type:json"
+  repeated Product items = 5;
+  // @inject_tag: json:"shipping_address" gorm:"embedded;embeddedPrefix:shipping_"
+  Address shipping_address = 6;
+  // @inject_tag: json:"notes" gorm:"type:json"
+  map<string, string> notes = 7;
+}
+
+// 响应消息类型
+message UserResponse {
+  // @inject_tag: json:"success" 
+  bool success = 1;
+  // @inject_tag: json:"message"
+  string message = 2;
+  // @inject_tag: json:"user,omitempty"
+  optional User user = 3;
+  // @inject_tag: json:"users"
+  repeated User users = 4;
+  // @inject_tag: json:"total_count"
+  int32 total_count = 5;
+}
+
+// 请求消息类型
+message GetUserRequest {
+  // @inject_tag: json:"id" validate:"required,min=1"
+  int64 id = 1;
+  // @inject_tag: json:"include_inactive,omitempty"
+  optional bool include_inactive = 2;
+}
+
+message ListUsersRequest {
+  // @inject_tag: json:"page" validate:"min=1"
+  int32 page = 1;
+  // @inject_tag: json:"page_size" validate:"min=1,max=100"
+  int32 page_size = 2;
+  // @inject_tag: json:"status,omitempty"
+  optional Status status = 3;
+  // @inject_tag: json:"search,omitempty"
+  optional string search = 4;
+  // @inject_tag: json:"filters"
+  map<string, string> filters = 5;
+}

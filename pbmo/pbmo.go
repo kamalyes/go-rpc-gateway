@@ -35,6 +35,7 @@ type BidiConverter struct {
 	pbType       reflect.Type
 	modelType    reflect.Type
 	transformers map[string]func(interface{}) interface{}
+	validators   map[string][]FieldRule // 添加校验规则存储
 }
 
 // NewBidiConverter 创建双向转换器
@@ -43,12 +44,18 @@ func NewBidiConverter(pbType, modelType interface{}) *BidiConverter {
 		pbType:       reflect.TypeOf(pbType),
 		modelType:    reflect.TypeOf(modelType),
 		transformers: make(map[string]func(interface{}) interface{}),
+		validators:   make(map[string][]FieldRule),
 	}
 }
 
 // RegisterTransformer 注册字段转换器
 func (bc *BidiConverter) RegisterTransformer(field string, transformer func(interface{}) interface{}) {
 	bc.transformers[field] = transformer
+}
+
+// RegisterValidationRules 注册校验规则
+func (bc *BidiConverter) RegisterValidationRules(typeName string, rules ...FieldRule) {
+	bc.validators[typeName] = append(bc.validators[typeName], rules...)
 }
 
 // ConvertPBToModel 高性能 PB -> Model 转换
@@ -73,6 +80,16 @@ func (bc *BidiConverter) ConvertPBToModel(pb interface{}, modelPtr interface{}) 
 	}
 
 	modelVal = modelVal.Elem()
+
+	// 检查 model 是否为接口类型，如果是则获取实际值
+	for modelVal.Kind() == reflect.Interface && !modelVal.IsNil() {
+		modelVal = modelVal.Elem()
+	}
+
+	// 检查 model 是否为结构体类型
+	if modelVal.Kind() != reflect.Struct {
+		return fmt.Errorf("model must be a struct, got %v", modelVal.Kind())
+	}
 
 	pbVal := reflect.ValueOf(pb)
 	// 检查 pb 是否是 nil pointer

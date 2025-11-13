@@ -19,12 +19,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// Converter 转换器接口
-type Converter interface {
-	ToPB() interface{}
-	FromPB(interface{}) error
-	Validate() error
-}
+// 注意：Converter接口已在interfaces.go中定义
+// 这里移除重复定义以避免冲突
 
 // 常用类型缓存
 var (

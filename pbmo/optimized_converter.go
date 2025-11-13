@@ -18,12 +18,6 @@ import (
 	"sync"
 )
 
-// FieldIndex 字段索引缓存
-type FieldIndex struct {
-	index int
-	name  string
-}
-
 // OptimizedBidiConverter 优化的双向转换器
 // 通过缓存字段映射和索引，减少反射开销
 type OptimizedBidiConverter struct {
