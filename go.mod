@@ -8,8 +8,8 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
-	github.com/kamalyes/go-config v0.8.0
-	github.com/kamalyes/go-logger v0.0.0-20251109052836-c53bbb5942bf
+	github.com/kamalyes/go-config v0.8.1
+	github.com/kamalyes/go-logger v0.1.1
 	github.com/kamalyes/go-toolbox v0.11.64
 	github.com/mssola/user_agent v0.6.0
 	github.com/prometheus/client_golang v1.19.1

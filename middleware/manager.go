@@ -233,19 +233,6 @@ func (m *Manager) I18nMiddleware() MiddlewareFunc {
 	return I18n() // 回退到默认配置
 }
 
-// I18nMiddleware 国际化中间件
-// TODO: 重构为使用 go-config 的 i18n.I18N 配置
-func (m *Manager) I18nMiddleware() MiddlewareFunc {
-	// if m.cfg.Middleware.I18N != nil && m.cfg.Middleware.I18N.Enabled {
-	// 	return MiddlewareFunc(ConfigurableI18nMiddleware(m.cfg.Middleware.I18N))
-	// }
-	// 使用内部 i18n 管理器
-	if m.i18nManager != nil {
-		return I18nWithManager(m.i18nManager)
-	}
-	return I18n() // 回退到默认配置
-}
-
 // PProfMiddleware pprof性能分析中间件
 func (m *Manager) PProfMiddleware() MiddlewareFunc {
 	if m.cfg != nil && m.cfg.Middleware.PProf != nil && m.cfg.Middleware.PProf.Enabled {
