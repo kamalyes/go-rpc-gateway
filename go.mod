@@ -130,8 +130,8 @@ require (
 // 本地开发替换
 // replace github.com/kamalyes/go-wsc => ../go-wsc
 
-replace github.com/kamalyes/go-cachex => ../go-cachex
+// replace github.com/kamalyes/go-cachex => ../go-cachex
 
-replace github.com/kamalyes/go-config => ../go-config
+// replace github.com/kamalyes/go-config => ../go-config
 
-replace github.com/kamalyes/go-logger => ../go-logger
+// replace github.com/kamalyes/go-logger => ../go-logger
