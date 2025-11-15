@@ -139,6 +139,7 @@
       "fsnotify",
       "goconfig",
       "gorm",
+      "gowsc",
       "gwconfig",
       "kamalyes",
       "mapstructure",

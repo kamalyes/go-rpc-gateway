@@ -20,6 +20,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	safe "github.com/kamalyes/go-toolbox/pkg/safe"
@@ -71,7 +72,7 @@ func (s *Server) GetGatewayMux() *runtime.ServeMux {
 func NewServer() (*Server, error) {
 	cfg := global.GATEWAY
 	if cfg == nil {
-		return nil, fmt.Errorf("global GATEWAY config is not initialized")
+		return nil, errors.NewError(errors.ErrCodeInvalidConfiguration, "global GATEWAY config is not initialized")
 	}
 
 	// 记录环境配置应用情况
@@ -100,19 +101,19 @@ func NewServer() (*Server, error) {
 	// 初始化全局配置和核心组件
 	if err := server.initCore(); err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to init core: %w", err)
+		return nil, errors.NewErrorf(errors.ErrCodeInternalServerError, "failed to init core: %v", err)
 	}
 
 	// 初始化中间件管理器
 	if err := server.initMiddleware(); err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to init middleware: %w", err)
+		return nil, errors.NewErrorf(errors.ErrCodeInternalServerError, "failed to init middleware: %v", err)
 	}
 
 	// 初始化服务器组件
 	if err := server.initServers(); err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to init servers: %w", err)
+		return nil, errors.NewErrorf(errors.ErrCodeInternalServerError, "failed to init servers: %v", err)
 	}
 
 	return server, nil

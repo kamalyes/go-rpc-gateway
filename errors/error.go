@@ -61,11 +61,49 @@ var errorMessages = map[ErrorCode]string{
 	ErrCodeSwaggerNotFound:        "Swagger JSON not found",
 	ErrCodeSwaggerLoadFailed:      "Failed to load Swagger",
 	ErrCodeSwaggerRenderFailed:    "Failed to render Swagger UI",
-	ErrCodeUnknown:                "Unknown error",
-	ErrCodeInternal:               "Internal error",
-	ErrCodeOperationFailed:        "Operation failed",
-	ErrCodeResourceNotFound:       "Resource not found",
-	ErrCodeConflict:               "Conflict",
+	// JWT和认证扩展
+	ErrCodeTokenMalformed:        "Token格式错误",
+	ErrCodeTokenNotValidYet:      "Token尚未激活",
+	ErrCodeAccountLoginElsewhere: "账号已在其他地方登录，您已被迫下线",
+	ErrCodeRedisParseError:       "解析Redis中的用户token时出错",
+	ErrCodeDBQueryError:          "从数据库获取用户token异常",
+	ErrCodeClaimsParseFailed:     "获取用户claims失败",
+	// 数据转换和验证
+	ErrCodePBMessageNil:         "PB message不能为空",
+	ErrCodeModelMessageNil:      "Model message不能为空",
+	ErrCodeFieldConversionError: "字段转换失败",
+	ErrCodeTypeConversionError:  "类型转换失败",
+	ErrCodeInitializationError:  "初始化失败",
+	ErrCodeInvalidFieldMapping:  "无效的字段映射",
+	ErrCodeUserIDMissing:        "缺少用户ID",
+	ErrCodeMustBePointer:        "必须是指针类型",
+	ErrCodeMustBeSlice:          "必须是切片类型",
+	ErrCodeMustBeStruct:         "必须是结构体类型",
+	ErrCodeElementConversion:    "元素转换失败",
+	ErrCodeItemNil:              "项目为空",
+	// 中间件和国际化
+	ErrCodeLanguageLoadFailed: "语言加载失败",
+	ErrCodeLanguageNotFound:   "语言未找到",
+	ErrCodeJSONParseFailed:    "JSON解析失败",
+	// 配置和特性
+	ErrCodeInvalidConfigType:     "无效的配置类型",
+	ErrCodeFeatureNotRegistered:  "特性未注册",
+	ErrCodeFeatureEnableFailed:   "特性启用失败",
+	ErrCodeMiddlewareInitFailed:  "中间件初始化失败",
+	ErrCodeHealthManagerFailed:   "健康检查管理器创建失败",
+	ErrCodeGRPCServerInitFailed:  "gRPC服务器初始化失败",
+	ErrCodeHTTPGatewayInitFailed: "HTTP网关初始化失败",
+	ErrCodeWSCNotEnabled:         "WSC功能未在配置中启用",
+	ErrCodeWSCRouteFailed:        "注册WSC路由失败",
+	ErrCodeUserAuthNotFound:      "未找到用户认证信息",
+	// 服务器和基础设施
+	ErrCodeServerCreationFailed: "创建服务器失败",
+	ErrCodeScanTypeMismatch:     "扫描类型不匹配",
+	ErrCodeUnknown:              "Unknown error",
+	ErrCodeInternal:             "Internal error",
+	ErrCodeOperationFailed:      "Operation failed",
+	ErrCodeResourceNotFound:     "Resource not found",
+	ErrCodeConflict:             "Conflict",
 }
 
 // httpStatusMapping 错误码到HTTP状态码的映射
@@ -111,11 +149,49 @@ var httpStatusMapping = map[ErrorCode]int{
 	ErrCodeSwaggerNotFound:        http.StatusNotFound,
 	ErrCodeSwaggerLoadFailed:      http.StatusInternalServerError,
 	ErrCodeSwaggerRenderFailed:    http.StatusInternalServerError,
-	ErrCodeUnknown:                http.StatusInternalServerError,
-	ErrCodeInternal:               http.StatusInternalServerError,
-	ErrCodeOperationFailed:        http.StatusInternalServerError,
-	ErrCodeResourceNotFound:       http.StatusNotFound,
-	ErrCodeConflict:               http.StatusConflict,
+	// JWT和认证扩展
+	ErrCodeTokenMalformed:        http.StatusUnauthorized,
+	ErrCodeTokenNotValidYet:      http.StatusUnauthorized,
+	ErrCodeAccountLoginElsewhere: http.StatusUnauthorized,
+	ErrCodeRedisParseError:       http.StatusInternalServerError,
+	ErrCodeDBQueryError:          http.StatusInternalServerError,
+	ErrCodeClaimsParseFailed:     http.StatusUnauthorized,
+	// 数据转换和验证
+	ErrCodePBMessageNil:         http.StatusBadRequest,
+	ErrCodeModelMessageNil:      http.StatusBadRequest,
+	ErrCodeFieldConversionError: http.StatusInternalServerError,
+	ErrCodeTypeConversionError:  http.StatusBadRequest,
+	ErrCodeInitializationError:  http.StatusInternalServerError,
+	ErrCodeInvalidFieldMapping:  http.StatusInternalServerError,
+	ErrCodeUserIDMissing:        http.StatusBadRequest,
+	ErrCodeMustBePointer:        http.StatusBadRequest,
+	ErrCodeMustBeSlice:          http.StatusBadRequest,
+	ErrCodeMustBeStruct:         http.StatusBadRequest,
+	ErrCodeElementConversion:    http.StatusInternalServerError,
+	ErrCodeItemNil:              http.StatusBadRequest,
+	// 中间件和国际化
+	ErrCodeLanguageLoadFailed: http.StatusInternalServerError,
+	ErrCodeLanguageNotFound:   http.StatusNotFound,
+	ErrCodeJSONParseFailed:    http.StatusInternalServerError,
+	// 配置和特性
+	ErrCodeInvalidConfigType:     http.StatusInternalServerError,
+	ErrCodeFeatureNotRegistered:  http.StatusInternalServerError,
+	ErrCodeFeatureEnableFailed:   http.StatusInternalServerError,
+	ErrCodeMiddlewareInitFailed:  http.StatusInternalServerError,
+	ErrCodeHealthManagerFailed:   http.StatusInternalServerError,
+	ErrCodeGRPCServerInitFailed:  http.StatusInternalServerError,
+	ErrCodeHTTPGatewayInitFailed: http.StatusInternalServerError,
+	ErrCodeWSCNotEnabled:         http.StatusServiceUnavailable,
+	ErrCodeWSCRouteFailed:        http.StatusInternalServerError,
+	ErrCodeUserAuthNotFound:      http.StatusUnauthorized,
+	// 服务器和基础设施
+	ErrCodeServerCreationFailed: http.StatusInternalServerError,
+	ErrCodeScanTypeMismatch:     http.StatusInternalServerError,
+	ErrCodeUnknown:              http.StatusInternalServerError,
+	ErrCodeInternal:             http.StatusInternalServerError,
+	ErrCodeOperationFailed:      http.StatusInternalServerError,
+	ErrCodeResourceNotFound:     http.StatusNotFound,
+	ErrCodeConflict:             http.StatusConflict,
 }
 
 // statusCodeMapping 错误码到gRPC状态码的映射
@@ -161,11 +237,49 @@ var statusCodeMapping = map[ErrorCode]commonapis.StatusCode{
 	ErrCodeSwaggerNotFound:        commonapis.StatusCode_NotFound,
 	ErrCodeSwaggerLoadFailed:      commonapis.StatusCode_Internal,
 	ErrCodeSwaggerRenderFailed:    commonapis.StatusCode_Internal,
-	ErrCodeUnknown:                commonapis.StatusCode_Unknown,
-	ErrCodeInternal:               commonapis.StatusCode_Internal,
-	ErrCodeOperationFailed:        commonapis.StatusCode_Internal,
-	ErrCodeResourceNotFound:       commonapis.StatusCode_NotFound,
-	ErrCodeConflict:               commonapis.StatusCode_AlreadyExists,
+	// JWT和认证扩展
+	ErrCodeTokenMalformed:        commonapis.StatusCode_Unauthenticated,
+	ErrCodeTokenNotValidYet:      commonapis.StatusCode_Unauthenticated,
+	ErrCodeAccountLoginElsewhere: commonapis.StatusCode_Unauthenticated,
+	ErrCodeRedisParseError:       commonapis.StatusCode_Internal,
+	ErrCodeDBQueryError:          commonapis.StatusCode_Internal,
+	ErrCodeClaimsParseFailed:     commonapis.StatusCode_Unauthenticated,
+	// 数据转换和验证
+	ErrCodePBMessageNil:         commonapis.StatusCode_InvalidArgument,
+	ErrCodeModelMessageNil:      commonapis.StatusCode_InvalidArgument,
+	ErrCodeFieldConversionError: commonapis.StatusCode_Internal,
+	ErrCodeTypeConversionError:  commonapis.StatusCode_InvalidArgument,
+	ErrCodeInitializationError:  commonapis.StatusCode_Internal,
+	ErrCodeInvalidFieldMapping:  commonapis.StatusCode_Internal,
+	ErrCodeUserIDMissing:        commonapis.StatusCode_InvalidArgument,
+	ErrCodeMustBePointer:        commonapis.StatusCode_InvalidArgument,
+	ErrCodeMustBeSlice:          commonapis.StatusCode_InvalidArgument,
+	ErrCodeMustBeStruct:         commonapis.StatusCode_InvalidArgument,
+	ErrCodeElementConversion:    commonapis.StatusCode_Internal,
+	ErrCodeItemNil:              commonapis.StatusCode_InvalidArgument,
+	// 中间件和国际化
+	ErrCodeLanguageLoadFailed: commonapis.StatusCode_Internal,
+	ErrCodeLanguageNotFound:   commonapis.StatusCode_NotFound,
+	ErrCodeJSONParseFailed:    commonapis.StatusCode_Internal,
+	// 配置和特性
+	ErrCodeInvalidConfigType:     commonapis.StatusCode_Internal,
+	ErrCodeFeatureNotRegistered:  commonapis.StatusCode_Internal,
+	ErrCodeFeatureEnableFailed:   commonapis.StatusCode_Internal,
+	ErrCodeMiddlewareInitFailed:  commonapis.StatusCode_Internal,
+	ErrCodeHealthManagerFailed:   commonapis.StatusCode_Internal,
+	ErrCodeGRPCServerInitFailed:  commonapis.StatusCode_Internal,
+	ErrCodeHTTPGatewayInitFailed: commonapis.StatusCode_Internal,
+	ErrCodeWSCNotEnabled:         commonapis.StatusCode_Unavailable,
+	ErrCodeWSCRouteFailed:        commonapis.StatusCode_Internal,
+	ErrCodeUserAuthNotFound:      commonapis.StatusCode_Unauthenticated,
+	// 服务器和基础设施
+	ErrCodeServerCreationFailed: commonapis.StatusCode_Internal,
+	ErrCodeScanTypeMismatch:     commonapis.StatusCode_Internal,
+	ErrCodeUnknown:              commonapis.StatusCode_Unknown,
+	ErrCodeInternal:             commonapis.StatusCode_Internal,
+	ErrCodeOperationFailed:      commonapis.StatusCode_Internal,
+	ErrCodeResourceNotFound:     commonapis.StatusCode_NotFound,
+	ErrCodeConflict:             commonapis.StatusCode_AlreadyExists,
 }
 
 // AppError 应用错误结构
@@ -256,6 +370,53 @@ func (e *AppError) ToResult() *commonapis.Result {
 func (e *AppError) WithDetails(details string) *AppError {
 	e.Details = details
 	return e
+}
+
+// WithDetailsf 使用格式化字符串添加错误详情
+func (e *AppError) WithDetailsf(format string, args ...interface{}) *AppError {
+	e.Details = fmt.Sprintf(format, args...)
+	return e
+}
+
+// Wrap 包装标准错误为AppError，自动使用错误码对应的消息
+func Wrap(err error, code ErrorCode) *AppError {
+	if err == nil {
+		return nil
+	}
+	if appErr, ok := err.(*AppError); ok {
+		return appErr
+	}
+	return NewError(code, err.Error())
+}
+
+// Wrapf 包装标准错误并添加额外的详细信息
+// 使用错误码对应的消息，额外信息会添加到Details字段
+func Wrapf(err error, code ErrorCode, details string) *AppError {
+	if err == nil {
+		return nil
+	}
+	if appErr, ok := err.(*AppError); ok {
+		return appErr
+	}
+	// 使用错误码的标准消息，将原始错误和额外信息放入Details
+	fullDetails := details
+	if err.Error() != "" {
+		fullDetails = fmt.Sprintf("%s: %s", details, err.Error())
+	}
+	return NewError(code, fullDetails)
+}
+
+// WrapWithContext 包装错误并添加上下文信息（纯错误码模式）
+// 只使用错误码，不传递消息
+func WrapWithContext(err error, code ErrorCode) *AppError {
+	if err == nil {
+		return nil
+	}
+	if appErr, ok := err.(*AppError); ok {
+		return appErr
+	}
+	// 只使用错误码，原始错误作为Details
+	return NewError(code, err.Error())
 }
 
 // IsErrorCode 检查错误代码是否匹配
@@ -354,4 +515,57 @@ var (
 	ErrSwaggerNotFound     = NewError(ErrCodeSwaggerNotFound, "")
 	ErrSwaggerLoadFailed   = NewError(ErrCodeSwaggerLoadFailed, "")
 	ErrSwaggerRenderFailed = NewError(ErrCodeSwaggerRenderFailed, "")
+)
+
+// JWT和认证扩展错误
+var (
+	ErrTokenMalformed        = NewError(ErrCodeTokenMalformed, "")
+	ErrTokenNotValidYet      = NewError(ErrCodeTokenNotValidYet, "")
+	ErrAccountLoginElsewhere = NewError(ErrCodeAccountLoginElsewhere, "")
+	ErrRedisParseError       = NewError(ErrCodeRedisParseError, "")
+	ErrDBQueryError          = NewError(ErrCodeDBQueryError, "")
+	ErrClaimsParseFailed     = NewError(ErrCodeClaimsParseFailed, "")
+)
+
+// 数据转换和验证错误
+var (
+	ErrPBMessageNil         = NewError(ErrCodePBMessageNil, "")
+	ErrModelMessageNil      = NewError(ErrCodeModelMessageNil, "")
+	ErrFieldConversionError = NewError(ErrCodeFieldConversionError, "")
+	ErrTypeConversionError  = NewError(ErrCodeTypeConversionError, "")
+	ErrInitializationError  = NewError(ErrCodeInitializationError, "")
+	ErrInvalidFieldMapping  = NewError(ErrCodeInvalidFieldMapping, "")
+	ErrUserIDMissing        = NewError(ErrCodeUserIDMissing, "")
+	ErrMustBePointer        = NewError(ErrCodeMustBePointer, "")
+	ErrMustBeSlice          = NewError(ErrCodeMustBeSlice, "")
+	ErrMustBeStruct         = NewError(ErrCodeMustBeStruct, "")
+	ErrElementConversion    = NewError(ErrCodeElementConversion, "")
+	ErrItemNil              = NewError(ErrCodeItemNil, "")
+)
+
+// 中间件和国际化错误
+var (
+	ErrLanguageLoadFailed = NewError(ErrCodeLanguageLoadFailed, "")
+	ErrLanguageNotFound   = NewError(ErrCodeLanguageNotFound, "")
+	ErrJSONParseFailed    = NewError(ErrCodeJSONParseFailed, "")
+)
+
+// 配置和特性错误
+var (
+	ErrInvalidConfigType     = NewError(ErrCodeInvalidConfigType, "")
+	ErrFeatureNotRegistered  = NewError(ErrCodeFeatureNotRegistered, "")
+	ErrFeatureEnableFailed   = NewError(ErrCodeFeatureEnableFailed, "")
+	ErrMiddlewareInitFailed  = NewError(ErrCodeMiddlewareInitFailed, "")
+	ErrHealthManagerFailed   = NewError(ErrCodeHealthManagerFailed, "")
+	ErrGRPCServerInitFailed  = NewError(ErrCodeGRPCServerInitFailed, "")
+	ErrHTTPGatewayInitFailed = NewError(ErrCodeHTTPGatewayInitFailed, "")
+	ErrWSCNotEnabled         = NewError(ErrCodeWSCNotEnabled, "")
+	ErrWSCRouteFailed        = NewError(ErrCodeWSCRouteFailed, "")
+	ErrUserAuthNotFound      = NewError(ErrCodeUserAuthNotFound, "")
+)
+
+// 服务器和基础设施错误
+var (
+	ErrServerCreationFailed = NewError(ErrCodeServerCreationFailed, "")
+	ErrScanTypeMismatch     = NewError(ErrCodeScanTypeMismatch, "")
 )

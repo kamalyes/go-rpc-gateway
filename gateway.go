@@ -27,10 +27,12 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-rpc-gateway/server"
+	"github.com/kamalyes/go-rpc-gateway/wsc"
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
@@ -40,9 +42,9 @@ import (
 // Gateway 是主要的网关服务器
 type Gateway struct {
 	*server.Server
-	configManager  *goconfig.IntegratedConfigManager
-	gatewayConfig  *gwconfig.Gateway
-	enhancedServer *server.EnhancedServer // 新增增强服务器
+	configManager   *goconfig.IntegratedConfigManager
+	gatewayConfig   *gwconfig.Gateway
+	enhancedServer  *server.EnhancedServer // 新增增强服务器
 }
 
 // GatewayBuilder Gateway构建器 - 支持链式调用
@@ -187,22 +189,22 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 			BuildAndStart()
 
 	default:
-		return nil, fmt.Errorf("未指定配置路径或搜索选项")
+		return nil, errors.ErrInvalidConfiguration
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("创建配置管理器失败: %w", err)
+		return nil, errors.WrapWithContext(err, errors.ErrCodeInvalidConfiguration)
 	}
 
 	// 初始化全局状态
 	if err := b.initializeGlobalState(manager, config); err != nil {
-		return nil, fmt.Errorf("初始化全局状态失败: %w", err)
+		return nil, errors.WrapWithContext(err, errors.ErrCodeInitializationError)
 	}
 
 	// 创建Gateway实例
 	srv, err := server.NewServer()
 	if err != nil {
-		return nil, fmt.Errorf("创建服务器失败: %w", err)
+		return nil, errors.WrapWithContext(err, errors.ErrCodeServerCreationFailed)
 	}
 
 	gateway := &Gateway{
@@ -278,7 +280,8 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 			global.GATEWAY = newConfig
 
 			// 重新初始化日志器（如果日志配置发生变化）
-			if err := initializeLogger(); err != nil {
+			loggerInit := &global.LoggerInitializer{}
+			if err := loggerInit.Initialize(ctx, newConfig); err != nil {
 				global.LOGGER.Error("❌ 重新初始化日志器失败: %v\n", err)
 			}
 
@@ -311,129 +314,19 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 	return nil
 }
 
-// initializeComponents 初始化其他组件
+// initializeComponents 初始化其他组件 - 使用统一的InitializerChain
 func (b *GatewayBuilder) initializeComponents() error {
-	// 初始化日志器
-	if err := initializeLogger(); err != nil {
-		return fmt.Errorf("初始化日志器失败: %w", err)
-	}
-
-	// 初始化连接池管理器
-	if err := initializePoolManager(); err != nil {
-		return fmt.Errorf("初始化连接池管理器失败: %w", err)
-	}
-
-	// 初始化Snowflake节点（用于分布式ID生成）
-	if err := initializeSnowflakeNode(); err != nil {
-		return fmt.Errorf("初始化Snowflake节点失败: %w", err)
-	}
-
-	// 从pool manager中绑定全局资源
-	if err := bindPoolResourcesToGlobal(); err != nil {
-		return fmt.Errorf("绑定池资源到全局失败: %w", err)
-	}
-
-	return nil
+	// 创建并使用默认初始化链
+	chain := global.GetDefaultInitializerChain()
+	
+	ctx, cancel := context.WithTimeout(global.CTX, 30*time.Second)
+	defer cancel()
+	
+	return chain.InitializeAll(ctx, global.GATEWAY)
 }
 
-// initializeLogger 初始化日志器
-func initializeLogger() error {
-	if global.GATEWAY == nil {
-		return fmt.Errorf("GATEWAY 配置为空")
-	}
-
-	// 根据配置设置日志级别
-	level := logger.INFO
-	if global.GATEWAY.Debug {
-		level = logger.DEBUG
-	}
-
-	// 如果已存在日志器，更新级别；否则创建新的
-	if global.LOGGER != nil {
-		global.LOGGER.Info("🔄 更新日志器配置: level=%s, debug=%t\n", level.String(), global.GATEWAY.Debug)
-	} else {
-		// 创建新的日志器
-		global.LOGGER = logger.CreateSimpleLogger(level)
-		if global.LOGGER == nil {
-			return fmt.Errorf("创建日志器失败")
-		}
-		global.LOG = global.LOGGER // 兼容别名
-		global.LOGGER.Info("📝 日志器初始化完成: level=%s, debug=%t\n", level.String(), global.GATEWAY.Debug)
-	}
-
-	return nil
-}
-
-// initializeSnowflakeNode 初始化Snowflake节点用于分布式ID生成
-func initializeSnowflakeNode() error {
-	// 使用节点ID 1（可以从配置中读取）
-	var err error
-	global.Node, err = snowflake.NewNode(1)
-	if err != nil {
-		return fmt.Errorf("创建Snowflake节点失败: %w", err)
-	}
-	global.LOGGER.Info("❄️  Snowflake节点初始化完成\n")
-	return nil
-}
-
-// initializePoolManager 初始化连接池管理器及其所有资源
-func initializePoolManager() error {
-	if global.GATEWAY == nil {
-		return fmt.Errorf("GATEWAY 配置为空")
-	}
-
-	if global.LOGGER == nil {
-		return fmt.Errorf("LOGGER 未初始化")
-	}
-
-	// 创建连接池管理器（注入 logger）
-	manager := cpool.NewManager(global.LOGGER)
-
-	// 初始化 Manager（这会初始化所有连接池）
-	if err := manager.Initialize(global.CTX, global.GATEWAY); err != nil {
-		return fmt.Errorf("初始化 Pool Manager 失败: %w", err)
-	}
-
-	// 将 Manager 的资源绑定到全局变量
-	if db := manager.GetDB(); db != nil {
-		global.DB = db
-	}
-	if rdb := manager.GetRedis(); rdb != nil {
-		global.REDIS = rdb
-	}
-	if minio := manager.GetMinIO(); minio != nil {
-		global.MinIO = minio
-	}
-	if node := manager.GetSnowflake(); node != nil {
-		global.Node = node
-	}
-
-	global.POOL_MANAGER = manager
-	global.LOGGER.Info("✅ 连接池管理器初始化完成\n")
-
-	return nil
-}
-
-// bindPoolResourcesToGlobal 从连接池管理器绑定资源到全局变量
-func bindPoolResourcesToGlobal() error {
-	if global.POOL_MANAGER == nil {
-		return fmt.Errorf("连接池管理器未初始化")
-	}
-
-	// 资源已在 initializePoolManager 中直接绑定到全局变量
-	// 这里只需确保它们是否已绑定
-	if global.DB == nil {
-		global.DB = global.POOL_MANAGER.GetDB()
-	}
-	if global.REDIS == nil {
-		global.REDIS = global.POOL_MANAGER.GetRedis()
-	}
-	if global.MinIO == nil {
-		global.MinIO = global.POOL_MANAGER.GetMinIO()
-	}
-
-	return nil
-}
+// 注意：initializeLogger, initializeSnowflakeNode, initializePoolManager 和 bindPoolResourcesToGlobal
+// 已被统一的 InitializerChain 替代，具体实现请参见 global/initializer.go
 
 // RegisterService 注册gRPC服务
 func (g *Gateway) RegisterService(registerFunc ServiceRegisterFunc) {
@@ -808,4 +701,56 @@ func (g *Gateway) setupGracefulShutdown() {
 
 		os.Exit(0)
 	}()
+}
+
+// ==============================
+// WebSocket 通信相关方法 - 基于 go-wsc Hub
+// 限流、鉴权等功能由 go-rpc-gateway 中间件处理
+// ==============================
+
+// InitWSC 初始化 WebSocket 通信功能（使用配置中的设置）
+// 如果配置中 wsc.enabled=true，则自动启用并注册路由
+func (g *Gateway) InitWSC() error {
+	return g.EnableFeature(server.FeatureWSC)
+}
+
+// SendMessage 发送消息（自动从上下文提取发送者信息）
+func (g *Gateway) SendMessage(ctx context.Context, msg *wsc.HubMessage) error {
+	wscMid := g.Server.GetWSCMiddleware()
+	if wscMid == nil || !wscMid.IsEnabled() {
+		return fmt.Errorf("WSC功能未启用")
+	}
+	return wscMid.SendMessage(ctx, msg)
+}
+
+// BroadcastMessage 广播消息
+func (g *Gateway) BroadcastMessage(ctx context.Context, msg *wsc.HubMessage) error {
+	wscMid := g.Server.GetWSCMiddleware()
+	if wscMid == nil || !wscMid.IsEnabled() {
+		return fmt.Errorf("WSC功能未启用")
+	}
+	return wscMid.Broadcast(ctx, msg)
+}
+
+// GetOnlineUsers 获取在线用户列表
+func (g *Gateway) GetOnlineUsers() []string {
+	wscMid := g.Server.GetWSCMiddleware()
+	if wscMid == nil || !wscMid.IsEnabled() {
+		return []string{}
+	}
+	return wscMid.GetOnlineUsers()
+}
+
+// GetWSCStats 获取 WebSocket 通信统计信息
+func (g *Gateway) GetWSCStats() map[string]interface{} {
+	wscMid := g.Server.GetWSCMiddleware()
+	if wscMid == nil || !wscMid.IsEnabled() {
+		return map[string]interface{}{"error": "WSC功能未启用"}
+	}
+	return wscMid.GetStats()
+}
+
+// GetWSCMiddleware 获取 WSC 中间件（供高级用户使用）
+func (g *Gateway) GetWSCMiddleware() *middleware.WSCMiddleware {
+	return g.Server.GetWSCMiddleware()
 }

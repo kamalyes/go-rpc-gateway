@@ -12,9 +12,8 @@
 package server
 
 import (
-	"fmt"
-
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 )
 
@@ -25,7 +24,7 @@ func (s *Server) initCore() error {
 	// 创建并初始化连接池管理器（注入logger）
 	poolManager := cpool.NewManager(global.LOGGER)
 	if err := poolManager.Initialize(s.ctx, s.config); err != nil {
-		return fmt.Errorf("failed to initialize connection pool manager: %w", err)
+		return errors.NewErrorf(errors.ErrCodeInternalServerError, "failed to initialize connection pool manager: %v", err)
 	}
 
 	// 将连接池管理器保存到服务器中

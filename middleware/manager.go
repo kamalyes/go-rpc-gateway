@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-14 00:01:16
+ * @LastEditTime: 2025-11-15 00:01:16
  * @FilePath: \go-rpc-gateway\middleware\manager.go
  * @Description: 中间件管理器
  *
@@ -12,12 +12,12 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	breakercof "github.com/kamalyes/go-config/pkg/breaker"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-config/pkg/middleware"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
@@ -48,7 +48,7 @@ func NewManager() (*Manager, error) {
 	// 使用全局配置
 	cfg := global.GATEWAY
 	if cfg == nil {
-		return nil, fmt.Errorf("global GATEWAY config is not initialized")
+		return nil, errors.NewError(errors.ErrCodeInvalidConfiguration, "global GATEWAY config is not initialized")
 	}
 
 	// 确保 Middleware 配置存在
@@ -72,7 +72,7 @@ func NewManager() (*Manager, error) {
 	if cfg.Middleware.Metrics != nil && cfg.Middleware.Metrics.Enabled {
 		manager.metricsManager, err = NewMetricsManager(cfg.Middleware.Metrics)
 		if err != nil {
-			return nil, fmt.Errorf("failed to init metrics manager: %w", err)
+			return nil, errors.NewErrorf(errors.ErrCodeMetricsError, "failed to init metrics manager: %v", err)
 		}
 	}
 
@@ -80,7 +80,7 @@ func NewManager() (*Manager, error) {
 	if cfg.Middleware.Tracing != nil && cfg.Middleware.Tracing.Enabled {
 		manager.tracingManager, err = NewTracingManager(cfg.Middleware.Tracing)
 		if err != nil {
-			return nil, fmt.Errorf("failed to init tracing manager: %w", err)
+			return nil, errors.NewErrorf(errors.ErrCodeTracingError, "failed to init tracing manager: %v", err)
 		}
 	}
 
@@ -88,7 +88,7 @@ func NewManager() (*Manager, error) {
 	if cfg.Middleware.I18N != nil && cfg.Middleware.I18N.Enabled {
 		manager.i18nManager, err = NewI18nManager(cfg.Middleware.I18N)
 		if err != nil {
-			return nil, fmt.Errorf("failed to init i18n manager: %w", err)
+			return nil, errors.NewErrorf(errors.ErrCodeMiddlewareError, "failed to init i18n manager: %v", err)
 		}
 	}
 
@@ -184,16 +184,13 @@ func (m *Manager) SecurityMiddleware() MiddlewareFunc {
 }
 
 // RateLimitMiddleware 限流中间件
-// TODO: 重构为使用 go-config 的 security.RateLimit 配置
 func (m *Manager) RateLimitMiddleware() MiddlewareFunc {
-	// if m.cfg.Security.RateLimit != nil && m.cfg.Security.RateLimit.Enabled {
-	// 	return MiddlewareFunc(ConfigurableRateLimitMiddleware(m.cfg.Security.RateLimit))
-	// }
-	// 使用自定义限流器
-	if m.rateLimiter != nil {
-		return MiddlewareFunc(RateLimitMiddleware(m.rateLimiter))
+	// 优先使用配置
+	if m.cfg != nil && m.cfg.RateLimit != nil && m.cfg.RateLimit.Enabled {
+		return MiddlewareFunc(RateLimitMiddleware(m.cfg.RateLimit))
 	}
-	return func(next http.Handler) http.Handler { return next } // 禁用时返回空中间件
+	// 回退到空中间件
+	return func(next http.Handler) http.Handler { return next }
 }
 
 // AccessRecordMiddleware 访问记录中间件

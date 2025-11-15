@@ -13,10 +13,10 @@ package server
 
 import (
 	"context"
-	"fmt"
 
 	goconfig "github.com/kamalyes/go-config"
 	gojaeger "github.com/kamalyes/go-config/pkg/jaeger"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/jaeger"
@@ -51,7 +51,7 @@ func NewTracingManager(cfg *gojaeger.Jaeger) (*TracingManager, error) {
 	}
 
 	if err := tm.initTracing(); err != nil {
-		return nil, fmt.Errorf("failed to initialize tracing: %w", err)
+		return nil, errors.NewErrorf(errors.ErrCodeTracingError, "failed to initialize tracing: %v", err)
 	}
 
 	global.LOGGER.InfoKV("OpenTelemetry追踪已初始化",
@@ -70,7 +70,7 @@ func (tm *TracingManager) initTracing() error {
 		),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create jaeger exporter: %w", err)
+		return errors.NewErrorf(errors.ErrCodeTracingError, "failed to create jaeger exporter: %v", err)
 	}
 
 	// 创建资源
@@ -81,7 +81,7 @@ func (tm *TracingManager) initTracing() error {
 		),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create resource: %w", err)
+		return errors.NewErrorf(errors.ErrCodeTracingError, "failed to create resource: %v", err)
 	}
 
 	// 配置采样器
@@ -167,7 +167,7 @@ func (tm *TracingManager) Shutdown(ctx context.Context) error {
 	global.LOGGER.InfoMsg("正在关闭OpenTelemetry追踪...")
 
 	if err := tm.provider.Shutdown(ctx); err != nil {
-		return fmt.Errorf("failed to shutdown tracer provider: %w", err)
+		return errors.NewErrorf(errors.ErrCodeTracingError, "failed to shutdown tracer provider: %v", err)
 	}
 
 	global.LOGGER.InfoMsg("OpenTelemetry追踪已关闭")
@@ -209,7 +209,7 @@ func (s *Server) EnableTracingWithConfig() error {
 	// 因为NewTracingManager可能需要访问完整的配置结构
 	tracingManager, err := NewTracingManager(s.config.Monitoring.Jaeger)
 	if err != nil {
-		return fmt.Errorf("failed to create tracing manager: %w", err)
+		return errors.NewErrorf(errors.ErrCodeTracingError, "failed to create tracing manager: %v", err)
 	}
 
 	// 保存到 Server（可选，如果需要在其他地方访问）

@@ -18,10 +18,10 @@
 package pbmo
 
 import (
-	"fmt"
 	"reflect"
 	"time"
 
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -63,20 +63,20 @@ func (bc *BidiConverter) RegisterValidationRules(typeName string, rules ...Field
 func (bc *BidiConverter) ConvertPBToModel(pb interface{}, modelPtr interface{}) error {
 	// 参数校验
 	if pb == nil {
-		return fmt.Errorf("pb message cannot be nil")
+		return errors.ErrPBMessageNil
 	}
 	if modelPtr == nil {
-		return fmt.Errorf("modelPtr cannot be nil")
+		return errors.ErrModelMessageNil
 	}
 
 	modelVal := reflect.ValueOf(modelPtr)
 	if modelVal.Kind() != reflect.Ptr {
-		return fmt.Errorf("modelPtr must be a pointer")
+		return errors.ErrMustBePointer
 	}
 
 	// 检查指针是否为 nil
 	if modelVal.IsNil() {
-		return fmt.Errorf("modelPtr cannot be nil")
+		return errors.ErrModelMessageNil
 	}
 
 	modelVal = modelVal.Elem()
@@ -88,14 +88,14 @@ func (bc *BidiConverter) ConvertPBToModel(pb interface{}, modelPtr interface{}) 
 
 	// 检查 model 是否为结构体类型
 	if modelVal.Kind() != reflect.Struct {
-		return fmt.Errorf("model must be a struct, got %v", modelVal.Kind())
+		return errors.NewErrorf(errors.ErrCodeMustBeStruct, "got %v", modelVal.Kind())
 	}
 
 	pbVal := reflect.ValueOf(pb)
 	// 检查 pb 是否是 nil pointer
 	if pbVal.Kind() == reflect.Ptr {
 		if pbVal.IsNil() {
-			return fmt.Errorf("pb message cannot be nil")
+			return errors.ErrPBMessageNil
 		}
 		pbVal = pbVal.Elem()
 	}
@@ -120,7 +120,7 @@ func (bc *BidiConverter) ConvertPBToModel(pb interface{}, modelPtr interface{}) 
 
 		// 执行字段转换
 		if err := convertFieldFast(pbField, modelField); err != nil {
-			return fmt.Errorf("failed to convert field %s: %w", pbFieldName, err)
+			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "field %s: %v", pbFieldName, err)
 		}
 	}
 
@@ -132,20 +132,20 @@ func (bc *BidiConverter) ConvertPBToModel(pb interface{}, modelPtr interface{}) 
 func (bc *BidiConverter) ConvertModelToPB(model interface{}, pbPtr interface{}) error {
 	// 参数校验
 	if model == nil {
-		return fmt.Errorf("model cannot be nil")
+		return errors.ErrModelMessageNil
 	}
 	if pbPtr == nil {
-		return fmt.Errorf("pbPtr cannot be nil")
+		return errors.ErrPBMessageNil
 	}
 
 	pbVal := reflect.ValueOf(pbPtr)
 	if pbVal.Kind() != reflect.Ptr {
-		return fmt.Errorf("pbPtr must be a pointer")
+		return errors.ErrMustBePointer
 	}
 
 	// 检查指针是否为 nil
 	if pbVal.IsNil() {
-		return fmt.Errorf("pbPtr cannot be nil")
+		return errors.ErrPBMessageNil
 	}
 
 	pbVal = pbVal.Elem()
@@ -154,7 +154,7 @@ func (bc *BidiConverter) ConvertModelToPB(model interface{}, pbPtr interface{}) 
 	// 检查 model 是否是 nil pointer
 	if modelVal.Kind() == reflect.Ptr {
 		if modelVal.IsNil() {
-			return fmt.Errorf("model cannot be nil")
+			return errors.ErrModelMessageNil
 		}
 		modelVal = modelVal.Elem()
 	}
@@ -179,7 +179,7 @@ func (bc *BidiConverter) ConvertModelToPB(model interface{}, pbPtr interface{}) 
 
 		// 执行字段转换
 		if err := convertFieldFast(modelField, pbField); err != nil {
-			return fmt.Errorf("failed to convert field %s: %w", modelFieldName, err)
+			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "field %s: %v", modelFieldName, err)
 		}
 	}
 
@@ -322,7 +322,7 @@ func convertSliceFast(src reflect.Value, dst reflect.Value) error {
 
 	for i := 0; i < len; i++ {
 		if err := convertFieldFast(src.Index(i), dstSlice.Index(i)); err != nil {
-			return fmt.Errorf(errConvertElem, i, err)
+			return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 		}
 	}
 
@@ -347,7 +347,7 @@ func convertStructFast(src reflect.Value, dst reflect.Value) error {
 
 		// 递归转换字段
 		if err := convertFieldFast(srcField, dstField); err != nil {
-			return fmt.Errorf("failed to convert struct field %s: %w", srcFieldName, err)
+			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "struct field %s: %v", srcFieldName, err)
 		}
 	}
 
@@ -361,12 +361,12 @@ func (bc *BidiConverter) BatchConvertPBToModel(pbs interface{}, modelsPtr interf
 		pbsVal = pbsVal.Elem()
 	}
 	if pbsVal.Kind() != reflect.Slice {
-		return fmt.Errorf("pbs must be a slice")
+		return errors.ErrMustBeSlice
 	}
 
 	modelsVal := reflect.ValueOf(modelsPtr)
 	if modelsVal.Kind() != reflect.Ptr {
-		return fmt.Errorf("modelsPtr must be a pointer")
+		return errors.ErrMustBePointer
 	}
 	modelsVal = modelsVal.Elem()
 
@@ -384,14 +384,14 @@ func (bc *BidiConverter) BatchConvertPBToModel(pbs interface{}, modelsPtr interf
 		if modelType.Kind() == reflect.Ptr {
 			modelPtr := reflect.New(modelType)
 			if err := bc.ConvertPBToModel(pb.Interface(), modelPtr.Interface()); err != nil {
-				return fmt.Errorf(errConvertElem, i, err)
+				return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 			}
 			model.Set(modelPtr)
 		} else {
 			// 为非指针类型创建一个新的值
 			modelPtr := reflect.New(modelType)
 			if err := bc.ConvertPBToModel(pb.Interface(), modelPtr.Interface()); err != nil {
-				return fmt.Errorf(errConvertElem, i, err)
+				return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 			}
 			// 如果目标切片类型是指针，设置指针；否则设置值
 			if modelsVal.Type().Elem().Kind() == reflect.Ptr {
@@ -413,12 +413,12 @@ func (bc *BidiConverter) BatchConvertModelToPB(models interface{}, pbsPtr interf
 		modelsVal = modelsVal.Elem()
 	}
 	if modelsVal.Kind() != reflect.Slice {
-		return fmt.Errorf("models must be a slice")
+		return errors.ErrMustBeSlice
 	}
 
 	pbsVal := reflect.ValueOf(pbsPtr)
 	if pbsVal.Kind() != reflect.Ptr {
-		return fmt.Errorf("pbsPtr must be a pointer")
+		return errors.ErrMustBePointer
 	}
 	pbsVal = pbsVal.Elem()
 
@@ -436,14 +436,14 @@ func (bc *BidiConverter) BatchConvertModelToPB(models interface{}, pbsPtr interf
 		if pbType.Kind() == reflect.Ptr {
 			pbPtr := reflect.New(pbType)
 			if err := bc.ConvertModelToPB(model.Interface(), pbPtr.Interface()); err != nil {
-				return fmt.Errorf(errConvertElem, i, err)
+				return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 			}
 			pb.Set(pbPtr)
 		} else {
 			// 为非指针类型创建一个新的值
 			pbPtr := reflect.New(pbType)
 			if err := bc.ConvertModelToPB(model.Interface(), pbPtr.Interface()); err != nil {
-				return fmt.Errorf(errConvertElem, i, err)
+				return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 			}
 			// 如果目标切片类型是指针，设置指针；否则设置值
 			if pbsVal.Type().Elem().Kind() == reflect.Ptr {

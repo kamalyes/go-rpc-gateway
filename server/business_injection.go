@@ -13,12 +13,12 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"sync"
 
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -97,7 +97,7 @@ func (bim *BusinessInjectionManager) RegisterBusinessService(name string, servic
 	defer bim.mu.Unlock()
 
 	if _, exists := bim.services[name]; exists {
-		return fmt.Errorf("业务服务 %s 已存在", name)
+		return errors.NewErrorf(errors.ErrCodeConflict, "业务服务 %s 已存在", name)
 	}
 
 	bim.services[name] = service
@@ -115,7 +115,7 @@ func (bim *BusinessInjectionManager) UnregisterBusinessService(name string) erro
 
 	service, exists := bim.services[name]
 	if !exists {
-		return fmt.Errorf("业务服务 %s 不存在", name)
+		return errors.NewErrorf(errors.ErrCodeResourceNotFound, "业务服务 %s 不存在", name)
 	}
 
 	// 停止服务
@@ -138,7 +138,7 @@ func (bim *BusinessInjectionManager) GetBusinessService(name string) (BusinessSe
 
 	service, exists := bim.services[name]
 	if !exists {
-		return nil, fmt.Errorf("业务服务 %s 不存在", name)
+		return nil, errors.NewErrorf(errors.ErrCodeResourceNotFound, "业务服务 %s 不存在", name)
 	}
 
 	return service, nil
@@ -190,7 +190,7 @@ func (bim *BusinessInjectionManager) StartAllBusinessServices() error {
 	defer bim.mu.Unlock()
 
 	if bim.isRunning {
-		return fmt.Errorf("业务服务管理器已在运行")
+		return errors.NewError(errors.ErrCodeConflict, "业务服务管理器已在运行")
 	}
 
 	// 启动所有业务服务

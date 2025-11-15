@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"gorm.io/gorm"
 )
 
@@ -135,7 +136,7 @@ func (t *TTime) Scan(value interface{}) error {
 		}
 		*t = TTime(parsedTime)
 	default:
-		return fmt.Errorf("cannot scan %T into TTime", value)
+		return errors.NewErrorf(errors.ErrCodeScanTypeMismatch, "cannot scan %T into TTime", value)
 	}
 	return nil
 }

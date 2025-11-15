@@ -12,13 +12,12 @@
 package server
 
 import (
-	"fmt"
-
 	gohealth "github.com/kamalyes/go-config/pkg/health"
 	gojaeger "github.com/kamalyes/go-config/pkg/jaeger"
 	gomonitoring "github.com/kamalyes/go-config/pkg/monitoring"
 	gopprof "github.com/kamalyes/go-config/pkg/pprof"
 	goswagger "github.com/kamalyes/go-config/pkg/swagger"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 )
 
 // FeatureType 功能特性类型
@@ -30,6 +29,7 @@ const (
 	FeatureTracing    FeatureType = "tracing"
 	FeatureHealth     FeatureType = "health"
 	FeaturePProf      FeatureType = "pprof"
+	FeatureWSC        FeatureType = "wsc" // WebSocket通信
 )
 
 // FeatureEnabler 功能启用器接口
@@ -73,13 +73,14 @@ func (fm *FeatureManager) registerBuiltinFeatures() {
 	fm.enablers[FeatureHealth] = &HealthFeature{server: fm.server}
 	fm.enablers[FeaturePProf] = &PProfFeature{server: fm.server}
 	fm.enablers[FeatureTracing] = &TracingFeature{server: fm.server}
+	fm.enablers[FeatureWSC] = &WSCFeature{server: fm.server}
 }
 
 // Enable 启用指定功能（使用配置中的默认设置）
 func (fm *FeatureManager) Enable(feature FeatureType) error {
 	enabler, exists := fm.enablers[feature]
 	if !exists {
-		return fmt.Errorf("feature %s not registered", feature)
+		return errors.NewErrorf(errors.ErrCodeFeatureNotRegistered, "feature %s not registered", feature)
 	}
 	return enabler.Enable()
 }
@@ -88,7 +89,7 @@ func (fm *FeatureManager) Enable(feature FeatureType) error {
 func (fm *FeatureManager) EnableWithConfig(feature FeatureType, config interface{}) error {
 	enabler, exists := fm.enablers[feature]
 	if !exists {
-		return fmt.Errorf("feature %s not registered", feature)
+		return errors.NewErrorf(errors.ErrCodeFeatureNotRegistered, "feature %s not registered", feature)
 	}
 	return enabler.EnableWithConfig(config)
 }
@@ -104,9 +105,9 @@ func (fm *FeatureManager) IsEnabled(feature FeatureType) bool {
 
 // EnableAll 启用所有在配置中标记为启用的功能
 func (fm *FeatureManager) EnableAll() error {
-	for featureType, enabler := range fm.enablers {
+	for _, enabler := range fm.enablers {
 		if err := enabler.Enable(); err != nil {
-			return fmt.Errorf("failed to enable %s: %w", featureType, err)
+			return errors.WrapWithContext(err, errors.ErrCodeFeatureEnableFailed)
 		}
 	}
 	return nil
@@ -133,7 +134,7 @@ func (f *SwaggerFeature) Enable() error {
 func (f *SwaggerFeature) EnableWithConfig(config interface{}) error {
 	swaggerConfig, ok := config.(*goswagger.Swagger)
 	if !ok {
-		return fmt.Errorf("invalid config type for swagger feature")
+		return errors.ErrInvalidConfigType.WithDetails("expected *goswagger.Swagger")
 	}
 
 	if err := f.server.EnableSwaggerWithConfig(swaggerConfig); err != nil {
@@ -175,7 +176,7 @@ func (f *MonitoringFeature) Enable() error {
 func (f *MonitoringFeature) EnableWithConfig(config interface{}) error {
 	_, ok := config.(*gomonitoring.Monitoring)
 	if !ok {
-		return fmt.Errorf("invalid config type for monitoring feature")
+		return errors.ErrInvalidConfigType.WithDetails("expected *gomonitoring.Monitoring")
 	}
 
 	if err := f.server.EnableMonitoringWithConfig(); err != nil {
@@ -217,7 +218,7 @@ func (f *HealthFeature) Enable() error {
 func (f *HealthFeature) EnableWithConfig(config interface{}) error {
 	_, ok := config.(*gohealth.Health)
 	if !ok {
-		return fmt.Errorf("invalid config type for health feature")
+		return errors.ErrInvalidConfigType.WithDetails("expected *gohealth.Health")
 	}
 
 	if err := f.server.EnableHealthWithConfig(); err != nil {
@@ -259,7 +260,7 @@ func (f *PProfFeature) Enable() error {
 func (f *PProfFeature) EnableWithConfig(config interface{}) error {
 	_, ok := config.(*gopprof.PProf)
 	if !ok {
-		return fmt.Errorf("invalid config type for pprof feature")
+		return errors.ErrInvalidConfigType.WithDetails("expected *gopprof.PProf")
 	}
 
 	if err := f.server.EnablePProfWithConfig(); err != nil {
@@ -301,7 +302,7 @@ func (f *TracingFeature) Enable() error {
 func (f *TracingFeature) EnableWithConfig(config interface{}) error {
 	_, ok := config.(*gojaeger.Jaeger)
 	if !ok {
-		return fmt.Errorf("invalid config type for tracing feature")
+		return errors.ErrInvalidConfigType.WithDetails("expected *gojaeger.Jaeger")
 	}
 
 	if err := f.server.EnableTracingWithConfig(); err != nil {
@@ -320,4 +321,40 @@ func (f *TracingFeature) IsEnabled() bool {
 // GetType 获取功能类型
 func (f *TracingFeature) GetType() FeatureType {
 	return FeatureTracing
+}
+
+// WSCFeature WebSocket通信功能实现
+type WSCFeature struct {
+	server  *Server
+	enabled bool
+}
+
+// Enable 启用WSC（使用配置中的设置）
+func (f *WSCFeature) Enable() error {
+	if f.server.config.WSC != nil && f.server.config.WSC.Enabled {
+		return f.EnableWithConfig(f.server.config.WSC)
+	}
+
+	// 如果配置中未启用，跳过
+	return nil
+}
+
+// EnableWithConfig 使用自定义配置启用WSC
+func (f *WSCFeature) EnableWithConfig(config interface{}) error {
+	if err := f.server.EnableWSCWithConfig(config); err != nil {
+		return err
+	}
+
+	f.enabled = true
+	return nil
+}
+
+// IsEnabled 检查WSC是否已启用
+func (f *WSCFeature) IsEnabled() bool {
+	return f.enabled
+}
+
+// GetType 获取功能类型
+func (f *WSCFeature) GetType() FeatureType {
+	return FeatureWSC
 }

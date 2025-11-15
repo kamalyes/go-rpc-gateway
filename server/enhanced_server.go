@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-13 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 05:31:09
+ * @LastEditTime: 2025-11-15 01:32:47
  * @FilePath: \go-rpc-gateway\server\enhanced_server.go
  * @Description: 增强的服务器实现，集成业务服务注入能力
  *
@@ -27,6 +27,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/prometheus/client_golang/prometheus"
@@ -78,12 +79,12 @@ func NewEnhancedServer() (*EnhancedServer, error) {
 	// 创建基础服务器
 	baseServer, err := NewServer()
 	if err != nil {
-		return nil, fmt.Errorf("创建基础服务器失败: %w", err)
+		return nil, errors.WrapWithContext(err, errors.ErrCodeServerCreationFailed)
 	}
 	
 	config := global.GetConfig()
 	if config == nil {
-		return nil, fmt.Errorf("获取配置失败，请确保已初始化")
+		return nil, errors.NewError(errors.ErrCodeInvalidConfiguration, "")
 	}
 	
 	// 创建增强服务器
@@ -96,12 +97,12 @@ func NewEnhancedServer() (*EnhancedServer, error) {
 	
 	// 初始化OpenTelemetry追踪
 	if err := enhanced.initOpenTelemetry(); err != nil {
-		return nil, fmt.Errorf("初始化OpenTelemetry失败: %w", err)
+		return nil, errors.WrapWithContext(err, errors.ErrCodeInitializationError)
 	}
 	
 	// 初始化Prometheus监控
 	if err := enhanced.initPrometheusMetrics(); err != nil {
-		return nil, fmt.Errorf("初始化Prometheus监控失败: %w", err)
+		return nil, errors.WrapWithContext(err, errors.ErrCodeInitializationError)
 	}
 	
 	// 初始化中间件链
@@ -297,7 +298,7 @@ func (es *EnhancedServer) RegisterGatewayHandler(ctx context.Context, registerFu
 	grpcEndpoint := config.GRPC.Server.GetEndpoint()
 	
 	if err := registerFunc(ctx, es.gwMux, grpcEndpoint, es.dialOptions); err != nil {
-		return fmt.Errorf("注册Gateway处理器失败: %w", err)
+		return errors.WrapWithContext(err, errors.ErrCodeOperationFailed)
 	}
 	
 	global.GetLogger().Info("Gateway处理器注册成功", "grpc_endpoint", grpcEndpoint)
@@ -310,24 +311,24 @@ func (es *EnhancedServer) StartEnhanced() error {
 	
 	// 启动业务服务管理器
 	if err := es.businessManager.StartAllBusinessServices(); err != nil {
-		return fmt.Errorf("启动业务服务管理器失败: %w", err)
+		return errors.WrapWithContext(err, errors.ErrCodeOperationFailed)
 	}
 	
 	// 启动gRPC服务器
 	if err := es.startGRPCServer(ctx); err != nil {
-		return fmt.Errorf("启动gRPC服务器失败: %w", err)
+		return errors.WrapWithContext(err, errors.ErrCodeGRPCServerInitFailed)
 	}
 	
 	// 启动HTTP服务器  
 	if err := es.startHTTPServer(ctx); err != nil {
-		return fmt.Errorf("启动HTTP服务器失败: %w", err)
+		return errors.WrapWithContext(err, errors.ErrCodeHTTPGatewayInitFailed)
 	}
 	
 	// 启动Metrics服务器(如果配置了)
 	config := global.GetConfig()
 	if config.Monitoring != nil && config.Monitoring.Enabled {
 		if err := es.startMetricsServer(ctx); err != nil {
-			return fmt.Errorf("启动Metrics服务器失败: %w", err)
+			return errors.WrapWithContext(err, errors.ErrCodeOperationFailed)
 		}
 	}
 	
@@ -438,7 +439,7 @@ func (es *EnhancedServer) startGRPCServer(ctx context.Context) error {
 	endpoint := config.GRPC.Server.GetEndpoint()
 	lis, err := net.Listen("tcp", endpoint)
 	if err != nil {
-		return fmt.Errorf("监听失败: %w", err)
+		return errors.WrapWithContext(err, errors.ErrCodeOperationFailed)
 	}
 	
 	global.GetLogger().Info("gRPC服务器启动", 

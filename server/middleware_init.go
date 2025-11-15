@@ -12,10 +12,10 @@
 package server
 
 import (
-	"fmt"
 	"time"
 
 	goconfig "github.com/kamalyes/go-config"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 )
 
@@ -24,13 +24,13 @@ func (s *Server) initMiddleware() error {
 	// 使用统一的配置系统创建中间件管理器
 	manager, err := middleware.NewManager()
 	if err != nil {
-		return fmt.Errorf("failed to create middleware manager: %w", err)
+		return errors.WrapWithContext(err, errors.ErrCodeMiddlewareInitFailed)
 	}
 	s.middlewareManager = manager
 
 	// 初始化健康检查管理器
 	if err := s.initHealthManager(); err != nil {
-		return fmt.Errorf("failed to create health manager: %w", err)
+		return errors.WrapWithContext(err, errors.ErrCodeHealthManagerFailed)
 	}
 
 	return nil
@@ -67,12 +67,12 @@ func (s *Server) initHealthManager() error {
 func (s *Server) initServers() error {
 	// 初始化gRPC服务器
 	if err := s.initGRPCServer(); err != nil {
-		return fmt.Errorf("failed to init gRPC server: %w", err)
+		return errors.WrapWithContext(err, errors.ErrCodeGRPCServerInitFailed)
 	}
 
 	// 初始化HTTP网关
 	if err := s.initHTTPGateway(); err != nil {
-		return fmt.Errorf("failed to init HTTP gateway: %w", err)
+		return errors.WrapWithContext(err, errors.ErrCodeHTTPGatewayInitFailed)
 	}
 
 	return nil

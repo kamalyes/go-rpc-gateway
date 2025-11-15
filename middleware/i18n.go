@@ -21,6 +21,7 @@ import (
 
 	goconfigi18n "github.com/kamalyes/go-config/pkg/i18n"
 	"github.com/kamalyes/go-rpc-gateway/constants"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 )
 
 // contextKey 自定义context key类型，避免与其他包冲突
@@ -53,7 +54,7 @@ func NewI18nManager(config *goconfigi18n.I18N) (*I18nManager, error) {
 	// 预加载所有支持的语言消息
 	for _, lang := range config.SupportedLanguages {
 		if err := manager.loadLanguage(lang); err != nil {
-			return nil, fmt.Errorf("failed to load language %s: %v", lang, err)
+			return nil, errors.NewErrorf(errors.ErrCodeLanguageLoadFailed, "language %s: %v", lang, err)
 		}
 	}
 
@@ -450,7 +451,7 @@ type JSONMessageLoader struct {
 func NewJSONMessageLoader(messagesJSON string) (*JSONMessageLoader, error) {
 	var messages map[string]map[string]string
 	if err := json.Unmarshal([]byte(messagesJSON), &messages); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON messages: %v", err)
+		return nil, errors.WrapWithContext(err, errors.ErrCodeJSONParseFailed)
 	}
 
 	return &JSONMessageLoader{messages: messages}, nil
@@ -461,5 +462,5 @@ func (j *JSONMessageLoader) LoadMessages(language string) (map[string]string, er
 	if messages, exists := j.messages[language]; exists {
 		return messages, nil
 	}
-	return nil, fmt.Errorf("language %s not found", language)
+	return nil, errors.NewErrorf(errors.ErrCodeLanguageNotFound, "language: %s", language)
 }

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-toolbox/pkg/safe"
 )
 
@@ -132,7 +133,7 @@ func (sc *SafeConverter) SafeBatchConvertPBToModel(
 		sa := safe.Safe(pb.Interface())
 		if !sa.IsValid() {
 			item.Success = false
-			item.Error = fmt.Errorf("item %d is nil", i)
+			item.Error = errors.NewErrorf(errors.ErrCodeItemNil, "item %d", i)
 			result.FailureCount++
 			result.Results = append(result.Results, item)
 			continue
@@ -218,7 +219,7 @@ func (sc *SafeConverter) SafeBatchConvertModelToPB(
 		sa := safe.Safe(model.Interface())
 		if !sa.IsValid() {
 			item.Success = false
-			item.Error = fmt.Errorf("item %d is nil", i)
+			item.Error = errors.NewErrorf(errors.ErrCodeItemNil, "item %d", i)
 			result.FailureCount++
 			result.Results = append(result.Results, item)
 			continue

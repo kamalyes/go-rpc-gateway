@@ -17,6 +17,7 @@ import (
 	"time"
 
 	goconfig "github.com/kamalyes/go-config"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -108,7 +109,7 @@ func (s *Server) startGRPCServer() error {
 
 	listener, err := net.Listen(network, address)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", address, err)
+		return errors.NewErrorf(errors.ErrCodeGRPCConnectionFailed, "failed to listen on %s: %v", address, err)
 	}
 
 	global.LOGGER.InfoKV("Starting gRPC server", "address", address)

@@ -3,7 +3,6 @@ package pbmo
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -11,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-toolbox/pkg/desensitize"
 )
 
@@ -598,7 +598,7 @@ func (ac *AdvancedConverter) BatchConvertWithConcurrency(pbSlice interface{}) *C
 	pbValue := reflect.ValueOf(pbSlice)
 	if pbValue.Kind() != reflect.Slice {
 		return &ConversionResult[interface{}]{
-			Errors: []error{fmt.Errorf("输入必须是切片类型")},
+			Errors: []error{errors.ErrMustBeSlice},
 			Failed: 1,
 		}
 	}
@@ -700,7 +700,7 @@ func (ac *AdvancedConverter) processBatch(
 		err := ac.ConvertPBToModel(pbItem, modelPtr.Interface())
 		if err != nil {
 			resultCh <- batchResult{
-				err:   fmt.Errorf("转换第%d个元素失败: %v", i, err),
+				err:   errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err),
 				start: start,
 				count: batchSlice.Len(),
 			}
@@ -901,7 +901,7 @@ func (ac *AdvancedConverter) parseCustomRule(customRule string, rule *Desensitiz
 	}
 
 	// 其他格式的解析...
-	return fmt.Errorf("不支持的自定义规则格式: %s", customRule)
+	return errors.NewErrorf(errors.ErrCodeInvalidParameter, "unsupported custom rule format: %s", customRule)
 }
 
 // GetDesensitizationTypeMapping 获取脱敏类型映射

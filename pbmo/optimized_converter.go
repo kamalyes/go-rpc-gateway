@@ -13,9 +13,10 @@
 package pbmo
 
 import (
-	"fmt"
 	"reflect"
 	"sync"
+
+	"github.com/kamalyes/go-rpc-gateway/errors"
 )
 
 // OptimizedBidiConverter 优化的双向转换器
@@ -90,17 +91,17 @@ func (obc *OptimizedBidiConverter) initFieldIndexes() {
 // 性能：<300ns/次（通过字段索引缓存）
 func (obc *OptimizedBidiConverter) ConvertPBToModel(pb interface{}, modelPtr interface{}) error {
 	if pb == nil {
-		return fmt.Errorf("pb message cannot be nil")
+		return errors.ErrPBMessageNil
 	}
 	if modelPtr == nil {
-		return fmt.Errorf("modelPtr cannot be nil")
+		return errors.ErrModelMessageNil
 	}
 
 	obc.initFieldIndexes()
 
 	modelVal := reflect.ValueOf(modelPtr)
 	if modelVal.Kind() != reflect.Ptr {
-		return fmt.Errorf("modelPtr must be a pointer")
+		return errors.ErrMustBePointer
 	}
 	modelVal = modelVal.Elem()
 
@@ -135,7 +136,7 @@ func (obc *OptimizedBidiConverter) ConvertPBToModel(pb interface{}, modelPtr int
 
 		// 执行字段转换
 		if err := convertFieldFast(pbField, modelField); err != nil {
-			return fmt.Errorf("failed to convert field %s: %w", pbFieldName, err)
+			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "field %s: %v", pbFieldName, err)
 		}
 	}
 
@@ -145,17 +146,17 @@ func (obc *OptimizedBidiConverter) ConvertPBToModel(pb interface{}, modelPtr int
 // ConvertModelToPB 优化的 Model -> PB 转换
 func (obc *OptimizedBidiConverter) ConvertModelToPB(model interface{}, pbPtr interface{}) error {
 	if model == nil {
-		return fmt.Errorf("model cannot be nil")
+		return errors.ErrModelMessageNil
 	}
 	if pbPtr == nil {
-		return fmt.Errorf("pbPtr cannot be nil")
+		return errors.ErrPBMessageNil
 	}
 
 	obc.initFieldIndexes()
 
 	pbVal := reflect.ValueOf(pbPtr)
 	if pbVal.Kind() != reflect.Ptr {
-		return fmt.Errorf("pbPtr must be a pointer")
+		return errors.ErrMustBePointer
 	}
 	pbVal = pbVal.Elem()
 
@@ -190,7 +191,7 @@ func (obc *OptimizedBidiConverter) ConvertModelToPB(model interface{}, pbPtr int
 
 		// 执行字段转换
 		if err := convertFieldFast(modelField, pbField); err != nil {
-			return fmt.Errorf("failed to convert field %s: %w", modelFieldName, err)
+			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "field %s: %v", modelFieldName, err)
 		}
 	}
 
@@ -204,12 +205,12 @@ func (obc *OptimizedBidiConverter) BatchConvertPBToModel(pbs interface{}, models
 		pbsVal = pbsVal.Elem()
 	}
 	if pbsVal.Kind() != reflect.Slice {
-		return fmt.Errorf("pbs must be a slice")
+		return errors.ErrMustBeSlice
 	}
 
 	modelsVal := reflect.ValueOf(modelsPtr)
 	if modelsVal.Kind() != reflect.Ptr {
-		return fmt.Errorf("modelsPtr must be a pointer")
+		return errors.ErrMustBePointer
 	}
 	modelsVal = modelsVal.Elem()
 
@@ -228,14 +229,14 @@ func (obc *OptimizedBidiConverter) BatchConvertPBToModel(pbs interface{}, models
 		model := models.Index(i)
 
 		if modelType.Kind() == reflect.Ptr {
-			modelPtr := reflect.New(modelType)
+			modelPtr := reflect.New(modelType.Elem())
 			if err := obc.ConvertPBToModel(pb.Interface(), modelPtr.Interface()); err != nil {
-				return fmt.Errorf("failed to convert element %d: %w", i, err)
+				return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 			}
 			model.Set(modelPtr)
 		} else {
 			if err := obc.ConvertPBToModel(pb.Interface(), model.Addr().Interface()); err != nil {
-				return fmt.Errorf("failed to convert element %d: %w", i, err)
+				return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 			}
 		}
 	}
@@ -251,12 +252,12 @@ func (obc *OptimizedBidiConverter) BatchConvertModelToPB(models interface{}, pbs
 		modelsVal = modelsVal.Elem()
 	}
 	if modelsVal.Kind() != reflect.Slice {
-		return fmt.Errorf("models must be a slice")
+		return errors.ErrMustBeSlice
 	}
 
 	pbsVal := reflect.ValueOf(pbsPtr)
 	if pbsVal.Kind() != reflect.Ptr {
-		return fmt.Errorf("pbsPtr must be a pointer")
+		return errors.ErrMustBePointer
 	}
 	pbsVal = pbsVal.Elem()
 
@@ -277,12 +278,12 @@ func (obc *OptimizedBidiConverter) BatchConvertModelToPB(models interface{}, pbs
 		if pbType.Kind() == reflect.Ptr {
 			pbPtr := reflect.New(pbType)
 			if err := obc.ConvertModelToPB(model.Interface(), pbPtr.Interface()); err != nil {
-				return fmt.Errorf("failed to convert element %d: %w", i, err)
+				return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 			}
 			pb.Set(pbPtr)
 		} else {
 			if err := obc.ConvertModelToPB(model.Interface(), pb.Addr().Interface()); err != nil {
-				return fmt.Errorf("failed to convert element %d: %w", i, err)
+				return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 			}
 		}
 	}

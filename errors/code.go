@@ -74,6 +74,49 @@ const (
 	ErrCodeSwaggerLoadFailed   ErrorCode = 8002
 	ErrCodeSwaggerRenderFailed ErrorCode = 8003
 
+	// JWT和认证扩展错误 (2100-2199)
+	ErrCodeTokenMalformed       ErrorCode = 2101
+	ErrCodeTokenNotValidYet     ErrorCode = 2102
+	ErrCodeAccountLoginElsewhere ErrorCode = 2103
+	ErrCodeRedisParseError      ErrorCode = 2104
+	ErrCodeDBQueryError         ErrorCode = 2105
+	ErrCodeClaimsParseFailed    ErrorCode = 2106
+
+	// 数据转换和验证错误 (3100-3199)
+	ErrCodePBMessageNil         ErrorCode = 3101
+	ErrCodeModelMessageNil      ErrorCode = 3102
+	ErrCodeFieldConversionError ErrorCode = 3103
+	ErrCodeTypeConversionError  ErrorCode = 3104
+	ErrCodeInitializationError  ErrorCode = 3105
+	ErrCodeInvalidFieldMapping  ErrorCode = 3106
+	ErrCodeUserIDMissing        ErrorCode = 3107
+	ErrCodeMustBePointer        ErrorCode = 3108
+	ErrCodeMustBeSlice          ErrorCode = 3109
+	ErrCodeMustBeStruct         ErrorCode = 3110
+	ErrCodeElementConversion    ErrorCode = 3111
+	ErrCodeItemNil              ErrorCode = 3112
+
+	// 中间件和国际化错误 (5100-5199)
+	ErrCodeLanguageLoadFailed ErrorCode = 5101
+	ErrCodeLanguageNotFound   ErrorCode = 5102
+	ErrCodeJSONParseFailed    ErrorCode = 5103
+
+	// 配置和特性错误 (1100-1199)
+	ErrCodeInvalidConfigType     ErrorCode = 1101
+	ErrCodeFeatureNotRegistered  ErrorCode = 1102
+	ErrCodeFeatureEnableFailed   ErrorCode = 1103
+	ErrCodeMiddlewareInitFailed  ErrorCode = 1104
+	ErrCodeHealthManagerFailed   ErrorCode = 1105
+	ErrCodeGRPCServerInitFailed  ErrorCode = 1106
+	ErrCodeHTTPGatewayInitFailed ErrorCode = 1107
+	ErrCodeWSCNotEnabled         ErrorCode = 1108
+	ErrCodeWSCRouteFailed        ErrorCode = 1109
+	ErrCodeUserAuthNotFound      ErrorCode = 1110
+
+	// 服务器和基础设施错误 (1200-1299)
+	ErrCodeServerCreationFailed ErrorCode = 1201
+	ErrCodeScanTypeMismatch     ErrorCode = 1202
+
 	// 通用错误 (9000-9999)
 	ErrCodeUnknown          ErrorCode = 9000
 	ErrCodeInternal         ErrorCode = 9001

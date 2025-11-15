@@ -13,24 +13,24 @@ package jwt
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"gorm.io/gorm"
 )
 
 // 定义一些常量
 var (
-	TokenExpired     error = errors.New("Token 已经过期")
-	TokenNotValidYet error = errors.New("Token 尚未激活")
-	TokenMalformed   error = errors.New("Token 格式错误")
-	TokenInvalid     error = errors.New("Token 无法解析")
-	jwtSignKey             = "82011FC650590620FEFAC6500ADAB0F77" // 默认签名用的key
+	TokenExpired     = errors.ErrTokenExpired
+	TokenNotValidYet = errors.ErrTokenNotValidYet
+	TokenMalformed   = errors.ErrTokenMalformed
+	TokenInvalid     = errors.ErrInvalidToken
+	jwtSignKey       = "82011FC650590620FEFAC6500ADAB0F77" // 默认签名用的key
 )
 
 // JWT jwt签名结构
@@ -171,11 +171,11 @@ func (j *JWT) checkMultipointAuth(claims *CustomClaims) error {
 func (j *JWT) checkRedisMultipointAuth(claims *CustomClaims, jsonStr string) error {
 	var clis CustomClaims
 	if err := json.Unmarshal([]byte(jsonStr), &clis); err != nil {
-		return errors.New("解析Redis中的用户token时出错: " + err.Error())
+		return errors.WrapWithContext(err, errors.ErrCodeRedisParseError)
 	}
 
 	if clis.TokenId != "" && claims.TokenId != clis.TokenId {
-		return errors.New("账号已在其他地方登录，您已被迫下线")
+		return errors.ErrAccountLoginElsewhere
 	}
 
 	return nil
@@ -185,11 +185,11 @@ func (j *JWT) checkRedisMultipointAuth(claims *CustomClaims, jsonStr string) err
 func (j *JWT) checkDBMultipointAuth(claims *CustomClaims) error {
 	var clis CustomClaims
 	if err := global.DB.Where("user_id = ?", claims.UserId).First(&clis).Error; err != nil && err != gorm.ErrRecordNotFound {
-		return errors.New("从数据库获取用户token异常：" + err.Error())
+		return errors.WrapWithContext(err, errors.ErrCodeDBQueryError)
 	}
 
 	if claims.TokenId != clis.TokenId {
-		return errors.New("账号已在其他地方登录，您已被迫下线")
+		return errors.ErrAccountLoginElsewhere
 	}
 
 	return nil
@@ -221,8 +221,8 @@ func (j *JWT) RefreshToken(tokenString string) (string, error) {
 // GetClaims 获取Claims
 func GetClaims(c *gin.Context) (*CustomClaims, error) {
 	if claims, exists := c.Get("claims"); !exists {
-		global.LOGGER.Error("从Gin的Context中获取从jwt解析出来的用户claims失败, 请检查路由是否使用jwt中间件")
-		return nil, errors.New("获取用户用户claims失败")
+		global.LOGGER.Error("从 Gin 的 Context 中获取从 jwt 解析出来的用户 claims 失败, 请检查路由是否使用 jwt 中间件")
+		return nil, errors.ErrClaimsParseFailed
 	} else {
 		token := claims.(*CustomClaims)
 		return token, nil

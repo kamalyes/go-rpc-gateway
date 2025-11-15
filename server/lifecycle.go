@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	safe "github.com/kamalyes/go-toolbox/pkg/safe"
 )
@@ -27,7 +28,7 @@ func (s *Server) Start() error {
 	logger := global.LOGGER
 
 	if s.running {
-		return fmt.Errorf("server is already running")
+		return errors.NewError(errors.ErrCodeServiceUnavailable, "server is already running")
 	}
 
 	// 启动gRPC服务器
@@ -103,7 +104,7 @@ func (s *Server) Stop() error {
 // Restart 重启服务器
 func (s *Server) Restart() error {
 	if err := s.Stop(); err != nil {
-		return fmt.Errorf("failed to stop server: %w", err)
+		return errors.NewErrorf(errors.ErrCodeInternalServerError, "failed to stop server: %v", err)
 	}
 
 	// 等待完全停止

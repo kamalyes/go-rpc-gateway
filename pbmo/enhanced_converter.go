@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-14 09:45:09
+ * @LastEditTime: 2025-11-15 09:45:09
  * @FilePath: \go-rpc-gateway\pbmo\enhanced_converter.go
  * @Description: 增强的双向转换器 - 集成错误处理和日志
  * 职责：高级转换功能、自动错误处理、日志记录、性能监控
@@ -13,11 +13,11 @@
 package pbmo
 
 import (
-	"fmt"
 	"reflect"
 	"time"
 
 	"github.com/kamalyes/go-logger"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -185,7 +185,7 @@ func (ebc *EnhancedBidiConverter) ConvertPBToModelBatchSafe(
 	}
 
 	if pbsVal.Kind() != reflect.Slice {
-		err := fmt.Errorf("pbs must be a slice")
+		err := errors.ErrMustBeSlice
 		result.Errors = append(result.Errors, err)
 		result.Duration = time.Since(start)
 		return result
@@ -193,7 +193,7 @@ func (ebc *EnhancedBidiConverter) ConvertPBToModelBatchSafe(
 
 	modelsVal := reflect.ValueOf(modelsPtr)
 	if modelsVal.Kind() != reflect.Ptr {
-		err := fmt.Errorf("modelsPtr must be a pointer")
+		err := errors.ErrMustBePointer
 		result.Errors = append(result.Errors, err)
 		result.Duration = time.Since(start)
 		return result

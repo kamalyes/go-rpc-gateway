@@ -17,6 +17,12 @@ coverage.*
 *.coverprofile
 profile.cov
 
+# Additional test files
+*_test.exe
+test_*
+*_mock.go
+*.mock
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
