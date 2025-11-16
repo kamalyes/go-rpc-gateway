@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-10 22:15:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 14:00:44
- * @FilePath: \go-rpc-gateway\middleware\swagger.go
+ * @LastEditTime: 2025-11-15 16:47:53
+ * @FilePath: \engine-im-service\go-rpc-gateway\middleware\swagger.go
  * @Description: Swagger文档中间件 - 提供API文档在线查看
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
@@ -54,24 +54,24 @@ func NewSwaggerMiddleware(config interface{}) *SwaggerMiddleware {
 
 	// 尝试直接获取Swagger配置
 	if swaggerField := configSafe.Field("Swagger"); swaggerField.IsValid() {
-		// 从配置中构建Swagger配置
+		// 从配置中构建Swagger配置，使用安全的默认值
 		swaggerConfig = &goswagger.Swagger{
 			Enabled:     swaggerField.Field("Enabled").Bool(false),
-			JSONPath:    swaggerField.Field("JsonPath").String("/swagger/doc.json"),
-			UIPath:      swaggerField.Field("UiPath").String("/swagger"),
-			YamlPath:    swaggerField.Field("YamlPath").String("/swagger/doc.yaml"),
-			SpecPath:    swaggerField.Field("SpecPath").String("./docs/swagger.yaml"),
-			Title:       swaggerField.Field("Title").String("API Documentation"),
-			Description: swaggerField.Field("Description").String("API Documentation powered by Swagger UI"),
-			Version:     swaggerField.Field("Version").String("1.0.0"),
+			JSONPath:    swaggerField.Field("JsonPath").StringOr("/swagger/doc.json"),
+			UIPath:      swaggerField.Field("UiPath").StringOr("/swagger"),
+			YamlPath:    swaggerField.Field("YamlPath").StringOr("/swagger/doc.yaml"),
+			SpecPath:    swaggerField.Field("SpecPath").StringOr("./docs/swagger.yaml"),
+			Title:       swaggerField.Field("Title").StringOr("API Documentation"),
+			Description: swaggerField.Field("Description").StringOr("API Documentation powered by Swagger UI"),
+			Version:     swaggerField.Field("Version").StringOr("1.0.0"),
 		}
 
 		// 处理聚合配置
 		if aggregateField := swaggerField.Field("Aggregate"); aggregateField.IsValid() {
 			swaggerConfig.Aggregate = &goswagger.AggregateConfig{
 				Enabled:  aggregateField.Field("Enabled").Bool(false),
-				Mode:     aggregateField.Field("Mode").String("merge"),
-				UILayout: aggregateField.Field("UiLayout").String("tabs"),
+				Mode:     aggregateField.Field("Mode").StringOr("merge"),
+				UILayout: aggregateField.Field("UiLayout").StringOr("tabs"),
 				Services: []*goswagger.ServiceSpec{},
 			}
 
@@ -173,6 +173,7 @@ func (s *SwaggerMiddleware) isSwaggerPath(path string) bool {
 		aggregatedPaths := []string{
 			s.config.UIPath + "/services",
 			s.config.UIPath + "/aggregate.json",
+			s.config.UIPath + "/debug/services",
 		}
 		swaggerPaths = append(swaggerPaths, aggregatedPaths...)
 
@@ -219,6 +220,12 @@ func (s *SwaggerMiddleware) handleSwagger(w http.ResponseWriter, r *http.Request
 		// 服务列表
 		if strings.HasSuffix(path, "/services") {
 			s.handleServicesIndex(w, r)
+			return
+		}
+
+		// 调试端点：显示所有可用服务名称
+		if strings.HasSuffix(path, "/debug/services") {
+			s.handleServicesDebug(w, r)
 			return
 		}
 
@@ -578,26 +585,132 @@ func (s *SwaggerMiddleware) generateServiceSwaggerUI(serviceName string) string 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>%s - API Documentation</title>
-    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@3.52.5/swagger-ui.css" />
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5.0.0/swagger-ui.css" />
+    <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5.0.0/favicon-32x32.png" sizes="32x32" />
     <style>
+        /* 继承主页面样式 */
         html {
             box-sizing: border-box;
             overflow: -moz-scrollbars-vertical;
             overflow-y: scroll;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
         *, *:before, *:after {
             box-sizing: inherit;
         }
+        
         body {
             margin: 0;
-            background: #fafafa;
+            background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+            min-height: 100vh;
+        }
+
+        .swagger-ui {
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+
+        /* 顶部导航栏 */
+        .swagger-ui .topbar {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+            padding: 15px 0;
+        }
+        
+        .swagger-ui .topbar .download-url-wrapper {
+            display: none;
+        }
+
+        /* 服务标题区域 */
+        .service-header {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 30px;
+            margin: 20px 0;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            text-align: center;
+        }
+
+        .service-header h1 {
+            font-size: 2.5em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin: 0 0 10px 0;
+        }
+
+        .service-header .back-link {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin-top: 15px;
+        }
+
+        .service-header .back-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        /* 其他样式继承主页面 */
+        .swagger-ui .info {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 30px;
+            margin: 20px 0;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .swagger-ui .opblock-tag {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 8px;
+            margin: 15px 0;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .swagger-ui .opblock {
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .swagger-ui .btn.execute {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border: none;
+            color: white;
+            border-radius: 6px;
+        }
+
+        @media (max-width: 768px) {
+            .swagger-ui {
+                padding: 0 10px;
+            }
         }
     </style>
 </head>
 <body>
+    <div class="service-header">
+        <h1>📚 %s API</h1>
+        <p style="color: #666; margin: 10px 0;">单独服务的 API 文档</p>
+        <a href="%s/services" class="back-link">← 返回服务列表</a>
+        <a href="%s" class="back-link" style="margin-left: 10px;">📖 查看聚合文档</a>
+    </div>
+    
     <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@3.52.5/swagger-ui-bundle.js"></script>
-    <script src="https://unpkg.com/swagger-ui-dist@3.52.5/swagger-ui-standalone-preset.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5.0.0/swagger-ui-bundle.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5.0.0/swagger-ui-standalone-preset.js"></script>
     <script>
         window.onload = function() {
             const ui = SwaggerUIBundle({
@@ -611,12 +724,17 @@ func (s *SwaggerMiddleware) generateServiceSwaggerUI(serviceName string) string 
                 plugins: [
                     SwaggerUIBundle.plugins.DownloadUrl
                 ],
-                layout: "StandaloneLayout"
+                layout: "StandaloneLayout",
+                validatorUrl: null,
+                docExpansion: "none",
+                operationsSorter: "alpha",
+                tagsSorter: "alpha",
+                filter: true
             });
         };
     </script>
 </body>
-</html>`, serviceName, s.config.UIPath, serviceName)
+</html>`, serviceName, serviceName, s.config.UIPath, s.config.UIPath, s.config.UIPath, serviceName)
 }
 
 // handleServicesIndex 处理服务列表页面
@@ -644,6 +762,54 @@ func (s *SwaggerMiddleware) handleServicesIndex(w http.ResponseWriter, _ *http.R
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(servicesHTML))
+}
+
+// handleServicesDebug 处理服务调试信息
+func (s *SwaggerMiddleware) handleServicesDebug(w http.ResponseWriter, r *http.Request) {
+	if !s.IsAggregateEnabled() {
+		writeSwaggerError(w, http.StatusNotFound, commonapis.StatusCode_NotFound, "聚合功能未启用")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// 构建调试信息
+	debugInfo := map[string]interface{}{
+		"total_services":      len(s.serviceSpecs),
+		"loaded_services":     make([]map[string]interface{}, 0),
+		"configured_services": make([]map[string]interface{}, 0),
+		"timestamp":           time.Now().Format(time.RFC3339),
+	}
+
+	// 加载的服务规范
+	for serviceName, _ := range s.serviceSpecs {
+		debugInfo["loaded_services"] = append(debugInfo["loaded_services"].([]map[string]interface{}), map[string]interface{}{
+			"name": serviceName,
+			"url":  fmt.Sprintf("%s/services/%s", s.config.UIPath, serviceName),
+		})
+	}
+
+	// 配置的服务
+	if s.config.Aggregate != nil {
+		for _, service := range s.config.Aggregate.Services {
+			debugInfo["configured_services"] = append(debugInfo["configured_services"].([]map[string]interface{}), map[string]interface{}{
+				"name":      service.Name,
+				"enabled":   service.Enabled,
+				"spec_path": service.SpecPath,
+				"url":       service.URL,
+			})
+		}
+	}
+
+	// 序列化为JSON
+	jsonData, err := json.MarshalIndent(debugInfo, "", "  ")
+	if err != nil {
+		writeSwaggerError(w, http.StatusInternalServerError, commonapis.StatusCode_Internal, "序列化调试信息失败")
+		return
+	}
+
+	w.Write(jsonData)
 }
 
 // buildServicesHTML 构建服务列表HTML页面
@@ -844,12 +1010,21 @@ func (s *SwaggerMiddleware) loadAllServiceSpecs() error {
 
 	global.LOGGER.Info("开始加载所有服务规范，总计 %d 个服务", len(s.config.Aggregate.Services))
 
+	// 用于去重的服务名称集合
+	loadedServices := make(map[string]bool)
+
 	for i, service := range s.config.Aggregate.Services {
-		global.LOGGER.Info("正在加载第 %d 个服务: %s (enabled: %t, spec_path: %s)",
+		global.LOGGER.Info("正在处理第 %d 个服务: %s (enabled: %t, spec_path: %s)",
 			i+1, service.Name, service.Enabled, service.SpecPath)
 
 		if !service.Enabled {
 			global.LOGGER.Info("跳过已禁用的服务: %s", service.Name)
+			continue
+		}
+
+		// 检查服务是否已经加载过
+		if loadedServices[service.Name] {
+			global.LOGGER.Warn("服务 %s 已存在，跳过重复加载", service.Name)
 			continue
 		}
 
@@ -895,6 +1070,7 @@ func (s *SwaggerMiddleware) loadAllServiceSpecs() error {
 		}
 
 		s.serviceSpecs[service.Name] = convertedSpec.(map[string]interface{})
+		loadedServices[service.Name] = true // 标记为已加载
 		global.LOGGER.Info("✅ 成功加载服务 %s 的规范", service.Name)
 	}
 
@@ -1146,11 +1322,14 @@ func (s *SwaggerMiddleware) mergeAllSpecs() error {
 		"produces":         []string{"application/json"},
 		"paths":            make(map[string]interface{}),
 		"definitions":      make(map[string]interface{}),
+		"tags":             make([]interface{}, 0),
 		"x-aggregate-info": s.buildServicesInfo(),
 	}
 
 	allPaths := s.aggregatedSpec["paths"].(map[string]interface{})
 	allDefinitions := s.aggregatedSpec["definitions"].(map[string]interface{})
+	allTags := s.aggregatedSpec["tags"].([]interface{})
+	tagNames := make(map[string]bool) // 用于去重
 
 	for serviceName, spec := range s.serviceSpecs {
 		global.LOGGER.Info("正在合并服务 %s 的规范", serviceName)
@@ -1162,11 +1341,12 @@ func (s *SwaggerMiddleware) mergeAllSpecs() error {
 
 		specMap := convertedSpec.(map[string]interface{})
 
-		// 合并路径
+		// 合并路径 - 改进去重逻辑
 		if paths, ok := specMap["paths"].(map[string]interface{}); ok {
 			for path, operations := range paths {
 				if existingPath, exists := allPaths[path]; exists {
-					// 路径已存在，合并操作
+					// 路径已存在，检查是否来自不同服务
+					global.LOGGER.Debug("路径 %s 已存在，来自服务 %s，检查操作合并", path, serviceName)
 					if existingOps, ok := existingPath.(map[string]interface{}); ok {
 						if _, ok := operations.(map[string]interface{}); ok {
 							convertedOps, err := s.convertToJSONCompatible(operations)
@@ -1174,29 +1354,111 @@ func (s *SwaggerMiddleware) mergeAllSpecs() error {
 								global.LOGGER.Error("转换路径操作失败: %v", err)
 								continue
 							}
+
+							shouldMerge := false
 							for method, op := range convertedOps.(map[string]interface{}) {
-								existingOps[method] = op
+								// 只在操作不存在时才添加，避免重复
+								if _, methodExists := existingOps[method]; !methodExists {
+									// 清理新操作中的重复标签
+									if opMap, ok := op.(map[string]interface{}); ok {
+										if tags, exists := opMap["tags"]; exists {
+											if tagSlice, ok := tags.([]interface{}); ok {
+												// 去重标签
+												uniqueTags := make([]interface{}, 0)
+												tagSet := make(map[string]bool)
+
+												for _, tag := range tagSlice {
+													tagStr := fmt.Sprintf("%v", tag)
+													if !tagSet[tagStr] {
+														tagSet[tagStr] = true
+														uniqueTags = append(uniqueTags, tag)
+													}
+												}
+
+												// 更新标签
+												opMap["tags"] = uniqueTags
+												if len(tagSlice) != len(uniqueTags) {
+													global.LOGGER.Debug("清理方法 %s 的重复标签，原始: %d，清理后: %d", method, len(tagSlice), len(uniqueTags))
+												}
+											}
+										}
+									}
+									existingOps[method] = op
+									shouldMerge = true
+									global.LOGGER.Debug("添加方法 %s 到路径 %s (来自 %s)", method, path, serviceName)
+								} else {
+									global.LOGGER.Debug("方法 %s 在路径 %s 中已存在，跳过重复添加 (来自 %s)", method, path, serviceName)
+								}
+							}
+
+							if !shouldMerge {
+								global.LOGGER.Warn("服务 %s 的路径 %s 与现有路径完全重复，可能存在配置问题", serviceName, path)
 							}
 						}
 					}
 				} else {
-					allPaths[path] = operations
+					// 新路径，直接添加，但需要清理标签
+					cleanedOperations, err := s.convertToJSONCompatible(operations)
+					if err != nil {
+						global.LOGGER.Error("转换路径操作失败: %v", err)
+						continue
+					}
+
+					// 清理路径操作中的重复标签
+					s.cleanPathOperationTags(cleanedOperations)
+					allPaths[path] = cleanedOperations
+					global.LOGGER.Debug("添加新路径: %s (来自服务: %s)", path, serviceName)
 				}
 			}
-		}
-
-		// 合并定义，添加服务前缀避免冲突
+		} // 合并定义，添加服务前缀避免冲突
 		if definitions, ok := specMap["definitions"].(map[string]interface{}); ok {
 			for defName, definition := range definitions {
-				prefixedName := fmt.Sprintf("%s_%s", serviceName, defName)
+				// 智能前缀处理 - 避免重复前缀
+				var finalDefName string
+				if s.isCommonType(defName) || strings.HasPrefix(defName, serviceName+"_") {
+					finalDefName = defName // 保持原名或已有前缀
+				} else {
+					finalDefName = fmt.Sprintf("%s_%s", serviceName, defName)
+				}
+
 				convertedDef, err := s.convertToJSONCompatible(definition)
 				if err != nil {
 					global.LOGGER.Error("转换定义失败: %v", err)
 					continue
 				}
-				allDefinitions[prefixedName] = convertedDef
+
+				// 检查是否已存在，避免重复
+				if _, exists := allDefinitions[finalDefName]; !exists {
+					allDefinitions[finalDefName] = convertedDef
+					global.LOGGER.Debug("添加定义: %s -> %s", defName, finalDefName)
+				}
 			}
 		}
+
+		// 直接使用Swagger文件中的原始标签，不进行覆盖
+		// 这样可以保持与protobuf定义的完全一致性
+		if tags, ok := specMap["tags"].([]interface{}); ok {
+			for _, tag := range tags {
+				if tagMap, ok := tag.(map[string]interface{}); ok {
+					if name, exists := tagMap["name"]; exists {
+						nameStr := fmt.Sprintf("%v", name)
+						if !tagNames[nameStr] {
+							tagNames[nameStr] = true
+							allTags = append(allTags, tagMap)
+							global.LOGGER.Debug("添加原始Swagger标签: %s (服务: %s)", nameStr, serviceName)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 更新聚合规范中的 tags
+	s.aggregatedSpec["tags"] = allTags
+
+	// 修复所有引用路径
+	if err := s.fixReferences(); err != nil {
+		global.LOGGER.Error("修复引用路径失败: %v", err)
 	}
 
 	global.LOGGER.Info("✅ 规范合并完成，路径数: %d，定义数: %d",
@@ -1230,8 +1492,16 @@ func (s *SwaggerMiddleware) buildAggregateInfo() map[string]interface{} {
 		"title":       s.config.Title,
 		"description": s.config.Description,
 		"version":     s.config.Version,
-		"contact":     s.buildContactInfo(),
-		"license":     s.buildLicenseInfo(),
+	}
+
+	// 只在配置存在时才添加 contact 字段
+	if contact := s.buildContactInfo(); contact != nil {
+		info["contact"] = contact
+	}
+
+	// 只在配置存在时才添加 license 字段
+	if license := s.buildLicenseInfo(); license != nil {
+		info["license"] = license
 	}
 
 	return info
@@ -1240,10 +1510,22 @@ func (s *SwaggerMiddleware) buildAggregateInfo() map[string]interface{} {
 // buildContactInfo 构建联系信息
 func (s *SwaggerMiddleware) buildContactInfo() interface{} {
 	if s.config.Contact != nil {
-		return map[string]interface{}{
-			"name":  s.config.Contact.Name,
-			"email": s.config.Contact.Email,
-			"url":   s.config.Contact.URL,
+		contact := make(map[string]interface{})
+
+		// 只添加非空字段
+		if s.config.Contact.Name != "" {
+			contact["name"] = s.config.Contact.Name
+		}
+		if s.config.Contact.Email != "" {
+			contact["email"] = s.config.Contact.Email
+		}
+		if s.config.Contact.URL != "" {
+			contact["url"] = s.config.Contact.URL
+		}
+
+		// 如果有任何字段，返回联系信息对象
+		if len(contact) > 0 {
+			return contact
 		}
 	}
 	return nil
@@ -1252,9 +1534,19 @@ func (s *SwaggerMiddleware) buildContactInfo() interface{} {
 // buildLicenseInfo 构建许可证信息
 func (s *SwaggerMiddleware) buildLicenseInfo() interface{} {
 	if s.config.License != nil {
-		return map[string]interface{}{
-			"name": s.config.License.Name,
-			"url":  s.config.License.URL,
+		license := make(map[string]interface{})
+
+		// 只添加非空字段
+		if s.config.License.Name != "" {
+			license["name"] = s.config.License.Name
+		}
+		if s.config.License.URL != "" {
+			license["url"] = s.config.License.URL
+		}
+
+		// 如果有任何字段，返回许可证信息对象
+		if len(license) > 0 {
+			return license
 		}
 	}
 	return nil
@@ -1319,9 +1611,52 @@ func (s *SwaggerMiddleware) GetServiceSpec(serviceName string) ([]byte, error) {
 		return nil, fmt.Errorf("聚合模式未启用")
 	}
 
+	// 尝试直接匹配
 	spec, exists := s.serviceSpecs[serviceName]
+
+	// 如果直接匹配失败，尝试更灵活的匹配
 	if !exists {
-		return nil, fmt.Errorf("服务 %s 不存在", serviceName)
+		// 尝试不同的匹配策略
+		for actualServiceName, actualSpec := range s.serviceSpecs {
+			// 1. 忽略大小写匹配
+			if strings.EqualFold(actualServiceName, serviceName) {
+				spec = actualSpec
+				exists = true
+				global.LOGGER.Info("通过忽略大小写匹配找到服务: %s -> %s", serviceName, actualServiceName)
+				break
+			}
+
+			// 2. 去掉连字符/下划线匹配
+			normalizedRequested := strings.ReplaceAll(strings.ToLower(serviceName), "-", "")
+			normalizedRequested = strings.ReplaceAll(normalizedRequested, "_", "")
+			normalizedActual := strings.ReplaceAll(strings.ToLower(actualServiceName), "-", "")
+			normalizedActual = strings.ReplaceAll(normalizedActual, "_", "")
+
+			if normalizedRequested == normalizedActual {
+				spec = actualSpec
+				exists = true
+				global.LOGGER.Info("通过标准化名称匹配找到服务: %s -> %s", serviceName, actualServiceName)
+				break
+			}
+
+			// 3. 包含匹配（服务名包含请求的名称）
+			if strings.Contains(strings.ToLower(actualServiceName), strings.ToLower(serviceName)) {
+				spec = actualSpec
+				exists = true
+				global.LOGGER.Info("通过包含匹配找到服务: %s -> %s", serviceName, actualServiceName)
+				break
+			}
+		}
+	}
+
+	if !exists {
+		// 记录可用的服务名称以便调试
+		var availableServices []string
+		for name := range s.serviceSpecs {
+			availableServices = append(availableServices, name)
+		}
+		global.LOGGER.Error("服务 %s 不存在。可用服务: [%s]", serviceName, strings.Join(availableServices, ", "))
+		return nil, fmt.Errorf("服务 %s 不存在。可用服务: [%s]", serviceName, strings.Join(availableServices, ", "))
 	}
 
 	// 转换为JSON兼容格式
@@ -1359,4 +1694,120 @@ func getServiceStringField(service map[string]interface{}, field string) string 
 		return val
 	}
 	return ""
+}
+
+// fixReferences 修复聚合规范中的所有引用路径
+func (s *SwaggerMiddleware) fixReferences() error {
+	return s.fixReferencesInObject(s.aggregatedSpec)
+}
+
+// fixReferencesInObject 递归修复对象中的引用
+func (s *SwaggerMiddleware) fixReferencesInObject(obj interface{}) error {
+	switch v := obj.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			if key == "$ref" {
+				if refStr, ok := value.(string); ok {
+					// 修复引用路径
+					if newRef := s.fixReference(refStr); newRef != refStr {
+						v[key] = newRef
+						global.LOGGER.Debug("修复引用: %s -> %s", refStr, newRef)
+					}
+				}
+			} else {
+				// 递归处理嵌套对象
+				if err := s.fixReferencesInObject(value); err != nil {
+					return err
+				}
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			if err := s.fixReferencesInObject(item); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// fixReference 修复单个引用路径
+func (s *SwaggerMiddleware) fixReference(ref string) string {
+	// 如果引用指向 definitions，检查是否需要添加服务前缀
+	if strings.HasPrefix(ref, "#/definitions/") {
+		defName := strings.TrimPrefix(ref, "#/definitions/")
+
+		// 检查是否存在带服务前缀的定义
+		definitions := s.aggregatedSpec["definitions"].(map[string]interface{})
+
+		// 如果直接引用的定义不存在，尝试查找带前缀的定义
+		if _, exists := definitions[defName]; !exists {
+			// 查找可能的服务前缀版本
+			for actualDefName := range definitions {
+				// 检查是否是某个服务的前缀版本
+				if strings.HasSuffix(actualDefName, "_"+defName) {
+					return "#/definitions/" + actualDefName
+				}
+			}
+
+			// 如果是常见的通用类型，尝试添加默认前缀
+			if s.isCommonType(defName) {
+				// 为常见类型添加 commonapis 前缀
+				prefixedName := "commonapis_" + defName
+				if _, exists := definitions[prefixedName]; exists {
+					return "#/definitions/" + prefixedName
+				}
+			}
+		}
+	}
+
+	return ref
+}
+
+// isCommonType 检查是否是通用类型
+func (s *SwaggerMiddleware) isCommonType(typeName string) bool {
+	commonTypes := []string{
+		"rpcStatus",
+		"GeneralEmptyResponse",
+		"GeneralEmptyRequest",
+		"AgentSettings",
+		"settingsAgentSettings",
+	}
+
+	for _, commonType := range commonTypes {
+		if typeName == commonType || strings.HasSuffix(typeName, commonType) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// cleanPathOperationTags 清理路径操作中的重复标签
+func (s *SwaggerMiddleware) cleanPathOperationTags(pathOperations interface{}) {
+	if operationsMap, ok := pathOperations.(map[string]interface{}); ok {
+		for method, operation := range operationsMap {
+			if operationMap, ok := operation.(map[string]interface{}); ok {
+				if tags, exists := operationMap["tags"]; exists {
+					if tagSlice, ok := tags.([]interface{}); ok {
+						// 去重标签
+						uniqueTags := make([]interface{}, 0)
+						tagSet := make(map[string]bool)
+
+						for _, tag := range tagSlice {
+							tagStr := fmt.Sprintf("%v", tag)
+							if !tagSet[tagStr] {
+								tagSet[tagStr] = true
+								uniqueTags = append(uniqueTags, tag)
+							}
+						}
+
+						// 更新标签
+						operationMap["tags"] = uniqueTags
+						global.LOGGER.Debug("清理方法 %s 的重复标签，原始: %d，清理后: %d", method, len(tagSlice), len(uniqueTags))
+					}
+				}
+			}
+		}
+	}
 }

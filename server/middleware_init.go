@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 11:06:07
+ * @LastEditTime: 2025-11-15 15:06:55
  * @FilePath: \go-rpc-gateway\server\middleware_init.go
  * @Description: 中间件管理器初始化模块
  *
@@ -14,7 +14,6 @@ package server
 import (
 	"time"
 
-	goconfig "github.com/kamalyes/go-config"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 )
@@ -38,23 +37,22 @@ func (s *Server) initMiddleware() error {
 
 // initHealthManager 初始化健康检查管理器
 func (s *Server) initHealthManager() error {
-	configSafe := goconfig.SafeConfig(s.config)
 	// 直接使用配置中的值，默认值已在 go-config 的 Default() 中设置
 	healthManager := middleware.NewHealthManager(
-		configSafe.Field("Name").String("Gateway"),
-		configSafe.Field("Version").String("v1.0.0"),
+		s.configSafe.Field("Name").String("Gateway"),
+		s.configSafe.Field("Version").String("v1.0.0"),
 	)
 
 	// 添加Redis健康检查 - 简洁的链式调用
-	if configSafe.IsRedisHealthEnabled() {
-		timeout := configSafe.GetRedisHealthTimeout(30 * time.Second)
+	if s.configSafe.IsRedisHealthEnabled() {
+		timeout := s.configSafe.GetRedisHealthTimeout(30 * time.Second)
 		redisChecker := middleware.NewRedisChecker(timeout)
 		healthManager.RegisterChecker(redisChecker)
 	}
 
 	// 添加MySQL健康检查 - 简洁的链式调用
-	if configSafe.IsMySQLHealthEnabled() {
-		timeout := configSafe.GetMySQLHealthTimeout(30 * time.Second)
+	if s.configSafe.IsMySQLHealthEnabled() {
+		timeout := s.configSafe.GetMySQLHealthTimeout(30 * time.Second)
 		mysqlChecker := middleware.NewMySQLChecker(timeout)
 		healthManager.RegisterChecker(mysqlChecker)
 	}

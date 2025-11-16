@@ -8,16 +8,16 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
-	github.com/kamalyes/go-config v0.9.1
+	github.com/kamalyes/go-config v0.9.3
 	github.com/kamalyes/go-logger v0.3.0
-	github.com/kamalyes/go-toolbox v0.11.65
+	github.com/kamalyes/go-toolbox v0.11.67
+	github.com/kamalyes/go-wsc v0.1.0
 	github.com/mssola/user_agent v0.6.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.16.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0
 	go.opentelemetry.io/otel v1.38.0
-	go.opentelemetry.io/otel/exporters/jaeger v1.17.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.38.0
 	go.opentelemetry.io/otel/exporters/zipkin v1.38.0
 	go.opentelemetry.io/otel/sdk v1.38.0
@@ -83,7 +83,6 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kamalyes/go-cachex v0.1.1
-	github.com/kamalyes/go-wsc v0.2.0
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
@@ -128,10 +127,10 @@ require (
 )
 
 // 本地开发替换
-// replace github.com/kamalyes/go-wsc => ../go-wsc
+replace github.com/kamalyes/go-wsc => ../go-wsc
 
-// replace github.com/kamalyes/go-cachex => ../go-cachex
+replace github.com/kamalyes/go-cachex => ../go-cachex
 
-// replace github.com/kamalyes/go-config => ../go-config
+replace github.com/kamalyes/go-sqlbuiler => ../go-sqlbuiler
 
-// replace github.com/kamalyes/go-logger => ../go-logger
+replace github.com/kamalyes/go-config => ../go-config

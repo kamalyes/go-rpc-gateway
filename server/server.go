@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 15:27:57
+ * @LastEditTime: 2025-11-15 14:57:14
  * @FilePath: \go-rpc-gateway\server\server.go
  * @Description: Gateway服务器核心结构定义
  *
@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
 	"github.com/kamalyes/go-rpc-gateway/errors"
@@ -30,7 +31,8 @@ import (
 
 // Server Gateway服务器
 type Server struct {
-	config *gwconfig.Gateway
+	config     *gwconfig.Gateway
+	configSafe *goconfig.ConfigSafe // 添加安全配置访问器
 
 	// 服务器组件
 	grpcServer *grpc.Server
@@ -52,6 +54,9 @@ type Server struct {
 
 	// 连接池管理器
 	poolManager cpool.PoolManager
+
+	// WebSocket 服务
+	webSocketService *WebSocketService
 
 	// 状态管理
 	ctx    context.Context
@@ -76,10 +81,8 @@ func NewServer() (*Server, error) {
 	}
 
 	// 记录环境配置应用情况
-	monitoringEnabled := false
-	if cfg.Monitoring != nil {
-		monitoringEnabled = cfg.Monitoring.Enabled
-	}
+	configSafe := goconfig.SafeConfig(cfg)
+	monitoringEnabled := configSafe.IsMonitoringEnabled()
 
 	global.LOGGER.InfoKV("服务器启动配置",
 		"environment", cfg.Environment,
@@ -90,6 +93,7 @@ func NewServer() (*Server, error) {
 
 	server := &Server{
 		config:        cfg,
+		configSafe:    configSafe, // 初始化安全配置访问器
 		ctx:           ctx,
 		cancel:        cancel,
 		bannerManager: NewBannerManager(cfg),
@@ -142,6 +146,11 @@ func (s *Server) GetFeatureManager() *FeatureManager {
 // GetPoolManager 获取连接池管理器
 func (s *Server) GetPoolManager() cpool.PoolManager {
 	return s.poolManager
+}
+
+// GetWebSocketService 获取 WebSocket 服务
+func (s *Server) GetWebSocketService() *WebSocketService {
+	return s.webSocketService
 }
 
 // EnableFeature 启用指定功能（使用配置中的默认设置）

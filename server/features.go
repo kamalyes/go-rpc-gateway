@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 13:59:00
+ * @LastEditTime: 2025-11-16 15:11:05
  * @FilePath: \go-rpc-gateway\server\features.go
  * @Description: 统一的功能特性注册管理器
  *
@@ -73,7 +73,6 @@ func (fm *FeatureManager) registerBuiltinFeatures() {
 	fm.enablers[FeatureHealth] = &HealthFeature{server: fm.server}
 	fm.enablers[FeaturePProf] = &PProfFeature{server: fm.server}
 	fm.enablers[FeatureTracing] = &TracingFeature{server: fm.server}
-	fm.enablers[FeatureWSC] = &WSCFeature{server: fm.server}
 }
 
 // Enable 启用指定功能（使用配置中的默认设置）
@@ -121,8 +120,8 @@ type SwaggerFeature struct {
 
 // Enable 启用Swagger（使用配置中的设置）
 func (f *SwaggerFeature) Enable() error {
-	if f.server.config.Swagger.Enabled {
-		return f.EnableWithConfig(&f.server.config.Swagger)
+	if f.server.configSafe.Swagger().Enabled(false) {
+		return f.EnableWithConfig(f.server.config.Swagger)
 	}
 
 	// 如果配置中未启用，使用默认配置
@@ -163,8 +162,8 @@ type MonitoringFeature struct {
 
 // Enable 启用Monitoring（使用配置中的设置）
 func (f *MonitoringFeature) Enable() error {
-	if f.server.config.Monitoring.Enabled {
-		return f.EnableWithConfig(&f.server.config.Monitoring)
+	if f.server.configSafe.IsMonitoringEnabled() {
+		return f.EnableWithConfig(f.server.config.Monitoring)
 	}
 
 	// 如果配置中未启用，使用默认配置
@@ -205,8 +204,8 @@ type HealthFeature struct {
 
 // Enable 启用Health（使用配置中的设置）
 func (f *HealthFeature) Enable() error {
-	if f.server.config.Health.Enabled {
-		return f.EnableWithConfig(&f.server.config.Health)
+	if f.server.configSafe.IsHealthEnabled() {
+		return f.EnableWithConfig(f.server.config.Health)
 	}
 
 	// 如果配置中未启用，使用默认配置
@@ -247,8 +246,8 @@ type PProfFeature struct {
 
 // Enable 启用PProf（使用配置中的设置）
 func (f *PProfFeature) Enable() error {
-	if f.server.config.Middleware.PProf.Enabled {
-		return f.EnableWithConfig(&f.server.config.Middleware.PProf)
+	if f.server.configSafe.IsPProfEnabled() {
+		return f.EnableWithConfig(f.server.config.Middleware.PProf)
 	}
 
 	// 如果配置中未启用，使用默认配置
@@ -289,8 +288,8 @@ type TracingFeature struct {
 
 // Enable 启用Tracing（使用配置中的设置）
 func (f *TracingFeature) Enable() error {
-	if f.server.config.Monitoring.Jaeger.Enabled {
-		return f.EnableWithConfig(&f.server.config.Monitoring.Jaeger)
+	if f.server.configSafe.IsJaegerEnabled() {
+		return f.EnableWithConfig(f.server.config.Monitoring.Jaeger)
 	}
 
 	// 如果配置中未启用，使用默认配置
@@ -321,40 +320,4 @@ func (f *TracingFeature) IsEnabled() bool {
 // GetType 获取功能类型
 func (f *TracingFeature) GetType() FeatureType {
 	return FeatureTracing
-}
-
-// WSCFeature WebSocket通信功能实现
-type WSCFeature struct {
-	server  *Server
-	enabled bool
-}
-
-// Enable 启用WSC（使用配置中的设置）
-func (f *WSCFeature) Enable() error {
-	if f.server.config.WSC != nil && f.server.config.WSC.Enabled {
-		return f.EnableWithConfig(f.server.config.WSC)
-	}
-
-	// 如果配置中未启用，跳过
-	return nil
-}
-
-// EnableWithConfig 使用自定义配置启用WSC
-func (f *WSCFeature) EnableWithConfig(config interface{}) error {
-	if err := f.server.EnableWSCWithConfig(config); err != nil {
-		return err
-	}
-
-	f.enabled = true
-	return nil
-}
-
-// IsEnabled 检查WSC是否已启用
-func (f *WSCFeature) IsEnabled() bool {
-	return f.enabled
-}
-
-// GetType 获取功能类型
-func (f *WSCFeature) GetType() FeatureType {
-	return FeatureWSC
 }

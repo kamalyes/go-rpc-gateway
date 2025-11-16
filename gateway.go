@@ -30,9 +30,8 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/cpool"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
-	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-rpc-gateway/server"
-	"github.com/kamalyes/go-rpc-gateway/wsc"
+	wsc "github.com/kamalyes/go-wsc"
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
@@ -703,54 +702,175 @@ func (g *Gateway) setupGracefulShutdown() {
 	}()
 }
 
-// ==============================
-// WebSocket 通信相关方法 - 基于 go-wsc Hub
-// 限流、鉴权等功能由 go-rpc-gateway 中间件处理
-// ==============================
+// ===============================================================================
+// WebSocket 相关便捷方法
+// ===============================================================================
 
-// InitWSC 初始化 WebSocket 通信功能（使用配置中的设置）
-// 如果配置中 wsc.enabled=true，则自动启用并注册路由
-func (g *Gateway) InitWSC() error {
-	return g.EnableFeature(server.FeatureWSC)
-}
-
-// SendMessage 发送消息（自动从上下文提取发送者信息）
-func (g *Gateway) SendMessage(ctx context.Context, msg *wsc.HubMessage) error {
-	wscMid := g.Server.GetWSCMiddleware()
-	if wscMid == nil || !wscMid.IsEnabled() {
-		return fmt.Errorf("WSC功能未启用")
+// GetWebSocketService 获取 WebSocket 服务实例
+func (g *Gateway) GetWebSocketService() *server.WebSocketService {
+	if g.Server == nil {
+		return nil
 	}
-	return wscMid.SendMessage(ctx, msg)
+	return g.Server.GetWebSocketService()
 }
 
-// BroadcastMessage 广播消息
-func (g *Gateway) BroadcastMessage(ctx context.Context, msg *wsc.HubMessage) error {
-	wscMid := g.Server.GetWSCMiddleware()
-	if wscMid == nil || !wscMid.IsEnabled() {
-		return fmt.Errorf("WSC功能未启用")
+// IsWebSocketEnabled 检查 WebSocket 是否启用
+func (g *Gateway) IsWebSocketEnabled() bool {
+	wsSvc := g.GetWebSocketService()
+	return wsSvc != nil && wsSvc.IsRunning()
+}
+
+// OnWebSocketClientConnect 添加客户端连接回调（支持链式调用）
+// 示例:
+//  gateway.
+//    OnWebSocketClientConnect(func(ctx context.Context, client *wsc.Client) error {
+//      fmt.Printf("客户端已连接: %s\n", client.ID)
+//      return nil
+//    }).
+//    OnWebSocketClientDisconnect(func(ctx context.Context, client *wsc.Client, reason string) error {
+//      fmt.Printf("客户端已断开: %s (原因: %s)\n", client.ID, reason)
+//      return nil
+//    })
+func (g *Gateway) OnWebSocketClientConnect(cb server.ClientConnectCallback) *Gateway {
+	wsSvc := g.GetWebSocketService()
+	if wsSvc != nil {
+		wsSvc.OnClientConnect(cb)
 	}
-	return wscMid.Broadcast(ctx, msg)
+	return g
 }
 
-// GetOnlineUsers 获取在线用户列表
-func (g *Gateway) GetOnlineUsers() []string {
-	wscMid := g.Server.GetWSCMiddleware()
-	if wscMid == nil || !wscMid.IsEnabled() {
+// OnWebSocketClientDisconnect 添加客户端断开连接回调
+func (g *Gateway) OnWebSocketClientDisconnect(cb server.ClientDisconnectCallback) *Gateway {
+	wsSvc := g.GetWebSocketService()
+	if wsSvc != nil {
+		wsSvc.OnClientDisconnect(cb)
+	}
+	return g
+}
+
+// OnWebSocketMessageReceived 添加消息接收回调
+func (g *Gateway) OnWebSocketMessageReceived(cb server.MessageReceivedCallback) *Gateway {
+	wsSvc := g.GetWebSocketService()
+	if wsSvc != nil {
+		wsSvc.OnMessageReceived(cb)
+	}
+	return g
+}
+
+// OnWebSocketError 添加错误处理回调
+func (g *Gateway) OnWebSocketError(cb server.ErrorCallback) *Gateway {
+	wsSvc := g.GetWebSocketService()
+	if wsSvc != nil {
+		wsSvc.OnError(cb)
+	}
+	return g
+}
+
+// ============================================================================
+// WebSocket 消息推送 API - 直接暴露 Hub 能力
+// ============================================================================
+
+// SendToWebSocketUser 发送消息给特定用户
+// 使用示例:
+//
+//	msg := &wsc.HubMessage{
+//	  From: "admin",
+//	  Content: []byte("Hello"),
+//	}
+//	if err := gateway.SendToWebSocketUser(ctx, "user123", msg); err != nil {
+//	  log.Printf("Failed to send message: %v", err)
+//	}
+func (g *Gateway) SendToWebSocketUser(ctx context.Context, userID string, msg *wsc.HubMessage) error {
+	wsSvc := g.GetWebSocketService()
+	if wsSvc == nil {
+		return errors.NewError(errors.ErrCodeServiceUnavailable, "WebSocket service not available")
+	}
+	return wsSvc.SendToUser(ctx, userID, msg)
+}
+
+// SendToWebSocketUserWithAck 发送消息给用户（带 ACK）
+// 示例:
+//
+//	ack, err := gateway.SendToWebSocketUserWithAck(ctx, "user123", msg, 5*time.Second, 3)
+//	if err != nil {
+//	  log.Printf("Failed to send with ACK: %v", err)
+//	} else {
+//	  log.Printf("Message delivered successfully")
+//	}
+func (g *Gateway) SendToWebSocketUserWithAck(ctx context.Context, userID string, msg *wsc.HubMessage, timeout time.Duration, maxRetry int) (*wsc.AckMessage, error) {
+	wsSvc := g.GetWebSocketService()
+	if wsSvc == nil {
+		return nil, errors.NewError(errors.ErrCodeServiceUnavailable, "WebSocket service not available")
+	}
+	return wsSvc.SendToUserWithAck(ctx, userID, msg, timeout, maxRetry)
+}
+
+// SendToWebSocketTicket 发送消息给特定凭证 ID
+func (g *Gateway) SendToWebSocketTicket(ctx context.Context, ticketID string, msg *wsc.HubMessage) error {
+	wsSvc := g.GetWebSocketService()
+	if wsSvc == nil {
+		return errors.NewError(errors.ErrCodeServiceUnavailable, "WebSocket service not available")
+	}
+	return wsSvc.SendToTicket(ctx, ticketID, msg)
+}
+
+// SendToWebSocketTicketWithAck 发送消息给凭证（带 ACK）
+func (g *Gateway) SendToWebSocketTicketWithAck(ctx context.Context, ticketID string, msg *wsc.HubMessage, timeout time.Duration, maxRetry int) (*wsc.AckMessage, error) {
+	wsSvc := g.GetWebSocketService()
+	if wsSvc == nil {
+		return nil, errors.NewError(errors.ErrCodeServiceUnavailable, "WebSocket service not available")
+	}
+	return wsSvc.SendToTicketWithAck(ctx, ticketID, msg, timeout, maxRetry)
+}
+
+// BroadcastWebSocketMessage 广播消息给所有连接的客户端
+// 使用示例:
+//
+//	msg := &wsc.HubMessage{
+//	  From: "admin",
+//	  Content: []byte("Server announcement"),
+//	}
+//	gateway.BroadcastWebSocketMessage(ctx, msg)
+func (g *Gateway) BroadcastWebSocketMessage(ctx context.Context, msg *wsc.HubMessage) {
+	wsSvc := g.GetWebSocketService()
+	if wsSvc != nil && msg != nil {
+		wsSvc.Broadcast(ctx, msg)
+	}
+}
+
+// GetWebSocketOnlineUsers 获取所有在线用户列表
+func (g *Gateway) GetWebSocketOnlineUsers() []string {
+	wsSvc := g.GetWebSocketService()
+	if wsSvc == nil {
 		return []string{}
 	}
-	return wscMid.GetOnlineUsers()
+	return wsSvc.GetOnlineUsers()
 }
 
-// GetWSCStats 获取 WebSocket 通信统计信息
-func (g *Gateway) GetWSCStats() map[string]interface{} {
-	wscMid := g.Server.GetWSCMiddleware()
-	if wscMid == nil || !wscMid.IsEnabled() {
-		return map[string]interface{}{"error": "WSC功能未启用"}
+// GetWebSocketOnlineUserCount 获取在线用户数量
+func (g *Gateway) GetWebSocketOnlineUserCount() int {
+	wsSvc := g.GetWebSocketService()
+	if wsSvc == nil {
+		return 0
 	}
-	return wscMid.GetStats()
+	return wsSvc.GetOnlineUserCount()
 }
 
-// GetWSCMiddleware 获取 WSC 中间件（供高级用户使用）
-func (g *Gateway) GetWSCMiddleware() *middleware.WSCMiddleware {
-	return g.Server.GetWSCMiddleware()
+// GetWebSocketStats 获取 WebSocket 统计信息
+// 返回包含以下信息的映射:
+// - online_users: 当前在线用户数
+// - is_running: 服务是否运行中
+// - uptime_seconds: 服务运行时间（秒）
+// - total_messages_sent: 总发送消息数
+// - total_messages_recv: 总接收消息数
+func (g *Gateway) GetWebSocketStats() map[string]interface{} {
+	wsSvc := g.GetWebSocketService()
+	if wsSvc == nil {
+		return map[string]interface{}{
+			"online_users":        0,
+			"is_running":          false,
+			"uptime_seconds":      0,
+		}
+	}
+	return wsSvc.GetStats()
 }

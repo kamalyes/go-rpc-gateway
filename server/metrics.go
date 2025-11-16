@@ -16,6 +16,7 @@ import (
 	"time"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
+	goconfig "github.com/kamalyes/go-config"
 	"github.com/kamalyes/go-config/pkg/monitoring"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/prometheus/client_golang/prometheus"
@@ -46,14 +47,22 @@ type HTTPMetrics struct {
 // NewMetricsManager 创建指标管理器
 // go-config 的 Default() 已经设置了所有默认值（包括 Buckets），无需再次设置
 func NewMetricsManager(cfg *monitoring.Monitoring) *MetricsManager {
-	if cfg == nil || !cfg.Metrics.Enabled {
+	// 使用SafeConfig安全访问
+	configSafe := goconfig.SafeConfig(cfg)
+	if cfg == nil || !configSafe.Metrics().Enabled(false) {
 		return nil
 	}
 
 	registry := prometheus.NewRegistry()
 
-	// 使用配置的直方图桶（go-config Default() 已提供默认值）
-	buckets := cfg.Metrics.Buckets
+	// 安全获取直方图桶（如果无法安全访问则使用默认值）
+	var buckets []float64
+	if cfg.Metrics != nil && len(cfg.Metrics.Buckets) > 0 {
+		buckets = cfg.Metrics.Buckets
+	} else {
+		// 提供默认的桶配置
+		buckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
+	}
 
 	// 创建 gRPC 服务器指标
 	serverMetrics := grpc_prometheus.NewServerMetrics(
@@ -158,8 +167,12 @@ func (mm *MetricsManager) GetPanicCounter() prometheus.Counter {
 func (mm *MetricsManager) Handler() http.Handler {
 	opts := promhttp.HandlerOpts{}
 
-	if mm.config != nil && mm.config.Metrics.EnableOpenMetrics {
-		opts.EnableOpenMetrics = true
+	if mm.config != nil {
+		// 使用SafeConfig安全访问
+		configSafe := goconfig.SafeConfig(mm.config)
+		if configSafe.Metrics().Field("EnableOpenMetrics").Bool(false) {
+			opts.EnableOpenMetrics = true
+		}
 	}
 
 	return promhttp.HandlerFor(mm.registry, opts)

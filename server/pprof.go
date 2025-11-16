@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 14:09:11
+ * @LastEditTime: 2025-11-15 15:02:09
  * @FilePath: \go-rpc-gateway\server\pprof.go
  * @Description: PProf 功能实现
  *
@@ -15,28 +15,24 @@ import (
 	"net/http"
 	"net/http/pprof"
 
-	goconfig "github.com/kamalyes/go-config"
+	"github.com/kamalyes/go-toolbox/pkg/mathx"
 )
 
 // EnablePProf 启用性能分析功能（使用配置文件）
 func (s *Server) EnablePProf() error {
-	configSafe := goconfig.SafeConfig(s.config)
-	if configSafe.IsPProfEnabled() {
-		return s.EnablePProfWithConfig()
-	}
-	return nil
+	return mathx.IF(s.configSafe.IsPProfEnabled(),
+		s.EnablePProfWithConfig(),
+		nil)
 }
 
 // EnablePProfWithConfig 使用自定义配置启用性能分析
 func (s *Server) EnablePProfWithConfig() error {
-	configSafe := goconfig.SafeConfig(s.config)
-
-	if !configSafe.IsPProfEnabled() {
+	if !s.configSafe.IsPProfEnabled() {
 		return nil
 	}
 
 	// 获取路径前缀
-	prefix := configSafe.GetPProfPathPrefix("/debug/pprof") // 注册 pprof 路由
+	prefix := s.configSafe.GetPProfPathPrefix("/debug/pprof") // 注册 pprof 路由
 	s.RegisterHTTPRoute(prefix+"/", http.HandlerFunc(pprof.Index))
 	s.RegisterHTTPRoute(prefix+"/cmdline", http.HandlerFunc(pprof.Cmdline))
 	s.RegisterHTTPRoute(prefix+"/profile", http.HandlerFunc(pprof.Profile))

@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 14:07:15
+ * @LastEditTime: 2025-11-15 15:11:10
  * @FilePath: \go-rpc-gateway\server\http.go
  * @Description: HTTP服务器和网关初始化模块
  *
@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	goconfig "github.com/kamalyes/go-config"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
@@ -43,8 +42,7 @@ func (w gzipResponseWriter) Write(b []byte) (int, error) {
 func (s *Server) gzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 检查是否启用压缩 - 使用安全访问
-		configSafe := goconfig.SafeConfig(s.config)
-		if !configSafe.Field("HTTPServer").Field("EnableGzipCompress").Bool(false) {
+		if !s.configSafe.Field("HTTPServer").Field("EnableGzipCompress").Bool(false) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -81,13 +79,12 @@ func (s *Server) initHTTPGateway() error {
 	s.httpMux.Handle("/", s.gwMux)
 
 	// 注册健康检查 - 使用安全访问
-	configSafe := goconfig.SafeConfig(s.config)
-	if configSafe.Field("Health").Field("Enabled").Bool(false) {
-		healthPath := configSafe.Field("Health").Field("Path").String("/health")
+	if s.configSafe.IsHealthEnabled() {
+		healthPath := s.configSafe.GetHealthPath("/health")
 		s.httpMux.HandleFunc(healthPath, s.healthCheckHandler)
 
-		httpEndpoint := configSafe.Field("HTTPServer").Field("Host").String("0.0.0.0") + ":" +
-			string(rune(configSafe.Field("HTTPServer").Field("Port").Int(8080)))
+		httpEndpoint := s.configSafe.Field("HTTPServer").Field("Host").String("0.0.0.0") + ":" +
+			string(rune(s.configSafe.Field("HTTPServer").Field("Port").Int(8080)))
 		global.LOGGER.InfoKV("❤️  健康检查已启用",
 			"url", "http://"+httpEndpoint+healthPath)
 
@@ -96,12 +93,12 @@ func (s *Server) initHTTPGateway() error {
 	}
 
 	// 注册监控指标端点 - 使用安全访问
-	if configSafe.Field("Monitoring").Field("Metrics").Field("Enabled").Bool(false) {
-		prometheusPath := configSafe.Field("Monitoring").Field("Prometheus").Field("Path").String("/metrics")
+	if s.configSafe.IsMetricsEnabled() {
+		prometheusPath := s.configSafe.GetMetricsEndpoint("/metrics")
 		s.httpMux.Handle(prometheusPath, promhttp.Handler())
 
-		httpEndpoint := configSafe.Field("HTTPServer").Field("Host").String("0.0.0.0") + ":" +
-			string(rune(configSafe.Field("HTTPServer").Field("Port").Int(8080)))
+		httpEndpoint := s.configSafe.Field("HTTPServer").Field("Host").String("0.0.0.0") + ":" +
+			string(rune(s.configSafe.Field("HTTPServer").Field("Port").Int(8080)))
 		global.LOGGER.InfoKV("📊 监控指标服务可用",
 			"url", "http://"+httpEndpoint+prometheusPath)
 	}
@@ -110,14 +107,14 @@ func (s *Server) initHTTPGateway() error {
 	var handler http.Handler = s.httpMux
 
 	// 首先应用Gzip压缩中间件（如果启用）
-	if configSafe.Field("HTTPServer").Field("EnableGzipCompress").Bool(false) {
+	if s.configSafe.Field("HTTPServer").Field("EnableGzipCompress").Bool(false) {
 		handler = s.gzipMiddleware(handler)
 		global.LOGGER.InfoMsg("✅ HTTP Gzip压缩已启用")
 	}
 
 	if s.middlewareManager != nil {
 		var middlewares []middleware.MiddlewareFunc
-		if configSafe.Field("Debug").Bool(false) {
+		if s.configSafe.Field("Debug").Bool(false) {
 			middlewares = s.middlewareManager.GetDevelopmentMiddlewares()
 		} else {
 			middlewares = s.middlewareManager.GetDefaultMiddlewares()
@@ -126,7 +123,7 @@ func (s *Server) initHTTPGateway() error {
 	}
 
 	// 创建HTTP服务器 - 使用安全访问
-	httpSafe := configSafe.Field("HTTPServer")
+	httpSafe := s.configSafe.Field("HTTPServer")
 	s.httpServer = &http.Server{
 		Addr:           fmt.Sprintf("%s:%d", httpSafe.Field("Host").String("0.0.0.0"), httpSafe.Field("Port").Int(8080)),
 		Handler:        handler,
@@ -141,14 +138,13 @@ func (s *Server) initHTTPGateway() error {
 
 // registerComponentHealthChecks 注册组件级健康检查端点
 func (s *Server) registerComponentHealthChecks() {
-	configSafe := goconfig.SafeConfig(s.config)
-	httpSafe := configSafe.Field("HTTPServer")
+	httpSafe := s.configSafe.Field("HTTPServer")
 	baseURL := fmt.Sprintf("http://%s:%d",
 		httpSafe.Field("Host").String("0.0.0.0"),
 		httpSafe.Field("Port").Int(8080))
 
 	// 注册Redis健康检查
-	healthSafe := configSafe.Field("Health")
+	healthSafe := s.configSafe.Field("Health")
 	if healthSafe.Field("Redis").Field("Enabled").Bool(false) {
 		redisPath := healthSafe.Field("Redis").Field("Path").String("/health/redis")
 		s.httpMux.HandleFunc(redisPath, s.redisHealthCheckHandler)

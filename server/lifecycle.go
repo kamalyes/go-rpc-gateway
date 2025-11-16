@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 14:13:28
+ * @LastEditTime: 2025-11-15 15:02:34
  * @FilePath: \go-rpc-gateway\server\lifecycle.go
  * @Description: 服务器生命周期管理模块，包括启动、停止等
  *
@@ -17,7 +17,6 @@ import (
 
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
-	safe "github.com/kamalyes/go-toolbox/pkg/safe"
 )
 
 // Start 启动服务器
@@ -52,18 +51,31 @@ func (s *Server) Start() error {
 		}
 	}()
 
+	// 启动 WebSocket 服务（如果已初始化）
+	if s.webSocketService != nil {
+		if err := s.webSocketService.Start(); err != nil {
+			logger.WithError(err).WarnMsg("WebSocket service failed to start")
+			// 不中断整个系统启动
+		}
+	}
+
 	s.running = true
 
 	// 使用安全访问获取端点信息
-	configSafe := safe.Safe(s.config)
-	httpHost := configSafe.Field("HTTPServer").Field("Host").String("0.0.0.0")
-	httpPort := configSafe.Field("HTTPServer").Field("Port").Int(8080)
-	grpcHost := configSafe.Field("GRPC").Field("Server").Field("Host").String("0.0.0.0")
-	grpcPort := configSafe.Field("GRPC").Field("Server").Field("Port").Int(9090)
+	httpHost := s.configSafe.Field("HTTPServer").Field("Host").String("0.0.0.0")
+	httpPort := s.configSafe.Field("HTTPServer").Field("Port").Int(8080)
+	grpcHost := s.configSafe.Field("GRPC").Field("Server").Field("Host").String("0.0.0.0")
+	grpcPort := s.configSafe.Field("GRPC").Field("Server").Field("Port").Int(9090)
+
+	endpointMsg := fmt.Sprintf("http://%s:%d, grpc://%s:%d", httpHost, httpPort, grpcHost, grpcPort)
+	if s.webSocketService != nil && s.webSocketService.IsRunning() {
+		wsHost := s.webSocketService.GetConfig().NodeIP
+		wsPort := s.webSocketService.GetConfig().NodePort
+		endpointMsg += fmt.Sprintf(", ws://%s:%d", wsHost, wsPort)
+	}
 
 	logger.InfoKV("🚀 Gateway启动成功!",
-		"http_endpoint", fmt.Sprintf("%s:%d", httpHost, httpPort),
-		"grpc_endpoint", fmt.Sprintf("%s:%d", grpcHost, grpcPort))
+		"endpoints", endpointMsg)
 
 	return nil
 }
@@ -83,6 +95,13 @@ func (s *Server) Stop() error {
 
 	// 取消上下文
 	s.cancel()
+
+	// 停止 WebSocket 服务
+	if s.webSocketService != nil {
+		if err := s.webSocketService.Stop(); err != nil {
+			logger.WithError(err).WarnMsg("Failed to stop WebSocket service")
+		}
+	}
 
 	// 停止HTTP服务器
 	if err := s.stopHTTPServer(); err != nil {

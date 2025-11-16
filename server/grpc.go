@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 11:13:52
+ * @LastEditTime: 2025-11-15 15:09:37
  * @FilePath: \go-rpc-gateway\server\grpc.go
  * @Description: gRPC服务器初始化和启动模块
  *
@@ -16,7 +16,6 @@ import (
 	"net"
 	"time"
 
-	goconfig "github.com/kamalyes/go-config"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"google.golang.org/grpc"
@@ -28,8 +27,7 @@ import (
 // go-config 的 Default() 已经设置了所有默认值，无需再次设置
 func (s *Server) initGRPCServer() error {
 	// 使用安全访问模式
-	configSafe := goconfig.SafeConfig(s.config)
-	grpcSafe := configSafe.Field("GRPC").Field("Server")
+	grpcSafe := s.configSafe.Field("GRPC").Field("Server")
 
 	opts := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(grpcSafe.Field("MaxRecvMsgSize").Int(4194304)),
@@ -98,8 +96,7 @@ func (s *Server) initGRPCServer() error {
 
 // startGRPCServer 启动gRPC服务器
 func (s *Server) startGRPCServer() error {
-	configSafe := goconfig.SafeConfig(s.config)
-	grpcSafe := configSafe.Field("GRPC").Field("Server")
+	grpcSafe := s.configSafe.Field("GRPC").Field("Server")
 
 	// 安全获取网络和地址配置
 	network := grpcSafe.Field("Network").String("tcp")

@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 02:25:08
- * @FilePath: \go-rpc-gateway\server\swagger.go
+ * @LastEditTime: 2025-11-15 16:31:53
+ * @FilePath: \engine-im-service\go-rpc-gateway\server\swagger.go
  * @Description: Swagger 文档服务管理
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
@@ -14,90 +14,35 @@ package server
 import (
 	"net/http"
 
-	goconfig "github.com/kamalyes/go-config"
 	goswagger "github.com/kamalyes/go-config/pkg/swagger"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
+	"github.com/kamalyes/go-toolbox/pkg/safe"
 )
-
-// getString 安全获取map中的字符串值
-func getString(m map[string]interface{}, key string) string {
-	if v, ok := m[key]; ok {
-		if str, ok := v.(string); ok {
-			return str
-		}
-	}
-	return ""
-}
-
-// getBool 安全获取map中的布尔值
-func getBool(m map[string]interface{}, key string) bool {
-	if v, ok := m[key]; ok {
-		if b, ok := v.(bool); ok {
-			return b
-		}
-	}
-	return false
-}
-
-// getStringSlice 安全获取map中的字符串切片
-func getStringSlice(m map[string]interface{}, key string) []string {
-	if v, ok := m[key]; ok {
-		if slice, ok := v.([]interface{}); ok {
-			result := make([]string, 0, len(slice))
-			for _, item := range slice {
-				if str, ok := item.(string); ok {
-					result = append(result, str)
-				}
-			}
-			return result
-		}
-	}
-	return nil
-}
 
 // EnableSwagger 启用 Swagger 文档服务
 func (s *Server) EnableSwagger() error {
 	// 使用安全访问模式获取 Swagger 配置
-	configSafe := goconfig.SafeConfig(s.config)
-	swaggerSafe := configSafe.Field("Swagger")
+	swaggerSafe := s.configSafe.Field("Swagger")
 
 	swaggerConfig := goswagger.Default().
-		WithEnabled(swaggerSafe.Field("Enabled").Bool(false)).
-		WithJSONPath(swaggerSafe.Field("JSONPath").String("")).
-		WithUIPath(swaggerSafe.Field("UIPath").String("/swagger")).
-		WithTitle(swaggerSafe.Field("Title").String("API Documentation")).
-		WithDescription(swaggerSafe.Field("Description").String("")).
-		WithVersion(swaggerSafe.Field("Version").String("1.0.0"))
+		WithEnabled(swaggerSafe.Field("enabled").Bool(false)).
+		WithJSONPath(swaggerSafe.Field("json_path").String("")).
+		WithUIPath(swaggerSafe.Field("ui_path").String("/swagger")).
+		WithTitle(swaggerSafe.Field("title").String("API Documentation")).
+		WithDescription(swaggerSafe.Field("description").String("")).
+		WithVersion(swaggerSafe.Field("version").String("1.0.0"))
 
 	// 处理 Aggregate 配置
-	if aggregateSafe := swaggerSafe.Field("Aggregate"); aggregateSafe.IsValid() {
+	if aggregateSafe := swaggerSafe.Field("aggregate"); aggregateSafe.IsValid() {
 		aggregate := &goswagger.AggregateConfig{
-			Enabled: aggregateSafe.Field("Enabled").Bool(false),
-			Mode:    aggregateSafe.Field("Mode").String("merge"),
+			Enabled: aggregateSafe.Field("enabled").Bool(false),
+			Mode:    aggregateSafe.Field("mode").String("merge"),
 		}
 
 		// 处理服务列表
-		if servicesSafe := aggregateSafe.Field("Services"); servicesSafe.IsValid() {
-			if servicesValue := servicesSafe.Value(); servicesValue != nil {
-				if servicesSlice, ok := servicesValue.([]interface{}); ok {
-					for _, serviceInterface := range servicesSlice {
-						if serviceMap, ok := serviceInterface.(map[string]interface{}); ok {
-							service := &goswagger.ServiceSpec{
-								Name:        getString(serviceMap, "name"),
-								Description: getString(serviceMap, "description"),
-								SpecPath:    getString(serviceMap, "spec_path"),
-								URL:         getString(serviceMap, "url"),
-								Version:     getString(serviceMap, "version"),
-								Enabled:     getBool(serviceMap, "enabled"),
-								BasePath:    getString(serviceMap, "base_path"),
-								Tags:        getStringSlice(serviceMap, "tags"),
-							}
-							aggregate.Services = append(aggregate.Services, service)
-						}
-					}
-				}
-			}
+		if servicesSafe := aggregateSafe.Field("services"); servicesSafe.IsValid() {
+			aggregate.Services = s.parseAggregateServices(servicesSafe)
 		}
 
 		swaggerConfig = swaggerConfig.WithAggregate(aggregate)
@@ -121,13 +66,27 @@ func (s *Server) EnableSwagger() error {
 	}
 
 	return s.EnableSwaggerWithConfig(swaggerConfig)
-} // EnableSwaggerWithConfig 使用 go-config 的 Swagger 配置启用服务
+}
+
+// EnableSwaggerWithConfig 使用 go-config 的 Swagger 配置启用服务
 func (s *Server) EnableSwaggerWithConfig(config *goswagger.Swagger) error {
 	if !config.Enabled {
 		return nil
 	}
 
-	// 直接使用 go-config 的配置创建中间件
+	// 验证并修正 UIPath 以避免路由冲突
+	if config.UIPath == "" || config.UIPath == "/" {
+		originalPath := config.UIPath
+		config.UIPath = "/swagger"
+		global.LOGGER.WarnKV("⚠️  Swagger UIPath为空或根路径，已重置为默认值",
+			"original_path", originalPath,
+			"new_path", "/swagger")
+	}
+
+	global.LOGGER.InfoKV("🔧 启用Swagger配置",
+		"ui_path", config.UIPath,
+		"json_path", config.JSONPath,
+		"enabled", config.Enabled) // 直接使用 go-config 的配置创建中间件
 	swaggerMiddleware := middleware.NewSwaggerMiddleware(config)
 
 	// 创建处理函数
@@ -151,4 +110,53 @@ func (s *Server) EnableSwaggerWithConfig(config *goswagger.Swagger) error {
 		"title", config.Title)
 
 	return nil
+}
+
+// parseAggregateServices 解析聚合服务配置
+func (s *Server) parseAggregateServices(servicesSafe interface{ Value() interface{} }) []*goswagger.ServiceSpec {
+	var services []*goswagger.ServiceSpec
+
+	servicesValue := servicesSafe.Value()
+	if servicesValue == nil {
+		return services
+	}
+
+	servicesSlice, ok := servicesValue.([]interface{})
+	if !ok {
+		global.LOGGER.Warn("services 配置不是数组类型")
+		return services
+	}
+
+	for i, serviceInterface := range servicesSlice {
+		serviceMap, ok := serviceInterface.(map[string]interface{})
+		if !ok {
+			global.LOGGER.WarnKV("跳过无效的服务配置", "index", i, "type", "not_map")
+			continue
+		}
+
+		service := &goswagger.ServiceSpec{
+			Name:        safe.SafeGetString(serviceMap, "name"),
+			Description: safe.SafeGetString(serviceMap, "description"),
+			SpecPath:    safe.SafeGetString(serviceMap, "spec_path"),
+			URL:         safe.SafeGetString(serviceMap, "url"),
+			Version:     safe.SafeGetString(serviceMap, "version"),
+			Enabled:     safe.SafeGetBool(serviceMap, "enabled"),
+			BasePath:    safe.SafeGetString(serviceMap, "base_path"),
+			Tags:        safe.SafeGetStringSlice(serviceMap, "tags"),
+		}
+
+		// 验证必要字段
+		if service.Name == "" {
+			global.LOGGER.WarnKV("跳过缺少名称的服务配置", "index", i)
+			continue
+		}
+
+		services = append(services, service)
+		global.LOGGER.DebugKV("解析服务配置",
+			"name", service.Name,
+			"enabled", service.Enabled,
+			"spec_path", service.SpecPath)
+	}
+
+	return services
 }
