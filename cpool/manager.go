@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 07:50:41
- * @FilePath: \go-rpc-gateway\cpool\manager.go
+ * @LastEditTime: 2025-11-17 15:56:59
+ * @FilePath: \im-access-control-service\go-rpc-gateway\cpool\manager.go
  * @Description: 连接池管理器，统一管理数据库、Redis、OSS等客户端连接
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
@@ -24,6 +24,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/cpool/database"
 	"github.com/kamalyes/go-rpc-gateway/cpool/oss"
 	"github.com/kamalyes/go-rpc-gateway/cpool/redis"
+	"github.com/kamalyes/go-rpc-gateway/cpool/smtp"
 	"github.com/minio/minio-go/v7"
 	redisClient "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -33,58 +34,67 @@ import (
 type PoolManager interface {
 	// 初始化所有连接池
 	Initialize(ctx context.Context, cfg *gwconfig.Gateway) error
-	
+
 	// 获取数据库连接
 	GetDB() *gorm.DB
-	
+
 	// 获取Redis客户端
 	GetRedis() *redisClient.Client
-	
+
 	// 获取缓存客户端
 	GetCache() cachex.CtxCache
-	
+
 	// 获取MinIO客户端
 	GetMinIO() *minio.Client
-	
+
+	// 获取Storage处理器
+	GetStorage() oss.StorageHandler
+
 	// 获取MQTT客户端
 	GetMQTT() mqtt.Client
-	
+
 	// 获取雪花ID生成器
 	GetSnowflake() *snowflake.Node
-	
+
 	// 获取Casbin执行器
 	GetCasbin() casbin.IEnforcer
-	
+
+	// 获取SMTP客户端
+	GetSMTP() smtp.MailHandler
+
 	// 设置数据库连接
 	SetDB(db *gorm.DB)
-	
+
 	// 设置Redis客户端
 	SetRedis(rdb *redisClient.Client)
-	
+
 	// 设置缓存客户端
 	SetCache(cache cachex.CtxCache)
-	
+
 	// 设置MinIO客户端
 	SetMinIO(minio *minio.Client)
-	
+
 	// 设置MQTT客户端
 	SetMQTT(mqtt mqtt.Client)
-	
+
 	// 设置雪花ID生成器
 	SetSnowflake(node *snowflake.Node)
-	
+
 	// 设置Casbin执行器
 	SetCasbin(enforcer casbin.IEnforcer)
-	
+
+	// 设置SMTP客户端
+	SetSMTP(smtp smtp.MailHandler)
+
 	// 设置国际化管理器
 	SetI18n(i18n interface{})
-	
+
 	// 获取国际化管理器
 	GetI18n() interface{}
-	
+
 	// 关闭所有连接
 	Close() error
-	
+
 	// 检查连接状态
 	HealthCheck() map[string]bool
 }
@@ -93,17 +103,19 @@ type PoolManager interface {
 type Manager struct {
 	cfg    *gwconfig.Gateway
 	logger logger.ILogger
-	
+
 	// 连接实例
 	db        *gorm.DB
 	redis     *redisClient.Client
 	cache     cachex.CtxCache
 	minio     *minio.Client
+	storage   oss.StorageHandler
+	smtp      smtp.MailHandler
 	mqtt      mqtt.Client
 	snowflake *snowflake.Node
 	casbin    casbin.IEnforcer
 	i18n      interface{}
-	
+
 	// 状态管理
 	initialized bool
 	mu          sync.RWMutex
@@ -125,49 +137,57 @@ func NewManager(log logger.ILogger) *Manager {
 func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.initialized {
 		return fmt.Errorf("pool manager already initialized")
 	}
-	
+
 	m.cfg = cfg
-	
+
 	if m.logger == nil {
 		return fmt.Errorf("logger not initialized")
 	}
-	
+
 	// 初始化各个连接池
 	if err := m.initDatabase(); err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
-	
+
 	if err := m.initRedis(); err != nil {
 		return fmt.Errorf("failed to initialize redis: %w", err)
 	}
-	
+
 	if err := m.initCache(); err != nil {
 		return fmt.Errorf("failed to initialize cache: %w", err)
 	}
-	
+
 	if err := m.initMinIO(); err != nil {
 		return fmt.Errorf("failed to initialize minio: %w", err)
 	}
-	
+
+	if err := m.initStorage(); err != nil {
+		return fmt.Errorf("failed to initialize storage: %w", err)
+	}
+
+	if err := m.initSMTP(); err != nil {
+		return fmt.Errorf("failed to initialize smtp: %w", err)
+	}
+
 	if err := m.initMQTT(); err != nil {
 		return fmt.Errorf("failed to initialize mqtt: %w", err)
 	}
-	
+
 	if err := m.initSnowflake(); err != nil {
 		return fmt.Errorf("failed to initialize snowflake: %w", err)
 	}
-	
+
 	if err := m.initCasbin(); err != nil {
 		return fmt.Errorf("failed to initialize casbin: %w", err)
 	}
-	
+
 	m.initialized = true
 	m.logger.Info("Connection pool manager initialized successfully")
-	
+
 	return nil
 }
 
@@ -180,7 +200,7 @@ func (m *Manager) initDatabase() error {
 	} else {
 		m.logger.Warn("Failed to initialize database")
 	}
-	
+
 	return nil
 }
 
@@ -194,7 +214,7 @@ func (m *Manager) initRedis() error {
 	} else {
 		m.logger.Warn("Failed to initialize Redis")
 	}
-	
+
 	return nil
 }
 
@@ -210,7 +230,7 @@ func (m *Manager) initCache() error {
 
 // initMinIO 初始化MinIO客户端
 func (m *Manager) initMinIO() error {
-	// 检查 MinIO 配置是否存在  
+	// 检查 MinIO 配置是否存在
 	minio := oss.Minio(m.cfg, m.logger)
 	if minio != nil {
 		m.minio = minio
@@ -218,7 +238,43 @@ func (m *Manager) initMinIO() error {
 	} else {
 		m.logger.Warn("Failed to initialize MinIO")
 	}
-	
+
+	return nil
+}
+
+// initStorage 初始化Storage处理器
+func (m *Manager) initStorage() error {
+	// 创建统一的Storage处理器
+	storage, err := oss.NewStorage(m.cfg, m.logger)
+	if err != nil {
+		m.logger.Warn("Failed to initialize Storage: %v", err)
+		return nil // 非关键组件,不阻止启动
+	}
+
+	m.storage = storage
+	m.logger.Info("Storage initialized successfully")
+
+	return nil
+}
+
+// initSMTP 初始化SMTP客户端
+func (m *Manager) initSMTP() error {
+	// 检查 SMTP 配置是否存在
+	if m.cfg.Smtp == nil {
+		m.logger.Info("SMTP configuration not found, skipping initialization")
+		return nil
+	}
+
+	// 创建SMTP客户端
+	smtpClient, err := smtp.NewSmtpClient(m.cfg.Smtp, m.logger)
+	if err != nil {
+		m.logger.Warn("Failed to initialize SMTP: %v", err)
+		return nil // 非关键组件,不阻止启动
+	}
+
+	m.smtp = smtpClient
+	m.logger.Info("SMTP initialized successfully")
+
 	return nil
 }
 
@@ -237,10 +293,10 @@ func (m *Manager) initSnowflake() error {
 		m.logger.ErrorKV("Failed to create snowflake node", "error", err)
 		return nil // 非关键组件，不阻止启动
 	}
-	
+
 	m.snowflake = node
 	m.logger.Info("Snowflake ID generator initialized successfully")
-	
+
 	return nil
 }
 
@@ -277,6 +333,13 @@ func (m *Manager) GetMinIO() *minio.Client {
 	return m.minio
 }
 
+// GetStorage 获取Storage处理器
+func (m *Manager) GetStorage() oss.StorageHandler {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.storage
+}
+
 func (m *Manager) GetMQTT() mqtt.Client {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -293,6 +356,12 @@ func (m *Manager) GetCasbin() casbin.IEnforcer {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.casbin
+}
+
+func (m *Manager) GetSMTP() smtp.MailHandler {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.smtp
 }
 
 // Setter methods
@@ -338,6 +407,12 @@ func (m *Manager) SetCasbin(enforcer casbin.IEnforcer) {
 	m.casbin = enforcer
 }
 
+func (m *Manager) SetSMTP(smtpClient smtp.MailHandler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.smtp = smtpClient
+}
+
 func (m *Manager) SetI18n(i18n interface{}) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -354,13 +429,13 @@ func (m *Manager) GetI18n() interface{} {
 func (m *Manager) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if !m.initialized {
 		return nil
 	}
-	
+
 	var errs []error
-	
+
 	// 关闭数据库连接
 	if m.db != nil {
 		if sqlDB, err := m.db.DB(); err == nil {
@@ -369,32 +444,48 @@ func (m *Manager) Close() error {
 			}
 		}
 	}
-	
+
 	// 关闭Redis连接
 	if m.redis != nil {
 		if err := m.redis.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close redis: %w", err))
 		}
 	}
-	
+
+	// 关闭Storage
+	if m.storage != nil {
+		if err := m.storage.Close(); err != nil {
+			m.logger.ErrorKV("Failed to close storage", "error", err)
+		}
+		m.storage = nil
+	}
+
+	// 关闭SMTP
+	if m.smtp != nil {
+		if err := m.smtp.Close(); err != nil {
+			m.logger.ErrorKV("Failed to close SMTP", "error", err)
+		}
+		m.smtp = nil
+	}
+
 	// 关闭MQTT连接
 	if m.mqtt != nil {
 		if m.mqtt.IsConnected() {
 			m.mqtt.Disconnect(250)
 		}
 	}
-	
+
 	// 取消上下文
 	if m.cancel != nil {
 		m.cancel()
 	}
-	
+
 	m.initialized = false
-	
+
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing connections: %v", errs)
 	}
-	
+
 	m.logger.Info("Connection pool manager closed successfully")
 	return nil
 }
@@ -403,9 +494,9 @@ func (m *Manager) Close() error {
 func (m *Manager) HealthCheck() map[string]bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	status := make(map[string]bool)
-	
+
 	// 检查数据库
 	if m.db != nil {
 		if sqlDB, err := m.db.DB(); err == nil {
@@ -414,24 +505,24 @@ func (m *Manager) HealthCheck() map[string]bool {
 			status["database"] = false
 		}
 	}
-	
+
 	// 检查Redis
 	if m.redis != nil {
 		ctx := context.Background()
 		_, err := m.redis.Ping(ctx).Result()
 		status["redis"] = err == nil
 	}
-	
+
 	// 检查MinIO
 	if m.minio != nil {
 		_, err := m.minio.HealthCheck(3)
 		status["minio"] = err == nil
 	}
-	
+
 	// 检查MQTT
 	if m.mqtt != nil {
 		status["mqtt"] = m.mqtt.IsConnected()
 	}
-	
+
 	return status
 }

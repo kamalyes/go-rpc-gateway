@@ -70,5 +70,4 @@ var RecoverySensitiveKeywords = []string{
 var RecoveryStackTraceSkipPackages = []string{
 	"runtime/",
 	"net/http/",
-	"github.com/gin-gonic/gin",
 }

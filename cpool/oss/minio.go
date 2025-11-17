@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2023-07-28 00:50:58
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 07:49:43
+ * @LastEditTime: 2025-11-17 15:56:59
  * @FilePath: \go-rpc-gateway\cpool\oss\minio.go
  * @Description: MinIO客户端，兼容Gateway结构
  *
@@ -22,17 +22,13 @@ import (
 // Minio 初始化minio客户端
 func Minio(cfg *gwconfig.Gateway, log logger.ILogger) *minio.Client {
 	if cfg.OSS == nil || cfg.OSS.Minio == nil {
-		if log != nil {
-			log.Warn("MinIO configuration not found")
-		}
+		log.Warn("MinIO configuration not found")
 		return nil
 	}
 
 	minioCfg := cfg.OSS.Minio
 	if minioCfg.Endpoint == "" {
-		if log != nil {
-			log.Warn("MinIO endpoint not configured")
-		}
+		log.Warn("MinIO endpoint not configured")
 		return nil
 	}
 
@@ -42,24 +38,18 @@ func Minio(cfg *gwconfig.Gateway, log logger.ILogger) *minio.Client {
 		Secure: minioCfg.UseSSL,
 	})
 	if err != nil {
-		if log != nil {
-			log.ErrorKV("MinIO new client failed", "err", err)
-		}
+		log.ErrorKV("MinIO new client failed", "err", err)
 		return nil
 	}
 
 	// 检查服务状态
 	_, err = client.HealthCheck(5 * time.Second)
 	if err != nil {
-		if log != nil {
-			log.ErrorKV("MinIO connect ping failed", "err", err)
-		}
+		log.ErrorKV("MinIO connect ping failed", "err", err)
 		return nil
 	}
 
-	if log != nil {
-		log.Info("MinIO client initialized successfully")
-	}
+	log.Info("MinIO client initialized successfully")
 
 	return client
 }
