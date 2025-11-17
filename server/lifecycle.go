@@ -13,10 +13,12 @@ package server
 
 import (
 	"fmt"
-	"time"
-
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 // Start 启动服务器
@@ -147,4 +149,42 @@ func (s *Server) IsRunning() bool {
 // Wait 等待服务器运行
 func (s *Server) Wait() {
 	s.wg.Wait()
+}
+
+// WaitForShutdown 等待关闭信号并优雅关闭服务器
+func (s *Server) WaitForShutdown() error {
+	logger := global.LOGGER
+
+	// 等待系统信号进行优雅关闭
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	logger.InfoMsg("🎯 服务器运行中，按 Ctrl+C 优雅关闭")
+	<-quit
+
+	logger.InfoMsg("🛑 收到关闭信号，开始优雅关闭...")
+
+	// 优雅关闭
+	if err := s.Shutdown(); err != nil {
+		logger.WithError(err).ErrorMsg("Failed to shutdown server gracefully")
+		return err
+	}
+
+	logger.InfoMsg("✅ 服务器已优雅关闭")
+	return nil
+}
+
+// Run 启动服务器并等待信号进行优雅关闭（一键启动）
+// 这是最简单的启动方式，使用者只需要调用这一个方法即可
+func (s *Server) Run() error {
+	logger := global.LOGGER
+
+	// 启动服务器
+	if err := s.Start(); err != nil {
+		logger.WithError(err).ErrorMsg("Failed to start server")
+		return err
+	}
+
+	// 等待关闭信号
+	return s.WaitForShutdown()
 }

@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-17 18:22:31
+ * @LastEditTime: 2025-11-17 21:51:09
  * @FilePath: \engine-im-agent-service\go-rpc-gateway\gateway.go
  * @Description: Gateway主入口，基于go-config
  *
@@ -16,14 +16,6 @@ package gateway
 
 import (
 	"context"
-	"fmt"
-	"net/http"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
-
 	"github.com/bwmarrin/snowflake"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	goconfig "github.com/kamalyes/go-config"
@@ -31,12 +23,20 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/cpool"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-rpc-gateway/middleware"
+	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/kamalyes/go-rpc-gateway/server"
 	wsc "github.com/kamalyes/go-wsc"
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 )
 
 // Gateway 是主要的网关服务器
@@ -147,7 +147,7 @@ func (b *GatewayBuilder) Silent() *GatewayBuilder {
 func (b *GatewayBuilder) Build() (*Gateway, error) {
 	// 确保全局日志器被初始化
 	if err := global.EnsureLoggerInitialized(); err != nil {
-		return nil, fmt.Errorf("初始化日志器失败: %w", err)
+		return nil, errors.NewError(errors.ErrCodeInitializationError, errors.FormatInitError("日志器", err))
 	}
 
 	// 创建配置实例
@@ -242,7 +242,7 @@ func (b *GatewayBuilder) BuildAndStart(ctx ...context.Context) (*Gateway, error)
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("启动Gateway失败: %w", err)
+		return nil, errors.NewError(errors.ErrCodeOperationFailed, errors.FormatStartupError("Gateway", err))
 	}
 
 	return gateway, nil
@@ -252,7 +252,7 @@ func (b *GatewayBuilder) BuildAndStart(ctx ...context.Context) (*Gateway, error)
 func (b *GatewayBuilder) MustBuildAndStart(ctx ...context.Context) *Gateway {
 	gateway, err := b.BuildAndStart(ctx...)
 	if err != nil {
-		panic(fmt.Sprintf("构建并启动Gateway失败: %v", err))
+		panic(errors.FormatPanicError("构建并启动Gateway", err))
 	}
 	return gateway
 }
@@ -268,12 +268,12 @@ func (b *GatewayBuilder) initializeGlobalState(manager *goconfig.IntegratedConfi
 
 	// 注册全局配置变更回调
 	if err := b.registerGlobalConfigCallbacks(manager); err != nil {
-		return fmt.Errorf("注册全局配置回调失败: %w", err)
+		return errors.NewError(errors.ErrCodeInvalidConfiguration, errors.FormatConfigError("注册全局配置回调", err))
 	}
 
 	// 初始化其他组件
 	if err := b.initializeComponents(); err != nil {
-		return fmt.Errorf("初始化组件失败: %w", err)
+		return errors.NewError(errors.ErrCodeInitializationError, errors.FormatInitError("组件", err))
 	}
 
 	return nil
@@ -305,7 +305,7 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 	})
 
 	if err != nil {
-		return fmt.Errorf("注册配置变更回调失败: %w", err)
+		return errors.NewError(errors.ErrCodeInvalidConfiguration, errors.FormatConfigError("注册配置变更回调", err))
 	}
 
 	// 注册环境变更回调
@@ -316,7 +316,7 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 		}, goconfig.CallbackPriorityHigh, false)
 
 	if err != nil {
-		return fmt.Errorf("注册环境变更回调失败: %w", err)
+		return errors.NewError(errors.ErrCodeInvalidConfiguration, errors.FormatConfigError("注册环境变更回调", err))
 	}
 
 	return nil
@@ -495,6 +495,66 @@ func (g *Gateway) IsFeatureEnabled(feature server.FeatureType) bool {
 	return g.Server.IsFeatureEnabled(feature)
 }
 
+// ===============================================================================
+// 响应处理相关方法 - 基于错误码的标准化响应
+// ===============================================================================
+
+// EnableResponseHandler 启用响应处理中间件
+func (g *Gateway) EnableResponseHandler(format response.ResponseFormat) error {
+	config := middleware.DefaultResponseHandlerConfig()
+	config.Format = format
+
+	// 设置全局响应格式
+	g.SetGlobalResponseFormat(format)
+
+	// 由于当前架构的限制，我们通过全局错误处理器来实现响应处理功能
+	middleware.SetGlobalErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
+		format := middleware.GetResponseFormatFromRequest(r)
+		middleware.HandleError(w, r, err, format)
+	})
+
+	global.LOGGER.InfoKV("✅ 响应处理中间件已启用", "format", format)
+	global.LOGGER.Info("响应处理将通过全局错误处理器和便捷方法提供支持")
+
+	return nil
+} 
+
+// SetGlobalResponseFormat 设置全局响应格式
+func (g *Gateway) SetGlobalResponseFormat(format response.ResponseFormat) {
+	global.LOGGER.InfoKV("设置全局响应格式", "format", format)
+	// 可以将格式存储在全局配置中
+}
+
+// SetGlobalErrorHandler 设置全局错误处理器
+func (g *Gateway) SetGlobalErrorHandler(handler middleware.ErrorHandlerFunc) {
+	middleware.SetGlobalErrorHandler(handler)
+	global.LOGGER.Info("设置全局错误处理器")
+}
+
+// HandleErrorResponse 统一错误响应处理
+func (g *Gateway) HandleErrorResponse(w http.ResponseWriter, r *http.Request, err error) {
+	format := middleware.GetResponseFormatFromRequest(r)
+	middleware.HandleError(w, r, err, format)
+}
+
+// WriteSuccessResponse 写入成功响应
+func (g *Gateway) WriteSuccessResponse(w http.ResponseWriter, r *http.Request, data interface{}, message ...string) {
+	format := middleware.GetResponseFormatFromRequest(r)
+	response.WriteStandardResponse(w, format, http.StatusOK, data, message...)
+}
+
+// WriteErrorResponse 写入错误响应
+func (g *Gateway) WriteErrorResponse(w http.ResponseWriter, r *http.Request, code errors.ErrorCode, details ...string) {
+	format := middleware.GetResponseFormatFromRequest(r)
+	response.WriteStandardErrorWithCode(w, format, code, details...)
+}
+
+// WriteListResponse 写入列表响应
+func (g *Gateway) WriteListResponse(w http.ResponseWriter, r *http.Request, list interface{}, pagination *response.PaginationMeta, message ...string) {
+	format := middleware.GetResponseFormatFromRequest(r)
+	response.WriteStandardList(w, format, list, pagination, message...)
+}
+
 // GetConfig 获取网关配置
 func (g *Gateway) GetConfig() *gwconfig.Gateway {
 	return g.Server.GetConfig()
@@ -540,7 +600,7 @@ func (g *Gateway) StartWithBanner() error {
 
 	// 启动服务
 	if err := g.Server.Start(); err != nil {
-		fmt.Printf("启动网关失败: %v\n", err)
+		global.LOGGER.Error("启动网关失败: %v", err)
 		return err
 	}
 
@@ -598,44 +658,44 @@ func (g *Gateway) PrintShutdownComplete() {
 
 // PrintAPIRegistrationSummary 打印API注册汇总信息
 func (g *Gateway) PrintAPIRegistrationSummary() {
-	fmt.Println("\n" + strings.Repeat("=", 80))
-	fmt.Println("📋 API 注册汇总 (API Registration Summary)")
-	fmt.Println(strings.Repeat("=", 80))
+	global.LOGGER.Info("\n%s", strings.Repeat("=", 80))
+	global.LOGGER.Info("📋 API 注册汇总 (API Registration Summary)")
+	global.LOGGER.Info("%s", strings.Repeat("=", 80))
 
 	// gRPC 服务统计
-	fmt.Printf("\n🔷 gRPC Services: %d\n", len(g.registeredGRPCServices))
+	global.LOGGER.Info("\n🔷 gRPC Services: %d", len(g.registeredGRPCServices))
 	if len(g.registeredGRPCServices) > 0 {
 		for i, svc := range g.registeredGRPCServices {
-			fmt.Printf("  %d. %s\n", i+1, svc)
+			global.LOGGER.Info("  %d. %s", i+1, svc)
 		}
 	} else {
-		fmt.Println("  (无注册服务)")
+		global.LOGGER.Info("  (无注册服务)")
 	}
 
 	// gRPC-Gateway 处理器统计
-	fmt.Printf("\n🌐 gRPC-Gateway Handlers: %d\n", len(g.registeredGatewayHandlers))
+	global.LOGGER.Info("\n🌐 gRPC-Gateway Handlers: %d", len(g.registeredGatewayHandlers))
 	if len(g.registeredGatewayHandlers) > 0 {
 		for i, handler := range g.registeredGatewayHandlers {
-			fmt.Printf("  %d. %s\n", i+1, handler)
+			global.LOGGER.Info("  %d. %s", i+1, handler)
 		}
 	} else {
-		fmt.Println("  (无注册处理器)")
+		global.LOGGER.Info("  (无注册处理器)")
 	}
 
 	// HTTP 路由统计
-	fmt.Printf("\n🔗 HTTP Routes: %d\n", len(g.registeredHTTPRoutes))
+	global.LOGGER.Info("\n🔗 HTTP Routes: %d", len(g.registeredHTTPRoutes))
 	if len(g.registeredHTTPRoutes) > 0 {
 		for i, route := range g.registeredHTTPRoutes {
-			fmt.Printf("  %d. %s\n", i+1, route)
+			global.LOGGER.Info("  %d. %s", i+1, route)
 		}
 	} else {
-		fmt.Println("  (无注册路由)")
+		global.LOGGER.Info("  (无注册路由)")
 	}
 
 	// 总计
 	totalAPIs := len(g.registeredGRPCServices) + len(g.registeredGatewayHandlers) + len(g.registeredHTTPRoutes)
-	fmt.Printf("\n✅ 总计注册 API 数量: %d\n", totalAPIs)
-	fmt.Println(strings.Repeat("=", 80) + "\n")
+	global.LOGGER.Info("\n✅ 总计注册 API 数量: %d", totalAPIs)
+	global.LOGGER.Info("%s\n", strings.Repeat("=", 80))
 }
 
 // GetGatewayConfig 获取网关配置
@@ -652,10 +712,10 @@ func (g *Gateway) RegisterConfigCallbacks() {
 	// 注册配置变更回调
 	g.configManager.RegisterConfigCallback(func(ctx context.Context, event goconfig.CallbackEvent) error {
 		if newConfig, ok := event.NewValue.(*gwconfig.Gateway); ok {
-			fmt.Printf("📋 配置已更新: %s\n", newConfig.Name)
+			global.LOGGER.Info(errors.FormatConfigUpdateInfo(newConfig.Name))
 			g.gatewayConfig = newConfig
 			if newConfig.HTTPServer != nil {
-				fmt.Printf("🌐 HTTP端点: %s\n", newConfig.HTTPServer.GetEndpoint())
+				global.LOGGER.Info(errors.FormatConnectionInfo("HTTP", newConfig.HTTPServer.GetEndpoint()))
 			}
 		}
 		return nil
@@ -669,7 +729,7 @@ func (g *Gateway) RegisterConfigCallbacks() {
 
 	// 注册环境变更回调
 	g.configManager.RegisterEnvironmentCallback("gateway_env_handler", func(oldEnv, newEnv goconfig.EnvironmentType) error {
-		fmt.Printf("🌍 环境变更: %s -> %s\n", oldEnv, newEnv)
+		global.LOGGER.Info(errors.FormatEnvironmentChangeInfo(string(oldEnv), string(newEnv)))
 		return nil
 	}, goconfig.CallbackPriorityHigh, false)
 }
@@ -686,6 +746,32 @@ func (g *Gateway) GetDB() *gorm.DB {
 	if poolManager := g.GetPoolManager(); poolManager != nil {
 		return poolManager.GetDB()
 	}
+	return nil
+}
+
+// InitDatabaseModels 初始化数据库模型
+// 使用示例:
+//   err := gateway.InitDatabaseModels(
+//       &models.UserModel{},
+//       &models.OrderModel{},
+//   )
+func (g *Gateway) InitDatabaseModels(models ...interface{}) error {
+	db := g.GetDB()
+	if db == nil {
+		return errors.NewError(errors.ErrCodeInvalidConfiguration, "数据库连接未初始化，请确保在配置中启用了数据库")
+	}
+
+	if len(models) == 0 {
+		global.LOGGER.WarnMsg("没有提供任何模型进行迁移")
+		return nil
+	}
+
+	// 执行自动迁移
+	if err := db.AutoMigrate(models...); err != nil {
+		return errors.NewError(errors.ErrCodeOperationFailed, errors.FormatError("数据库模型迁移失败: %v", err))
+	}
+
+	global.LOGGER.InfoKV("数据库模型迁移完成", "models_count", len(models))
 	return nil
 }
 
@@ -739,7 +825,7 @@ func QuickStart(configPath ...string) error {
 		BuildAndStart()
 
 	if err != nil {
-		return fmt.Errorf("快速启动失败: %w", err)
+		return errors.NewError(errors.ErrCodeOperationFailed, errors.FormatStartupError("快速启动", err))
 	}
 
 	// 等待关闭信号
@@ -755,7 +841,7 @@ func QuickStartWithConfigFile(configFilePath string) error {
 		BuildAndStart()
 
 	if err != nil {
-		return fmt.Errorf("启动失败: %w", err)
+		return errors.NewError(errors.ErrCodeOperationFailed, errors.FormatStartupError("使用指定配置文件启动", err))
 	}
 
 	return gw.WaitForShutdown()
@@ -771,7 +857,7 @@ func QuickStartWithConfigFilePerfix(configFilePath string, perfix string) error 
 		BuildAndStart()
 
 	if err != nil {
-		return fmt.Errorf("启动失败: %w", err)
+		return errors.NewError(errors.ErrCodeOperationFailed, errors.FormatStartupError("使用指定配置文件和前缀启动", err))
 	}
 
 	return gw.WaitForShutdown()
@@ -793,14 +879,14 @@ func (g *Gateway) setupGracefulShutdown() {
 
 	go func() {
 		sig := <-c
-		fmt.Printf("\n🛑 收到信号 %v，开始优雅关闭...\n", sig)
+		global.LOGGER.Info(errors.FormatShutdownInfo(sig.String()))
 
 		// 显示关闭信息
 		g.PrintShutdownInfo()
 
 		// 停止服务
 		if err := g.Stop(); err != nil {
-			fmt.Printf("❌ 停止服务时发生错误: %v\n", err)
+			global.LOGGER.Error(errors.FormatStopError(err))
 		}
 
 		// 显示关闭完成信息
