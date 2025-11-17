@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-10 22:15:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-15 16:47:53
- * @FilePath: \engine-im-service\go-rpc-gateway\middleware\swagger.go
+ * @LastEditTime: 2025-11-17 15:52:42
+ * @FilePath: \im-share-proto\go-rpc-gateway\middleware\swagger.go
  * @Description: Swagger文档中间件 - 提供API文档在线查看
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
@@ -258,14 +258,15 @@ func (s *SwaggerMiddleware) handleSwagger(w http.ResponseWriter, r *http.Request
 // handleSwaggerUI 处理Swagger UI页面
 // [EN] Handle Swagger UI page
 func (s *SwaggerMiddleware) handleSwaggerUI(w http.ResponseWriter, r *http.Request) {
-	htmlTemplate := `<!DOCTYPE html>
+	htmlTemplate := `<!-- HTML for static distribution bundle build -->
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>{{.Title}}</title>
-    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5.0.0/swagger-ui.css" />
-    <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5.0.0/favicon-32x32.png" sizes="32x32" />
-    <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5.0.0/favicon-16x16.png" sizes="16x16" />
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5.30.2/swagger-ui.css" />
+    <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5.30.2/favicon-32x32.png" sizes="32x32" />
+    <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5.30.2/favicon-16x16.png" sizes="16x16" />
     <style>
         html {
             box-sizing: border-box;
@@ -276,25 +277,21 @@ func (s *SwaggerMiddleware) handleSwaggerUI(w http.ResponseWriter, r *http.Reque
             box-sizing: inherit;
         }
         body {
-            margin:0;
+            margin: 0;
             background: #fafafa;
-        }
-        .swagger-ui .topbar {
-            background-color: #89CFF0;
-            border-bottom: 1px solid #bfbfbf;
-        }
-        .swagger-ui .topbar .download-url-wrapper {
-            display: none;
         }
     </style>
 </head>
 <body>
     <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5.0.0/swagger-ui-bundle.js"></script>
-    <script src="https://unpkg.com/swagger-ui-dist@5.0.0/swagger-ui-standalone-preset.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5.30.2/swagger-ui-bundle.js" charset="UTF-8"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5.30.2/swagger-ui-standalone-preset.js" charset="UTF-8"></script>
     <script>
     window.onload = function() {
-        const ui = SwaggerUIBundle({
+        //<editor-fold desc="Changeable Configuration Block">
+        
+        // the following lines will be replaced by docker/configurator, when it runs in a docker-container
+        window.ui = SwaggerUIBundle({
             url: '{{.UIPath}}/swagger.json',
             dom_id: '#swagger-ui',
             deepLinking: true,
@@ -305,17 +302,10 @@ func (s *SwaggerMiddleware) handleSwaggerUI(w http.ResponseWriter, r *http.Reque
             plugins: [
                 SwaggerUIBundle.plugins.DownloadUrl
             ],
-            layout: "StandaloneLayout",
-            validatorUrl: null,
-            docExpansion: "none",
-            operationsSorter: "alpha",
-            tagsSorter: "alpha",
-            filter: true,
-            showExtensions: true,
-            showCommonExtensions: true
+            layout: "StandaloneLayout"
         });
 
-        document.title = '{{.Title}}';
+        //</editor-fold>
     };
     </script>
 </body>
@@ -579,159 +569,91 @@ func (s *SwaggerMiddleware) handleServiceUI(w http.ResponseWriter, r *http.Reque
 
 // generateServiceSwaggerUI 生成单个服务的Swagger UI HTML页面
 func (s *SwaggerMiddleware) generateServiceSwaggerUI(serviceName string) string {
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html lang="zh-CN">
+	return fmt.Sprintf(`<!-- HTML for static distribution bundle build -->
+<!DOCTYPE html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>%s - API Documentation</title>
-    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5.0.0/swagger-ui.css" />
-    <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5.0.0/favicon-32x32.png" sizes="32x32" />
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5.30.2/swagger-ui.css" />
+    <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5.30.2/favicon-32x32.png" sizes="32x32" />
+    <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5.30.2/favicon-16x16.png" sizes="16x16" />
     <style>
-        /* 继承主页面样式 */
         html {
             box-sizing: border-box;
             overflow: -moz-scrollbars-vertical;
             overflow-y: scroll;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
         *, *:before, *:after {
             box-sizing: inherit;
         }
-        
         body {
             margin: 0;
-            background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
-            min-height: 100vh;
+            background: #fafafa;
         }
-
-        .swagger-ui {
-            max-width: 1200px;
-            margin: 20px auto;
-            padding: 0 20px;
-        }
-
-        /* 顶部导航栏 */
-        .swagger-ui .topbar {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
-            padding: 15px 0;
-        }
-        
-        .swagger-ui .topbar .download-url-wrapper {
-            display: none;
-        }
-
-        /* 服务标题区域 */
         .service-header {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 12px;
-            padding: 30px;
-            margin: 20px 0;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
+            background: #fff;
+            border-bottom: 1px solid #e8e8e8;
+            padding: 20px;
             text-align: center;
         }
-
         .service-header h1 {
-            font-size: 2.5em;
-            font-weight: 700;
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
             margin: 0 0 10px 0;
+            font-size: 1.8em;
+            color: #3b4151;
         }
-
-        .service-header .back-link {
+        .service-header p {
+            margin: 5px 0 15px 0;
+            color: #666;
+        }
+        .service-header a {
             display: inline-block;
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            margin: 0 5px;
+            padding: 8px 16px;
+            background: #4990e2;
             color: white;
             text-decoration: none;
-            padding: 10px 20px;
-            border-radius: 6px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            margin-top: 15px;
+            border-radius: 4px;
+            font-size: 14px;
         }
-
-        .service-header .back-link:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        }
-
-        /* 其他样式继承主页面 */
-        .swagger-ui .info {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 12px;
-            padding: 30px;
-            margin: 20px 0;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        }
-
-        .swagger-ui .opblock-tag {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 8px;
-            margin: 15px 0;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-        }
-
-        .swagger-ui .opblock {
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            transition: all 0.3s ease;
-        }
-
-        .swagger-ui .btn.execute {
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            border: none;
-            color: white;
-            border-radius: 6px;
-        }
-
-        @media (max-width: 768px) {
-            .swagger-ui {
-                padding: 0 10px;
-            }
+        .service-header a:hover {
+            background: #3b7bbf;
         }
     </style>
 </head>
 <body>
     <div class="service-header">
         <h1>📚 %s API</h1>
-        <p style="color: #666; margin: 10px 0;">单独服务的 API 文档</p>
-        <a href="%s/services" class="back-link">← 返回服务列表</a>
-        <a href="%s" class="back-link" style="margin-left: 10px;">📖 查看聚合文档</a>
+        <p>单独服务的 API 文档</p>
+        <a href="%s/services">← 返回服务列表</a>
+        <a href="%s">📖 查看聚合文档</a>
     </div>
     
     <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5.0.0/swagger-ui-bundle.js"></script>
-    <script src="https://unpkg.com/swagger-ui-dist@5.0.0/swagger-ui-standalone-preset.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5.30.2/swagger-ui-bundle.js" charset="UTF-8"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5.30.2/swagger-ui-standalone-preset.js" charset="UTF-8"></script>
     <script>
-        window.onload = function() {
-            const ui = SwaggerUIBundle({
-                url: '%s/services/%s.json',
-                dom_id: '#swagger-ui',
-                deepLinking: true,
-                presets: [
-                    SwaggerUIBundle.presets.apis,
-                    SwaggerUIStandalonePreset
-                ],
-                plugins: [
-                    SwaggerUIBundle.plugins.DownloadUrl
-                ],
-                layout: "StandaloneLayout",
-                validatorUrl: null,
-                docExpansion: "none",
-                operationsSorter: "alpha",
-                tagsSorter: "alpha",
-                filter: true
-            });
-        };
+    window.onload = function() {
+        //<editor-fold desc="Changeable Configuration Block">
+        
+        // the following lines will be replaced by docker/configurator, when it runs in a docker-container
+        window.ui = SwaggerUIBundle({
+            url: '%s/services/%s.json',
+            dom_id: '#swagger-ui',
+            deepLinking: true,
+            presets: [
+                SwaggerUIBundle.presets.apis,
+                SwaggerUIStandalonePreset
+            ],
+            plugins: [
+                SwaggerUIBundle.plugins.DownloadUrl
+            ],
+            layout: "StandaloneLayout"
+        });
+
+        //</editor-fold>
+    };
     </script>
 </body>
 </html>`, serviceName, serviceName, s.config.UIPath, s.config.UIPath, s.config.UIPath, serviceName)
