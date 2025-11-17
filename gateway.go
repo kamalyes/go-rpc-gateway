@@ -342,9 +342,10 @@ func (g *Gateway) RegisterService(registerFunc ServiceRegisterFunc) {
 	if g.gatewayConfig != nil && g.gatewayConfig.GRPC != nil && g.gatewayConfig.GRPC.Server != nil {
 		grpcAddr = g.gatewayConfig.GRPC.Server.GetEndpoint()
 	}
-	fmt.Printf("🔷 注册 gRPC 服务: %s\n", grpcAddr)
+	global.LOGGER.Info("开始注册gRPC服务")
 	g.Server.RegisterGRPCService(registerFunc)
 	g.registeredGRPCServices = append(g.registeredGRPCServices, grpcAddr)
+	global.LOGGER.Info("✅ gRPC服务注册完成")
 }
 
 // RegisterGatewayHandler 注册gRPC-Gateway处理器 (本地调用方式)
@@ -358,29 +359,31 @@ func (g *Gateway) RegisterGatewayHandler(registerFunc ServerHandlerRegisterFunc)
 	if g.gatewayConfig != nil && g.gatewayConfig.HTTPServer != nil {
 		httpAddr = g.gatewayConfig.HTTPServer.GetEndpoint()
 	}
-	fmt.Printf("🌐 注册 gRPC-Gateway 处理器: %s (本地模式)\n", httpAddr)
+	global.LOGGER.Info("开始注册gRPC-Gateway HTTP处理器")
 	gwMux := g.GetGatewayMux()
 	if err := registerFunc(global.CTX, gwMux); err != nil {
-		fmt.Printf("❌ 注册失败: %v\n", err)
-		global.LOGGER.ErrorKV("注册gRPC-Gateway HTTP处理器失败", "error", err)
+		global.LOGGER.ErrorKV("❌ 注册gRPC-Gateway HTTP处理器失败", "error", err)
 		return err
 	}
 	g.registeredGatewayHandlers = append(g.registeredGatewayHandlers, "gRPC-Gateway@"+httpAddr)
+	global.LOGGER.Info("✅ gRPC-Gateway HTTP处理器注册成功")
 	return nil
 }
 
 // RegisterHandler 注册HTTP处理器
 func (g *Gateway) RegisterHandler(pattern string, handler http.Handler) {
-	fmt.Printf("🔗 注册 HTTP 处理器: %s\n", pattern)
+	global.LOGGER.DebugKV("注册HTTP处理器", "pattern", pattern)
 	g.Server.RegisterHTTPRoute(pattern, handler)
 	g.registeredHTTPRoutes = append(g.registeredHTTPRoutes, pattern)
+	global.LOGGER.DebugKV("✅ HTTP处理器注册成功", "pattern", pattern)
 }
 
 // RegisterHTTPRoute 注册HTTP路由 (便捷方法)
 func (g *Gateway) RegisterHTTPRoute(pattern string, handlerFunc http.HandlerFunc) {
-	fmt.Printf("🔗 注册 HTTP 路由: %s\n", pattern)
+	global.LOGGER.DebugKV("注册HTTP路由", "pattern", pattern)
 	g.Server.RegisterHTTPRoute(pattern, handlerFunc)
 	g.registeredHTTPRoutes = append(g.registeredHTTPRoutes, pattern)
+	global.LOGGER.DebugKV("✅ HTTP路由注册成功", "pattern", pattern)
 }
 
 // RegisterHTTPRoutes 批量注册HTTP路由
