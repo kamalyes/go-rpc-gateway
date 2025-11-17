@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-15 14:57:14
- * @FilePath: \go-rpc-gateway\server\server.go
+ * @LastEditTime: 2025-11-17 17:05:21
+ * @FilePath: \engine-im-agent-service\go-rpc-gateway\server\server.go
  * @Description: Gateway服务器核心结构定义
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
@@ -13,7 +13,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"sync"
 
@@ -24,9 +23,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
-	safe "github.com/kamalyes/go-toolbox/pkg/safe"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Server Gateway服务器
@@ -173,17 +170,4 @@ func (s *Server) RegisterGRPCService(registerFunc func(*grpc.Server)) {
 	if s.grpcServer != nil {
 		registerFunc(s.grpcServer)
 	}
-}
-
-// RegisterHTTPHandler 注册HTTP处理器到网关
-func (s *Server) RegisterHTTPHandler(ctx context.Context, registerFunc func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error) error {
-	// 使用安全访问获取gRPC地址
-	configSafe := safe.Safe(s.config)
-	host := configSafe.Field("GRPC").Field("Server").Field("Host").String("0.0.0.0")
-	port := configSafe.Field("GRPC").Field("Server").Field("Port").Int(9090)
-	grpcAddress := fmt.Sprintf("%s:%d", host, port)
-
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
-
-	return registerFunc(ctx, s.gwMux, grpcAddress, opts)
 }

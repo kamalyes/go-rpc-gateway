@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 11:38:38
- * @FilePath: \go-rpc-gateway\gateway.go
+ * @LastEditTime: 2025-11-17 18:22:31
+ * @FilePath: \engine-im-agent-service\go-rpc-gateway\gateway.go
  * @Description: Gateway主入口，基于go-config
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -41,9 +42,14 @@ import (
 // Gateway 是主要的网关服务器
 type Gateway struct {
 	*server.Server
-	configManager   *goconfig.IntegratedConfigManager
-	gatewayConfig   *gwconfig.Gateway
-	enhancedServer  *server.EnhancedServer // 新增增强服务器
+	configManager  *goconfig.IntegratedConfigManager
+	gatewayConfig  *gwconfig.Gateway
+	enhancedServer *server.EnhancedServer // 新增增强服务器
+
+	// API 注册信息收集
+	registeredGRPCServices    []string
+	registeredGatewayHandlers []string
+	registeredHTTPRoutes      []string
 }
 
 // GatewayBuilder Gateway构建器 - 支持链式调用
@@ -66,6 +72,9 @@ type ServiceRegisterFunc func(*grpc.Server)
 
 // HandlerRegisterFunc HTTP处理器注册函数类型
 type HandlerRegisterFunc func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error
+
+// ServerHandlerRegisterFunc 本地Server Handler注册函数类型 (不需要gRPC连接)
+type ServerHandlerRegisterFunc func(context.Context, *runtime.ServeMux) error
 
 // NewGateway 创建新的Gateway构建器 - 链式调用API入口
 // 使用示例:
@@ -317,10 +326,10 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 func (b *GatewayBuilder) initializeComponents() error {
 	// 创建并使用默认初始化链
 	chain := global.GetDefaultInitializerChain()
-	
+
 	ctx, cancel := context.WithTimeout(global.CTX, 30*time.Second)
 	defer cancel()
-	
+
 	return chain.InitializeAll(ctx, global.GATEWAY)
 }
 
@@ -329,17 +338,49 @@ func (b *GatewayBuilder) initializeComponents() error {
 
 // RegisterService 注册gRPC服务
 func (g *Gateway) RegisterService(registerFunc ServiceRegisterFunc) {
+	grpcAddr := "unknown"
+	if g.gatewayConfig != nil && g.gatewayConfig.GRPC != nil && g.gatewayConfig.GRPC.Server != nil {
+		grpcAddr = g.gatewayConfig.GRPC.Server.GetEndpoint()
+	}
+	fmt.Printf("🔷 注册 gRPC 服务: %s\n", grpcAddr)
 	g.Server.RegisterGRPCService(registerFunc)
+	g.registeredGRPCServices = append(g.registeredGRPCServices, grpcAddr)
+}
+
+// RegisterGatewayHandler 注册gRPC-Gateway处理器 (本地调用方式)
+// 使用示例:
+//
+//	g.RegisterGatewayHandler(func(ctx context.Context, mux *runtime.ServeMux) error {
+//	    return agentsettingsApis.RegisterAgentSettingsServiceHandlerServer(ctx, mux, svc)
+//	})
+func (g *Gateway) RegisterGatewayHandler(registerFunc ServerHandlerRegisterFunc) error {
+	httpAddr := "unknown"
+	if g.gatewayConfig != nil && g.gatewayConfig.HTTPServer != nil {
+		httpAddr = g.gatewayConfig.HTTPServer.GetEndpoint()
+	}
+	fmt.Printf("🌐 注册 gRPC-Gateway 处理器: %s (本地模式)\n", httpAddr)
+	gwMux := g.GetGatewayMux()
+	if err := registerFunc(global.CTX, gwMux); err != nil {
+		fmt.Printf("❌ 注册失败: %v\n", err)
+		global.LOGGER.ErrorKV("注册gRPC-Gateway HTTP处理器失败", "error", err)
+		return err
+	}
+	g.registeredGatewayHandlers = append(g.registeredGatewayHandlers, "gRPC-Gateway@"+httpAddr)
+	return nil
 }
 
 // RegisterHandler 注册HTTP处理器
 func (g *Gateway) RegisterHandler(pattern string, handler http.Handler) {
+	fmt.Printf("🔗 注册 HTTP 处理器: %s\n", pattern)
 	g.Server.RegisterHTTPRoute(pattern, handler)
+	g.registeredHTTPRoutes = append(g.registeredHTTPRoutes, pattern)
 }
 
 // RegisterHTTPRoute 注册HTTP路由 (便捷方法)
 func (g *Gateway) RegisterHTTPRoute(pattern string, handlerFunc http.HandlerFunc) {
+	fmt.Printf("🔗 注册 HTTP 路由: %s\n", pattern)
 	g.Server.RegisterHTTPRoute(pattern, handlerFunc)
+	g.registeredHTTPRoutes = append(g.registeredHTTPRoutes, pattern)
 }
 
 // RegisterHTTPRoutes 批量注册HTTP路由
@@ -426,12 +467,24 @@ func (g *Gateway) IsTracingEnabled() bool {
 
 // EnableFeature 启用指定功能（通用接口）
 func (g *Gateway) EnableFeature(feature server.FeatureType) error {
-	return g.Server.EnableFeature(feature)
+	global.LOGGER.InfoKV("启用功能", "feature", feature)
+	if err := g.Server.EnableFeature(feature); err != nil {
+		global.LOGGER.ErrorKV("❌ 启用功能失败", "feature", feature, "error", err)
+		return err
+	}
+	global.LOGGER.InfoKV("✅ 功能启用成功", "feature", feature)
+	return nil
 }
 
 // EnableFeatureWithConfig 使用自定义配置启用功能（通用接口）
 func (g *Gateway) EnableFeatureWithConfig(feature server.FeatureType, config interface{}) error {
-	return g.Server.EnableFeatureWithConfig(feature, config)
+	global.LOGGER.InfoKV("使用自定义配置启用功能", "feature", feature)
+	if err := g.Server.EnableFeatureWithConfig(feature, config); err != nil {
+		global.LOGGER.ErrorKV("❌ 使用自定义配置启用功能失败", "feature", feature, "error", err)
+		return err
+	}
+	global.LOGGER.InfoKV("✅ 功能启用成功(自定义配置)", "feature", feature)
+	return nil
 }
 
 // IsFeatureEnabled 检查功能是否已启用（通用接口）
@@ -484,6 +537,7 @@ func (g *Gateway) StartWithBanner() error {
 
 	// 启动服务
 	if err := g.Server.Start(); err != nil {
+		fmt.Printf("启动网关失败: %v\n", err)
 		return err
 	}
 
@@ -496,15 +550,24 @@ func (g *Gateway) StartWithBanner() error {
 
 // Stop 停止网关服务
 func (g *Gateway) Stop() error {
+	global.LOGGER.Info("🛑 开始停止网关服务...")
+
 	// 先停止服务器
-	err := g.Server.Stop()
+	if err := g.Server.Stop(); err != nil {
+		global.LOGGER.ErrorKV("❌ 停止服务器失败", "error", err)
+		return err
+	}
+	global.LOGGER.Info("✅ 服务器已停止")
 
 	// 再停止配置管理器
 	if g.configManager != nil {
+		global.LOGGER.Info("停止配置管理器...")
 		g.configManager.Stop()
+		global.LOGGER.Info("✅ 配置管理器已停止")
 	}
 
-	return err
+	global.LOGGER.Info("✅ 网关服务已完全停止")
+	return nil
 }
 
 // PrintStartupInfo 打印启动信息
@@ -528,6 +591,48 @@ func (g *Gateway) PrintShutdownComplete() {
 	if bannerManager := g.Server.GetBannerManager(); bannerManager != nil {
 		bannerManager.PrintShutdownComplete()
 	}
+}
+
+// PrintAPIRegistrationSummary 打印API注册汇总信息
+func (g *Gateway) PrintAPIRegistrationSummary() {
+	fmt.Println("\n" + strings.Repeat("=", 80))
+	fmt.Println("📋 API 注册汇总 (API Registration Summary)")
+	fmt.Println(strings.Repeat("=", 80))
+
+	// gRPC 服务统计
+	fmt.Printf("\n🔷 gRPC Services: %d\n", len(g.registeredGRPCServices))
+	if len(g.registeredGRPCServices) > 0 {
+		for i, svc := range g.registeredGRPCServices {
+			fmt.Printf("  %d. %s\n", i+1, svc)
+		}
+	} else {
+		fmt.Println("  (无注册服务)")
+	}
+
+	// gRPC-Gateway 处理器统计
+	fmt.Printf("\n🌐 gRPC-Gateway Handlers: %d\n", len(g.registeredGatewayHandlers))
+	if len(g.registeredGatewayHandlers) > 0 {
+		for i, handler := range g.registeredGatewayHandlers {
+			fmt.Printf("  %d. %s\n", i+1, handler)
+		}
+	} else {
+		fmt.Println("  (无注册处理器)")
+	}
+
+	// HTTP 路由统计
+	fmt.Printf("\n🔗 HTTP Routes: %d\n", len(g.registeredHTTPRoutes))
+	if len(g.registeredHTTPRoutes) > 0 {
+		for i, route := range g.registeredHTTPRoutes {
+			fmt.Printf("  %d. %s\n", i+1, route)
+		}
+	} else {
+		fmt.Println("  (无注册路由)")
+	}
+
+	// 总计
+	totalAPIs := len(g.registeredGRPCServices) + len(g.registeredGatewayHandlers) + len(g.registeredHTTPRoutes)
+	fmt.Printf("\n✅ 总计注册 API 数量: %d\n", totalAPIs)
+	fmt.Println(strings.Repeat("=", 80) + "\n")
 }
 
 // GetGatewayConfig 获取网关配置
@@ -722,15 +827,16 @@ func (g *Gateway) IsWebSocketEnabled() bool {
 
 // OnWebSocketClientConnect 添加客户端连接回调（支持链式调用）
 // 示例:
-//  gateway.
-//    OnWebSocketClientConnect(func(ctx context.Context, client *wsc.Client) error {
-//      fmt.Printf("客户端已连接: %s\n", client.ID)
-//      return nil
-//    }).
-//    OnWebSocketClientDisconnect(func(ctx context.Context, client *wsc.Client, reason string) error {
-//      fmt.Printf("客户端已断开: %s (原因: %s)\n", client.ID, reason)
-//      return nil
-//    })
+//
+//	gateway.
+//	  OnWebSocketClientConnect(func(ctx context.Context, client *wsc.Client) error {
+//	    fmt.Printf("客户端已连接: %s\n", client.ID)
+//	    return nil
+//	  }).
+//	  OnWebSocketClientDisconnect(func(ctx context.Context, client *wsc.Client, reason string) error {
+//	    fmt.Printf("客户端已断开: %s (原因: %s)\n", client.ID, reason)
+//	    return nil
+//	  })
 func (g *Gateway) OnWebSocketClientConnect(cb server.ClientConnectCallback) *Gateway {
 	wsSvc := g.GetWebSocketService()
 	if wsSvc != nil {
@@ -867,9 +973,9 @@ func (g *Gateway) GetWebSocketStats() map[string]interface{} {
 	wsSvc := g.GetWebSocketService()
 	if wsSvc == nil {
 		return map[string]interface{}{
-			"online_users":        0,
-			"is_running":          false,
-			"uptime_seconds":      0,
+			"online_users":   0,
+			"is_running":     false,
+			"uptime_seconds": 0,
 		}
 	}
 	return wsSvc.GetStats()
