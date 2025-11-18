@@ -39,35 +39,153 @@ json:
   emit-unpopulated: true     # 输出所有字段，包括零值字段
   discard-unknown: true      # 反序列化时忽略未知字段
   
+# ===========================================
 # 中间件配置
+# ===========================================
 middleware:
-  # 跨域配置
-  cors:
+  module-name: middleware
+  enabled: true
+  
+  # 日志中间件
+  logging:
+    module-name: logging
     enabled: true
-    allow-origins: ["*"]
-    allow-methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-    allow-headers: ["*"]
+    level: debug
+    format: json
+    output: console
+    include-caller: true
+    include-stack: true
     
-  # 限流配置
-  rate-limit:
-    enabled: true
-    requests-per-second: 100
-    burst-size: 200
-    
-  # 恢复中间件
+  # 恢复中间件 - 捕获panic
   recovery:
+    module-name: recovery
     enabled: true
     debug: true
+    enable-stack-trace: true
+    stack-size: 4096
+    disable-print-stack: false
     
-  # 请求ID
-  request-id:
+  # 链路追踪中间件 - OpenTelemetry
+  tracing:
+    module-name: tracing
     enabled: true
-    header: "X-Request-ID"
+    service-name: "go-rpc-gateway-dev"
+    service-version: "v1.0.0"
+    environment: "development"
+    endpoint: "http://localhost:14268/api/traces"
+    exporter-type: "zipkin"  # zipkin, otlp, console, noop
+    exporter-endpoint: "http://localhost:9411/api/v2/spans"
+    sample-rate: 1.0
+    sampler-type: "always"  # always, never, probability, parentBased
+    sampler-probability: 1.0
+    sampler-rate: 1.0
+    headers:
+      - "Authorization"
+      - "User-Agent"
+      - "X-Request-ID"
+      - "X-Trace-ID"
+    attributes:
+      deployment.environment: "development"
+      service.namespace: "gateway"
+      
+  # 性能指标中间件 - Prometheus
+  metrics:
+    module-name: metrics
+    enabled: true
+    path: "/metrics"
+    namespace: "gateway"
+    subsystem: "http"
+    skip-paths:
+      - "/health"
+      - "/metrics"
+      - "/swagger"
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+    request-count: true
+    duration: true
+    request-size: true
+    response-size: true
+    
+  # 请求ID中间件 - 分布式追踪
+  request-id:
+    module-name: requestid
+    enabled: true
+    header-name: "X-Request-ID"
+    generator: "uuid"  # uuid, nanoid
+    
+  # 国际化中间件
+  i18n:
+    module-name: i18n
+    enabled: true
+    default-language: "zh"
+    supported-languages: ["zh", "en"]
+    language-header: "Accept-Language"
+    language-param: "lang"
+    detection-order: ["header", "query", "default"]
+    enable-fallback: true
+    locales-path: "locales"
+    
+  # PProf性能分析中间件
+  pprof:
+    module-name: pprof
+    enabled: true
+    path-prefix: "/debug/pprof"
+    enable-cpu: true
+    enable-heap: true
+    enable-goroutine: true
+    enable-block: true
+    enable-mutex: true
 
+# ===========================================
+# CORS跨域配置
+# ===========================================
+cors:
+  module-name: cors
+  enabled: true
+  allow-origins: ["*"]
+  allow-methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
+  allow-headers: 
+    - "*"
+    - "Authorization"
+    - "Content-Type"
+    - "X-Request-ID"
+    - "X-Trace-ID"
+  expose-headers:
+    - "X-Request-ID"
+    - "X-Trace-ID"
+  allow-credentials: true
+  max-age: 86400
+  
+# ===========================================
+# 限流配置
+# ===========================================
+rate-limit:
+  module-name: rate_limit
+  enabled: true
+  requests-per-second: 1000
+  burst-size: 2000
+  cleanup-interval: "1m"
+  
+# ===========================================
 # Swagger文档配置
+# ===========================================
 swagger:
+  module-name: swagger
   enabled: true
   json-path: "./docs/swagger/proto/common.swagger.json"
   ui-path: "/swagger"
   title: "go-rpc-gateway API Documentation"
   description: "企业级 gRPC-Gateway 微服务网关框架 API 文档"
+  version: "v1.0.0"
+  contact-name: "kamalyes"
+  contact-email: "501893067@qq.com"
+  
+# ===========================================
+# 监控配置
+# ===========================================
+monitoring:
+  module-name: monitoring
+  enabled: true
+  metrics-enabled: true
+  tracing-enabled: true
+  profiling-enabled: true
+  health-check-enabled: true
