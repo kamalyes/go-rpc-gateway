@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-15 15:11:10
+ * @LastEditTime: 2025-11-18 12:02:51
  * @FilePath: \go-rpc-gateway\server\http.go
  * @Description: HTTP服务器和网关初始化模块
  *
@@ -26,7 +26,30 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"google.golang.org/protobuf/encoding/protojson"
 )
+
+// buildServeMuxOptions 构建ServeMux选项，支持从配置文件读取JSON序列化配置
+func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
+	jsonSafe := s.configSafe.Field("JSON")
+
+	// 读取配置，使用默认值
+	useProtoNames := jsonSafe.Field("UseProtoNames").Bool(true)
+	emitUnpopulated := jsonSafe.Field("EmitUnpopulated").Bool(true)
+	discardUnknown := jsonSafe.Field("DiscardUnknown").Bool(true)
+
+	return []runtime.ServeMuxOption{
+		runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{
+			MarshalOptions: protojson.MarshalOptions{
+				UseProtoNames:   useProtoNames,   // 使用 proto 字段名（snake_case）
+				EmitUnpopulated: emitUnpopulated, // 输出所有字段，包括零值
+			},
+			UnmarshalOptions: protojson.UnmarshalOptions{
+				DiscardUnknown: discardUnknown, // 忽略未知字段
+			},
+		}),
+	}
+}
 
 // gzipResponseWriter 包装ResponseWriter以支持gzip压缩
 type gzipResponseWriter struct {
@@ -69,8 +92,9 @@ func (s *Server) gzipMiddleware(next http.Handler) http.Handler {
 
 // initHTTPGateway 初始化HTTP网关
 func (s *Server) initHTTPGateway() error {
-	// 创建gRPC-Gateway多路复用器
-	s.gwMux = runtime.NewServeMux()
+	// 创建gRPC-Gateway多路复用器，配置JSON序列化选项
+	opts := s.buildServeMuxOptions()
+	s.gwMux = runtime.NewServeMux(opts...)
 
 	// 创建HTTP多路复用器
 	s.httpMux = http.NewServeMux()

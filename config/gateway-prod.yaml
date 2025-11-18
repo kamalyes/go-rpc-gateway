@@ -33,6 +33,12 @@ logging:
 health-check:
   enabled: true
   path: "/health"
+
+# JSON序列化配置
+json:
+  use-proto-names: true      # 使用proto字段名(snake_case)，如 snake_case 而不是 snakeCase
+  emit-unpopulated: true     # 输出所有字段，包括零值字段
+  discard-unknown: true      # 反序列化时忽略未知字段
   
 # 中间件配置
 middleware:
