@@ -57,9 +57,9 @@ type ErrorCallback func(ctx context.Context, err error, severity string) error
 // 5. 直接委托 Hub API -> SendToUser/Broadcast/etc
 type WebSocketService struct {
 	// ===== 核心组件 =====
-	hub        *wsc.Hub          // go-wsc Hub 实例（所有能力都来自这里）
-	config     *wscconfig.WSC    // go-config WSC 配置
-	httpServer *http.Server      // HTTP 服务器
+	hub        *wsc.Hub       // go-wsc Hub 实例（所有能力都来自这里）
+	config     *wscconfig.WSC // go-config WSC 配置
+	httpServer *http.Server   // HTTP 服务器
 
 	// ===== 生命周期控制 =====
 	ctx     context.Context
@@ -348,20 +348,54 @@ func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 创建客户端
-	clientID := r.Header.Get("X-Client-ID")
+	// 🔧 优先从 URL 查询参数获取，其次从 Header 获取
+	query := r.URL.Query()
+
+	// 获取 Client ID
+	clientID := query.Get("client_id")
+	if clientID == "" {
+		clientID = r.Header.Get("X-Client-ID")
+	}
 	if clientID == "" {
 		clientID = fmt.Sprintf("client_%d", time.Now().UnixNano())
 	}
 
-	userID := r.Header.Get("X-User-ID")
+	// 获取 User ID (优先使用查询参数中的 user_id)
+	userID := query.Get("user_id")
+	if userID == "" {
+		userID = r.Header.Get("X-User-ID")
+	}
 	if userID == "" {
 		userID = clientID
+	}
+
+	// 获取 User Type (从查询参数)
+	userType := query.Get("user_type")
+	if userType == "" {
+		userType = r.Header.Get("X-User-Type")
+	}
+
+	// 转换为 wsc.UserType
+	var clientUserType wsc.UserType
+	switch userType {
+	case "customer":
+		clientUserType = wsc.UserTypeCustomer
+	case "agent":
+		clientUserType = wsc.UserTypeAgent
+	case "admin":
+		clientUserType = wsc.UserTypeAdmin
+	case "bot":
+		clientUserType = wsc.UserTypeBot
+	case "vip":
+		clientUserType = wsc.UserTypeVIP
+	default:
+		clientUserType = wsc.UserTypeCustomer // 默认为客户
 	}
 
 	client := &wsc.Client{
 		ID:       clientID,
 		UserID:   userID,
+		UserType: clientUserType,
 		Conn:     conn,
 		LastSeen: time.Now(),
 		Status:   wsc.UserStatusOnline,
