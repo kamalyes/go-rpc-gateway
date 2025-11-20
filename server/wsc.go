@@ -2,11 +2,14 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-16 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-16 19:24:10
+ * @LastEditTime: 2025-11-20 13:26:23
  * @FilePath: \go-rpc-gateway\server\wsc.go
- * @Description: WebSocket 集成层
- * 直接暴露 go-wsc Hub 的所有能力，不重复实现
- * 只负责：配置初始化、HTTP 升级、生命周期管理、回调链
+ * @Description: WebSocket 集成层 - go-wsc 的薄封装
+ * 职责：
+ * 1. HTTP 升级处理
+ * 2. 配置初始化
+ * 3. 生命周期管理
+ * 4. 直接暴露 go-wsc Hub 的所有 API
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
  */
@@ -15,13 +18,12 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/gorilla/websocket"
 	wscconfig "github.com/kamalyes/go-config/pkg/wsc"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -48,30 +50,22 @@ type ErrorCallback func(ctx context.Context, err error, severity string) error
 // WebSocketService 结构体
 // ============================================================================
 
-// WebSocketService WebSocket 服务 - 包装 go-wsc Hub，提供集成能力
-// 核心职责：
-// 1. 配置初始化 -> Hub 创建
-// 2. HTTP 升级处理 -> 客户端注册
-// 3. 生命周期管理 -> Start/Stop
-// 4. 回调链管理 -> 连接/消息事件
-// 5. 直接委托 Hub API -> SendToUser/Broadcast/etc
+// WebSocketService WebSocket 服务 - go-wsc Hub 的薄封装
+// 只负责：HTTP 升级、配置管理、生命周期
+// 所有 WebSocket 功能直接使用 go-wsc Hub
 type WebSocketService struct {
-	// ===== 核心组件 =====
-	hub        *wsc.Hub       // go-wsc Hub 实例（所有能力都来自这里）
-	config     *wscconfig.WSC // go-config WSC 配置
+	hub        *wsc.Hub       // go-wsc Hub 实例（直接暴露）
+	config     *wscconfig.WSC // 配置
 	httpServer *http.Server   // HTTP 服务器
+	ctx        context.Context
+	cancel     context.CancelFunc
+	running    atomic.Bool
 
-	// ===== 生命周期控制 =====
-	ctx     context.Context
-	cancel  context.CancelFunc
-	running atomic.Bool // 使用 atomic 替代 RWMutex，更轻量级
-
-	// ===== 回调链（仅用于用户自定义逻辑注入）=====
-	connectCallbacks     []ClientConnectCallback
-	disconnectCallbacks  []ClientDisconnectCallback
-	messageRecvCallbacks []MessageReceivedCallback
-	errorCallbacks       []ErrorCallback
-	callbackMu           sync.RWMutex // 保护回调链的并发访问
+	// 回调列表
+	connectCallbacks    []ClientConnectCallback
+	disconnectCallbacks []ClientDisconnectCallback
+	messageCallbacks    []MessageReceivedCallback
+	errorCallbacks      []ErrorCallback
 }
 
 // ============================================================================
@@ -128,15 +122,18 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// 启动 Hub 事件循环（go-wsc 的核心消息处理）
-	go hub.Run()
-
 	service := &WebSocketService{
 		hub:    hub,
 		config: cfg,
 		ctx:    ctx,
 		cancel: cancel,
 	}
+
+	// 启动 Hub 事件循环（go-wsc 的核心消息处理）
+	go hub.Run()
+
+	// 全局注册 Hub 实例
+	global.WSCHUB = hub
 
 	global.LOGGER.InfoKV("✅ WebSocket 服务已初始化",
 		"node_ip", hubConfig.NodeIP,
@@ -146,98 +143,6 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 		"enable_ack", hubConfig.Ticket != nil && hubConfig.Ticket.EnableAck)
 
 	return service, nil
-}
-
-// ============================================================================
-// 回调链管理
-// ============================================================================
-
-// OnClientConnect 添加客户端连接回调
-func (ws *WebSocketService) OnClientConnect(cb ClientConnectCallback) *WebSocketService {
-	ws.callbackMu.Lock()
-	defer ws.callbackMu.Unlock()
-	ws.connectCallbacks = append(ws.connectCallbacks, cb)
-	return ws
-}
-
-// OnClientDisconnect 添加客户端断开连接回调
-func (ws *WebSocketService) OnClientDisconnect(cb ClientDisconnectCallback) *WebSocketService {
-	ws.callbackMu.Lock()
-	defer ws.callbackMu.Unlock()
-	ws.disconnectCallbacks = append(ws.disconnectCallbacks, cb)
-	return ws
-}
-
-// OnMessageReceived 添加消息接收回调
-func (ws *WebSocketService) OnMessageReceived(cb MessageReceivedCallback) *WebSocketService {
-	ws.callbackMu.Lock()
-	defer ws.callbackMu.Unlock()
-	ws.messageRecvCallbacks = append(ws.messageRecvCallbacks, cb)
-	return ws
-}
-
-// OnError 添加错误处理回调
-func (ws *WebSocketService) OnError(cb ErrorCallback) *WebSocketService {
-	ws.callbackMu.Lock()
-	defer ws.callbackMu.Unlock()
-	ws.errorCallbacks = append(ws.errorCallbacks, cb)
-	return ws
-}
-
-// ============================================================================
-// 执行回调链的辅助方法
-// ============================================================================
-
-func (ws *WebSocketService) executeConnectCallbacks(ctx context.Context, client *wsc.Client) error {
-	ws.callbackMu.RLock()
-	callbacks := ws.connectCallbacks
-	ws.callbackMu.RUnlock()
-
-	for _, cb := range callbacks {
-		if err := cb(ctx, client); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (ws *WebSocketService) executeDisconnectCallbacks(ctx context.Context, client *wsc.Client, reason string) error {
-	ws.callbackMu.RLock()
-	callbacks := ws.disconnectCallbacks
-	ws.callbackMu.RUnlock()
-
-	for _, cb := range callbacks {
-		if err := cb(ctx, client, reason); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (ws *WebSocketService) executeMessageReceivedCallbacks(ctx context.Context, client *wsc.Client, msg *wsc.HubMessage) error {
-	ws.callbackMu.RLock()
-	callbacks := ws.messageRecvCallbacks
-	ws.callbackMu.RUnlock()
-
-	for _, cb := range callbacks {
-		if err := cb(ctx, client, msg); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (ws *WebSocketService) executeErrorCallbacks(ctx context.Context, err error, severity string) error {
-	ws.callbackMu.RLock()
-	callbacks := ws.errorCallbacks
-	ws.callbackMu.RUnlock()
-
-	for _, cb := range callbacks {
-		if cbErr := cb(ctx, err, severity); cbErr != nil {
-			return cbErr
-		}
-	}
-	return nil
 }
 
 // ============================================================================
@@ -259,18 +164,23 @@ func (ws *WebSocketService) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", ws.handleWebSocketUpgrade)
 
+	// 使用 Safe 访问器获取 HTTP 服务器超时配置
+	cfgSafe := ws.config.Safe()
+	readTimeout := cfgSafe.Field("ReadTimeout").Duration(10 * time.Second)
+	writeTimeout := cfgSafe.Field("WriteWait").Duration(10 * time.Second)
+	idleTimeout := cfgSafe.Field("IdleTimeout").Duration(60 * time.Second)
+
 	ws.httpServer = &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", ws.config.NodeIP, ws.config.NodePort),
+		Addr:         fmt.Sprintf("%s:%d", cfgSafe.NodeIP(), cfgSafe.NodePort()),
 		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
 	}
 
 	// 启动 HTTP 服务器
 	go func() {
 		if err := ws.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			ws.executeErrorCallbacks(ws.ctx, err, "error")
 			global.LOGGER.WithError(err).ErrorMsg("❌ WebSocket HTTP 服务器启动失败")
 		}
 	}()
@@ -319,16 +229,24 @@ func (ws *WebSocketService) IsRunning() bool {
 // ============================================================================
 
 // handleWebSocketUpgrade 处理 WebSocket 升级请求
-// 此函数只负责：升级连接 -> 创建客户端 -> 注册到 Hub -> 管理生命周期
+// 此函数只负责：升级连接 -> 创建客户端 -> 注册到 Hub
 // 所有消息处理都由 go-wsc Hub 完成
 func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *http.Request) {
-	// 创建升级器
-	upgrader := &websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			// 检查 Origin
-			if ws.config != nil && ws.config.WebSocketOrigins != nil && len(ws.config.WebSocketOrigins) > 0 {
+	// 基于 go-wsc 的默认升级器，配置缓冲区大小
+	upgrader := wsc.DefaultUpgrader
+	upgrader.ReadBufferSize = 1024
+	upgrader.WriteBufferSize = 1024
+
+	// 从配置中获取缓冲区大小（如果有）
+	if ws.config != nil {
+		if ws.config.MessageBufferSize > 0 {
+			upgrader.ReadBufferSize = int(ws.config.MessageBufferSize)
+			upgrader.WriteBufferSize = int(ws.config.MessageBufferSize)
+		}
+
+		// 自定义 Origin 检查
+		if len(ws.config.WebSocketOrigins) > 0 {
+			upgrader.CheckOrigin = func(r *http.Request) bool {
 				origin := r.Header.Get("Origin")
 				for _, allowedOrigin := range ws.config.WebSocketOrigins {
 					if allowedOrigin == "*" || allowedOrigin == origin {
@@ -337,43 +255,18 @@ func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *htt
 				}
 				return false
 			}
-			return true
-		},
+		}
 	}
 
 	// 升级连接
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		ws.executeErrorCallbacks(ws.ctx, err, "warning")
+		global.LOGGER.WithError(err).WarnMsg("WebSocket 升级失败")
 		return
 	}
 
-	// 🔧 优先从 URL 查询参数获取，其次从 Header 获取
-	query := r.URL.Query()
-
-	// 获取 Client ID
-	clientID := query.Get("client_id")
-	if clientID == "" {
-		clientID = r.Header.Get("X-Client-ID")
-	}
-	if clientID == "" {
-		clientID = fmt.Sprintf("client_%d", time.Now().UnixNano())
-	}
-
-	// 获取 User ID (优先使用查询参数中的 user_id)
-	userID := query.Get("user_id")
-	if userID == "" {
-		userID = r.Header.Get("X-User-ID")
-	}
-	if userID == "" {
-		userID = clientID
-	}
-
-	// 获取 User Type (从查询参数)
-	userType := query.Get("user_type")
-	if userType == "" {
-		userType = r.Header.Get("X-User-Type")
-	}
+	// 🔧 从请求中提取客户端属性
+	clientID, userID, userType := ws.extractClientAttributes(r)
 
 	// 转换为 wsc.UserType
 	var clientUserType wsc.UserType
@@ -413,124 +306,125 @@ func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *htt
 	}
 
 	// 处理消息循环
-	// 注意：这里是简化版，go-wsc Hub 有更复杂的实现
 	for {
 		select {
 		case <-ws.ctx.Done():
+			_ = ws.executeDisconnectCallbacks(ws.ctx, client, "context_done")
 			return
 		default:
 		}
 
-		_, data, err := client.Conn.ReadMessage()
+		// 读取消息
+		messageType, data, err := client.Conn.ReadMessage()
 		if err != nil {
-			// 执行断开连接回调
+			// WebSocket 连接错误，执行断开连接回调
 			_ = ws.executeDisconnectCallbacks(ws.ctx, client, "read_error")
 			return
 		}
 
+		// 更新最后活跃时间
 		client.LastSeen = time.Now()
 
-		// 创建消息对象
-		msg := &wsc.HubMessage{
+		// 根据 WebSocket 消息类型处理
+		switch messageType {
+		case 1: // TextMessage
+			ws.handleTextMessage(client, data)
+		case 2: // BinaryMessage
+			ws.handleBinaryMessage(client, data)
+		case 8: // CloseMessage
+			_ = ws.executeDisconnectCallbacks(ws.ctx, client, "close_message")
+			return
+		case 9: // PingMessage
+			// 响应 Pong
+			_ = client.Conn.WriteMessage(10, nil)
+		case 10: // PongMessage
+			// 忽略 Pong 消息
+		default:
+			global.LOGGER.DebugKV("收到未知类型的消息", "type", messageType)
+		}
+	}
+}
+
+// handleTextMessage 处理文本消息
+func (ws *WebSocketService) handleTextMessage(client *wsc.Client, data []byte) {
+	// 尝试解析为 JSON 格式的 HubMessage
+	var msg wsc.HubMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		// 不是 JSON 格式，当作纯文本处理
+		msg = wsc.HubMessage{
 			From:     client.UserID,
 			Content:  string(data),
 			Type:     wsc.MessageTypeText,
 			CreateAt: time.Now(),
 		}
-
-		// 执行消息接收回调
-		if err := ws.executeMessageReceivedCallbacks(ws.ctx, client, msg); err != nil {
-			ws.executeErrorCallbacks(ws.ctx, err, "warning")
-			continue
+	} else {
+		// 是 JSON 格式，补充必要字段
+		if msg.From == "" {
+			msg.From = client.UserID
 		}
-
-		// 路由消息给 Hub（Hub 处理 SendToUser/Broadcast 等逻辑）
-		if msg.To != "" {
-			// 发送给特定用户
-			_ = ws.hub.SendToUser(ws.ctx, msg.To, msg)
-		} else if msg.TicketID != "" {
-			// 发送给特定凭证
-			_ = ws.hub.SendToTicket(ws.ctx, msg.TicketID, msg)
-		} else {
-			// 广播给所有
-			ws.hub.Broadcast(ws.ctx, msg)
+		if msg.CreateAt.IsZero() {
+			msg.CreateAt = time.Now()
+		}
+		if msg.Type == "" {
+			msg.Type = wsc.MessageTypeText
 		}
 	}
-}
 
-// ============================================================================
-// 直接暴露 go-wsc Hub API（不重复实现）
-// ============================================================================
-
-// SendToUser 发送消息给特定用户
-// 直接委托给 go-wsc Hub
-func (ws *WebSocketService) SendToUser(ctx context.Context, userID string, msg *wsc.HubMessage) error {
-	if ws.hub == nil {
-		return errors.NewError(errors.ErrCodeInternalServerError, "WebSocket Hub not initialized")
-	}
-	return ws.hub.SendToUser(ctx, userID, msg)
-}
-
-// SendToUserWithAck 发送消息给特定用户（带 ACK）
-// 直接委托给 go-wsc Hub
-func (ws *WebSocketService) SendToUserWithAck(ctx context.Context, userID string, msg *wsc.HubMessage, timeout time.Duration, maxRetry int) (*wsc.AckMessage, error) {
-	if ws.hub == nil {
-		return nil, errors.NewError(errors.ErrCodeInternalServerError, "WebSocket Hub not initialized")
-	}
-	return ws.hub.SendToUserWithAck(ctx, userID, msg, timeout, maxRetry)
-}
-
-// SendToTicket 发送消息给特定凭证
-// 直接委托给 go-wsc Hub
-func (ws *WebSocketService) SendToTicket(ctx context.Context, ticketID string, msg *wsc.HubMessage) error {
-	if ws.hub == nil {
-		return errors.NewError(errors.ErrCodeInternalServerError, "WebSocket Hub not initialized")
-	}
-	return ws.hub.SendToTicket(ctx, ticketID, msg)
-}
-
-// SendToTicketWithAck 发送消息给特定凭证（带 ACK）
-// 直接委托给 go-wsc Hub
-func (ws *WebSocketService) SendToTicketWithAck(ctx context.Context, ticketID string, msg *wsc.HubMessage, timeout time.Duration, maxRetry int) (*wsc.AckMessage, error) {
-	if ws.hub == nil {
-		return nil, errors.NewError(errors.ErrCodeInternalServerError, "WebSocket Hub not initialized")
-	}
-	return ws.hub.SendToTicketWithAck(ctx, ticketID, msg, timeout, maxRetry)
-}
-
-// Broadcast 广播消息给所有客户端
-// 直接委托给 go-wsc Hub
-func (ws *WebSocketService) Broadcast(ctx context.Context, msg *wsc.HubMessage) {
-	if ws.hub != nil {
-		ws.hub.Broadcast(ctx, msg)
+	// 执行消息接收回调
+	if err := ws.executeMessageReceivedCallbacks(ws.ctx, client, &msg); err != nil {
+		ws.executeErrorCallbacks(ws.ctx, err, "warning")
 	}
 }
 
-// GetOnlineUsers 获取所有在线用户列表
-// 直接委托给 go-wsc Hub
-func (ws *WebSocketService) GetOnlineUsers() []string {
-	if ws.hub == nil {
-		return []string{}
+// handleBinaryMessage 处理二进制消息
+func (ws *WebSocketService) handleBinaryMessage(client *wsc.Client, data []byte) {
+	msg := &wsc.HubMessage{
+		From:     client.UserID,
+		Content:  string(data),
+		Type:     wsc.MessageTypeBinary,
+		CreateAt: time.Now(),
+		Data: map[string]interface{}{
+			"binary_length": len(data),
+		},
 	}
-	return ws.hub.GetOnlineUsers()
+
+	// 执行消息接收回调
+	if err := ws.executeMessageReceivedCallbacks(ws.ctx, client, msg); err != nil {
+		ws.executeErrorCallbacks(ws.ctx, err, "warning")
+	}
 }
 
-// GetOnlineUserCount 获取在线用户数量
-// 直接委托给 go-wsc Hub
-func (ws *WebSocketService) GetOnlineUserCount() int {
-	if ws.hub == nil {
-		return 0
-	}
-	return len(ws.hub.GetOnlineUsers())
-}
+// extractClientAttributes 从请求中提取客户端属性
+// 优先从 URL 查询参数获取，其次从 Header 获取
+// 返回: clientID, userID, userType
+func (ws *WebSocketService) extractClientAttributes(r *http.Request) (string, string, string) {
+	query := r.URL.Query()
 
-// GetStats 获取 WebSocket 统计信息
-// 直接委托给 go-wsc Hub
-func (ws *WebSocketService) GetStats() map[string]interface{} {
-	if ws.hub == nil {
-		return map[string]interface{}{}
+	// 获取 Client ID
+	clientID := query.Get("client_id")
+	if clientID == "" {
+		clientID = r.Header.Get("X-Client-ID")
 	}
-	return ws.hub.GetStats()
+	if clientID == "" {
+		clientID = fmt.Sprintf("client_%d", time.Now().UnixNano())
+	}
+
+	// 获取 User ID (优先使用查询参数中的 user_id)
+	userID := query.Get("user_id")
+	if userID == "" {
+		userID = r.Header.Get("X-User-ID")
+	}
+	if userID == "" {
+		userID = clientID
+	}
+
+	// 获取 User Type (从查询参数)
+	userType := query.Get("user_type")
+	if userType == "" {
+		userType = r.Header.Get("X-User-Type")
+	}
+
+	return clientID, userID, userType
 }
 
 // ============================================================================
@@ -546,4 +440,72 @@ func (ws *WebSocketService) GetHub() *wsc.Hub {
 // GetConfig 获取 WSC 配置
 func (ws *WebSocketService) GetConfig() *wscconfig.WSC {
 	return ws.config
+}
+
+// ============================================================================
+// 回调注册方法
+// ============================================================================
+
+// OnClientConnect 注册客户端连接回调
+func (ws *WebSocketService) OnClientConnect(cb ClientConnectCallback) {
+	ws.connectCallbacks = append(ws.connectCallbacks, cb)
+}
+
+// OnClientDisconnect 注册客户端断开连接回调
+func (ws *WebSocketService) OnClientDisconnect(cb ClientDisconnectCallback) {
+	ws.disconnectCallbacks = append(ws.disconnectCallbacks, cb)
+}
+
+// OnMessageReceived 注册消息接收回调
+func (ws *WebSocketService) OnMessageReceived(cb MessageReceivedCallback) {
+	ws.messageCallbacks = append(ws.messageCallbacks, cb)
+}
+
+// OnError 注册错误处理回调
+func (ws *WebSocketService) OnError(cb ErrorCallback) {
+	ws.errorCallbacks = append(ws.errorCallbacks, cb)
+}
+
+// ============================================================================
+// 回调执行方法（内部使用）
+// ============================================================================
+
+// executeConnectCallbacks 执行连接回调
+func (ws *WebSocketService) executeConnectCallbacks(ctx context.Context, client *wsc.Client) error {
+	for _, cb := range ws.connectCallbacks {
+		if err := cb(ctx, client); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// executeDisconnectCallbacks 执行断开连接回调
+func (ws *WebSocketService) executeDisconnectCallbacks(ctx context.Context, client *wsc.Client, reason string) error {
+	for _, cb := range ws.disconnectCallbacks {
+		if err := cb(ctx, client, reason); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// executeMessageReceivedCallbacks 执行消息接收回调
+func (ws *WebSocketService) executeMessageReceivedCallbacks(ctx context.Context, client *wsc.Client, msg *wsc.HubMessage) error {
+	for _, cb := range ws.messageCallbacks {
+		if err := cb(ctx, client, msg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// executeErrorCallbacks 执行错误处理回调
+func (ws *WebSocketService) executeErrorCallbacks(ctx context.Context, err error, severity string) error {
+	for _, cb := range ws.errorCallbacks {
+		if cbErr := cb(ctx, err, severity); cbErr != nil {
+			return cbErr
+		}
+	}
+	return nil
 }

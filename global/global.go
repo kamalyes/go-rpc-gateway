@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 10:26:18
+ * @LastEditTime: 2025-11-20 13:26:06
  * @FilePath: \go-rpc-gateway\global\global.go
  * @Description: 全局变量和配置管理 - 基于go-config的重构版本
  *
@@ -21,6 +21,7 @@ import (
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	gowsc "github.com/kamalyes/go-wsc"
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -33,6 +34,7 @@ var (
 	CONFIG_MANAGER *goconfig.IntegratedConfigManager         // 统一配置管理器
 	CTX            context.Context                           // 全局上下文
 	CANCEL         context.CancelFunc                        // 上下文取消函数
+	WSCHUB         *gowsc.Hub                                // 全局WebSocket服务实例
 	Node           *snowflake.Node                           // 雪花算法节点（用于分布式ID生成）
 	LOG            logger.ILogger                            // 日志器别名（兼容旧代码）
 	DB             *gorm.DB                                  // 数据库连接（暂未初始化）
@@ -99,7 +101,7 @@ func CleanupGlobal() {
 	Node = nil
 	CTX = nil
 	CANCEL = nil
-
+	WSCHUB = nil
 	LOGGER.Info("✅ 全局资源清理完成\n")
 }
 
@@ -121,6 +123,36 @@ func GetPoolManager() *cpool.Manager {
 // GetContext 获取全局上下文
 func GetContext() context.Context {
 	return CTX
+}
+
+// GetDB 获取数据库连接
+func GetDB() *gorm.DB {
+	return DB
+}
+
+// GetRedis 获取Redis连接
+func GetRedis() *redis.Client {
+	return REDIS
+}
+
+// GetMinIO 获取MinIO连接
+func GetMinIO() *minio.Client {
+	return MinIO
+}
+
+// GetSnowflakeNode 获取雪花算法节点
+func GetSnowflakeNode() *snowflake.Node {
+	return Node
+}
+
+// GetWebSocketService 获取全局WebSocket服务实例
+func GetWebSocketService() *gowsc.Hub {
+	return WSCHUB
+}
+
+// GetGatewayConfig 获取网关配置
+func GetGatewayConfig() *gwconfig.Gateway {
+	return GATEWAY
 }
 
 // GetConfigManager 获取配置管理器

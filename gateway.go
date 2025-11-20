@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-17 21:51:09
- * @FilePath: \engine-im-agent-service\go-rpc-gateway\gateway.go
+ * @LastEditTime: 2025-11-20 13:25:25
+ * @FilePath: \go-rpc-gateway\gateway.go
  * @Description: Gateway主入口，基于go-config
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
@@ -16,6 +16,13 @@ package gateway
 
 import (
 	"context"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
 	"github.com/bwmarrin/snowflake"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	goconfig "github.com/kamalyes/go-config"
@@ -26,25 +33,17 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/kamalyes/go-rpc-gateway/server"
-	wsc "github.com/kamalyes/go-wsc"
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
-	"net/http"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
 )
 
 // Gateway 是主要的网关服务器
 type Gateway struct {
 	*server.Server
-	configManager  *goconfig.IntegratedConfigManager
-	gatewayConfig  *gwconfig.Gateway
-	enhancedServer *server.EnhancedServer // 新增增强服务器
+	configManager *goconfig.IntegratedConfigManager
+	gatewayConfig *gwconfig.Gateway
 
 	// API 注册信息收集
 	registeredGRPCServices    []string
@@ -517,7 +516,7 @@ func (g *Gateway) EnableResponseHandler(format response.ResponseFormat) error {
 	global.LOGGER.Info("响应处理将通过全局错误处理器和便捷方法提供支持")
 
 	return nil
-} 
+}
 
 // SetGlobalResponseFormat 设置全局响应格式
 func (g *Gateway) SetGlobalResponseFormat(format response.ResponseFormat) {
@@ -751,10 +750,11 @@ func (g *Gateway) GetDB() *gorm.DB {
 
 // InitDatabaseModels 初始化数据库模型
 // 使用示例:
-//   err := gateway.InitDatabaseModels(
-//       &models.UserModel{},
-//       &models.OrderModel{},
-//   )
+//
+//	err := gateway.InitDatabaseModels(
+//	    &models.UserModel{},
+//	    &models.OrderModel{},
+//	)
 func (g *Gateway) InitDatabaseModels(models ...interface{}) error {
 	db := g.GetDB()
 	if db == nil {
@@ -912,160 +912,4 @@ func (g *Gateway) GetWebSocketService() *server.WebSocketService {
 func (g *Gateway) IsWebSocketEnabled() bool {
 	wsSvc := g.GetWebSocketService()
 	return wsSvc != nil && wsSvc.IsRunning()
-}
-
-// OnWebSocketClientConnect 添加客户端连接回调（支持链式调用）
-// 示例:
-//
-//	gateway.
-//	  OnWebSocketClientConnect(func(ctx context.Context, client *wsc.Client) error {
-//	    fmt.Printf("客户端已连接: %s\n", client.ID)
-//	    return nil
-//	  }).
-//	  OnWebSocketClientDisconnect(func(ctx context.Context, client *wsc.Client, reason string) error {
-//	    fmt.Printf("客户端已断开: %s (原因: %s)\n", client.ID, reason)
-//	    return nil
-//	  })
-func (g *Gateway) OnWebSocketClientConnect(cb server.ClientConnectCallback) *Gateway {
-	wsSvc := g.GetWebSocketService()
-	if wsSvc != nil {
-		wsSvc.OnClientConnect(cb)
-	}
-	return g
-}
-
-// OnWebSocketClientDisconnect 添加客户端断开连接回调
-func (g *Gateway) OnWebSocketClientDisconnect(cb server.ClientDisconnectCallback) *Gateway {
-	wsSvc := g.GetWebSocketService()
-	if wsSvc != nil {
-		wsSvc.OnClientDisconnect(cb)
-	}
-	return g
-}
-
-// OnWebSocketMessageReceived 添加消息接收回调
-func (g *Gateway) OnWebSocketMessageReceived(cb server.MessageReceivedCallback) *Gateway {
-	wsSvc := g.GetWebSocketService()
-	if wsSvc != nil {
-		wsSvc.OnMessageReceived(cb)
-	}
-	return g
-}
-
-// OnWebSocketError 添加错误处理回调
-func (g *Gateway) OnWebSocketError(cb server.ErrorCallback) *Gateway {
-	wsSvc := g.GetWebSocketService()
-	if wsSvc != nil {
-		wsSvc.OnError(cb)
-	}
-	return g
-}
-
-// ============================================================================
-// WebSocket 消息推送 API - 直接暴露 Hub 能力
-// ============================================================================
-
-// SendToWebSocketUser 发送消息给特定用户
-// 使用示例:
-//
-//	msg := &wsc.HubMessage{
-//	  From: "admin",
-//	  Content: []byte("Hello"),
-//	}
-//	if err := gateway.SendToWebSocketUser(ctx, "user123", msg); err != nil {
-//	  log.Printf("Failed to send message: %v", err)
-//	}
-func (g *Gateway) SendToWebSocketUser(ctx context.Context, userID string, msg *wsc.HubMessage) error {
-	wsSvc := g.GetWebSocketService()
-	if wsSvc == nil {
-		return errors.NewError(errors.ErrCodeServiceUnavailable, "WebSocket service not available")
-	}
-	return wsSvc.SendToUser(ctx, userID, msg)
-}
-
-// SendToWebSocketUserWithAck 发送消息给用户（带 ACK）
-// 示例:
-//
-//	ack, err := gateway.SendToWebSocketUserWithAck(ctx, "user123", msg, 5*time.Second, 3)
-//	if err != nil {
-//	  log.Printf("Failed to send with ACK: %v", err)
-//	} else {
-//	  log.Printf("Message delivered successfully")
-//	}
-func (g *Gateway) SendToWebSocketUserWithAck(ctx context.Context, userID string, msg *wsc.HubMessage, timeout time.Duration, maxRetry int) (*wsc.AckMessage, error) {
-	wsSvc := g.GetWebSocketService()
-	if wsSvc == nil {
-		return nil, errors.NewError(errors.ErrCodeServiceUnavailable, "WebSocket service not available")
-	}
-	return wsSvc.SendToUserWithAck(ctx, userID, msg, timeout, maxRetry)
-}
-
-// SendToWebSocketTicket 发送消息给特定凭证 ID
-func (g *Gateway) SendToWebSocketTicket(ctx context.Context, ticketID string, msg *wsc.HubMessage) error {
-	wsSvc := g.GetWebSocketService()
-	if wsSvc == nil {
-		return errors.NewError(errors.ErrCodeServiceUnavailable, "WebSocket service not available")
-	}
-	return wsSvc.SendToTicket(ctx, ticketID, msg)
-}
-
-// SendToWebSocketTicketWithAck 发送消息给凭证（带 ACK）
-func (g *Gateway) SendToWebSocketTicketWithAck(ctx context.Context, ticketID string, msg *wsc.HubMessage, timeout time.Duration, maxRetry int) (*wsc.AckMessage, error) {
-	wsSvc := g.GetWebSocketService()
-	if wsSvc == nil {
-		return nil, errors.NewError(errors.ErrCodeServiceUnavailable, "WebSocket service not available")
-	}
-	return wsSvc.SendToTicketWithAck(ctx, ticketID, msg, timeout, maxRetry)
-}
-
-// BroadcastWebSocketMessage 广播消息给所有连接的客户端
-// 使用示例:
-//
-//	msg := &wsc.HubMessage{
-//	  From: "admin",
-//	  Content: []byte("Server announcement"),
-//	}
-//	gateway.BroadcastWebSocketMessage(ctx, msg)
-func (g *Gateway) BroadcastWebSocketMessage(ctx context.Context, msg *wsc.HubMessage) {
-	wsSvc := g.GetWebSocketService()
-	if wsSvc != nil && msg != nil {
-		wsSvc.Broadcast(ctx, msg)
-	}
-}
-
-// GetWebSocketOnlineUsers 获取所有在线用户列表
-func (g *Gateway) GetWebSocketOnlineUsers() []string {
-	wsSvc := g.GetWebSocketService()
-	if wsSvc == nil {
-		return []string{}
-	}
-	return wsSvc.GetOnlineUsers()
-}
-
-// GetWebSocketOnlineUserCount 获取在线用户数量
-func (g *Gateway) GetWebSocketOnlineUserCount() int {
-	wsSvc := g.GetWebSocketService()
-	if wsSvc == nil {
-		return 0
-	}
-	return wsSvc.GetOnlineUserCount()
-}
-
-// GetWebSocketStats 获取 WebSocket 统计信息
-// 返回包含以下信息的映射:
-// - online_users: 当前在线用户数
-// - is_running: 服务是否运行中
-// - uptime_seconds: 服务运行时间（秒）
-// - total_messages_sent: 总发送消息数
-// - total_messages_recv: 总接收消息数
-func (g *Gateway) GetWebSocketStats() map[string]interface{} {
-	wsSvc := g.GetWebSocketService()
-	if wsSvc == nil {
-		return map[string]interface{}{
-			"online_users":   0,
-			"is_running":     false,
-			"uptime_seconds": 0,
-		}
-	}
-	return wsSvc.GetStats()
 }
