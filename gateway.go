@@ -392,6 +392,13 @@ func (g *Gateway) RegisterHTTPRoutes(routes map[string]http.HandlerFunc) {
 	}
 }
 
+// AddGrpcGatewayMiddleware 添加 gRPC-Gateway 中间件
+// 注意：必须在网关启动之前调用
+func (g *Gateway) AddGrpcGatewayMiddleware(mw runtime.Middleware) {
+	g.Server.AddGrpcGatewayMiddleware(mw)
+	global.LOGGER.Info("✅ 已添加 gRPC-Gateway 中间件")
+}
+
 // EnableSwagger 启用 Swagger 文档服务 (委托给 Server 层)
 func (g *Gateway) EnableSwagger() error {
 	return g.Server.EnableFeature(server.FeatureSwagger)

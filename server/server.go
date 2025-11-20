@@ -13,6 +13,9 @@ package server
 
 import (
 	"context"
+	"net/http"
+	"sync"
+
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
@@ -21,8 +24,6 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"google.golang.org/grpc"
-	"net/http"
-	"sync"
 )
 
 // Server Gateway服务器
@@ -38,6 +39,9 @@ type Server struct {
 
 	// 中间件管理器
 	middlewareManager *middleware.Manager
+
+	// grpc-gateway 中间件（runtime.Middleware）
+	grpcGatewayMiddlewares []runtime.Middleware
 
 	// 健康检查管理器
 	healthManager *middleware.HealthManager
@@ -169,4 +173,10 @@ func (s *Server) RegisterGRPCService(registerFunc func(*grpc.Server)) {
 	if s.grpcServer != nil {
 		registerFunc(s.grpcServer)
 	}
+}
+
+// AddGrpcGatewayMiddleware 添加 gRPC-Gateway 中间件
+// 注意：必须在 initHTTPGateway 之前调用
+func (s *Server) AddGrpcGatewayMiddleware(mw runtime.Middleware) {
+	s.grpcGatewayMiddlewares = append(s.grpcGatewayMiddlewares, mw)
 }

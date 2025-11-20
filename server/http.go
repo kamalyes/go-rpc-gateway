@@ -94,6 +94,13 @@ func (s *Server) gzipMiddleware(next http.Handler) http.Handler {
 func (s *Server) initHTTPGateway() error {
 	// 创建gRPC-Gateway多路复用器，配置JSON序列化选项
 	opts := s.buildServeMuxOptions()
+
+	// 添加 grpc-gateway 中间件
+	if len(s.grpcGatewayMiddlewares) > 0 {
+		opts = append(opts, runtime.WithMiddlewares(s.grpcGatewayMiddlewares...))
+		global.LOGGER.Info("✅ 已注册 %d 个 gRPC-Gateway 中间件", len(s.grpcGatewayMiddlewares))
+	}
+
 	s.gwMux = runtime.NewServeMux(opts...)
 
 	// 创建HTTP多路复用器
