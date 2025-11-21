@@ -12,9 +12,9 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-config v0.9.9
+	github.com/kamalyes/go-config v0.9.10
 	github.com/kamalyes/go-logger v0.3.0
-	github.com/kamalyes/go-toolbox v0.11.68
+	github.com/kamalyes/go-toolbox v0.11.71
 	github.com/kamalyes/go-wsc v0.2.2
 	github.com/mssola/user_agent v0.6.0
 	github.com/prometheus/client_golang v1.19.1
@@ -87,7 +87,7 @@ require (
 	github.com/go-playground/validator/v10 v10.27.0
 	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect

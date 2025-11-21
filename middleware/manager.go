@@ -267,13 +267,37 @@ func (m *Manager) GetBreakerAdapter() *BreakerMiddlewareAdapter {
 	return m.breakerAdapter
 }
 
+// getBaseMiddlewares 获取基础中间件链（所有环境共用）
+func (m *Manager) getBaseMiddlewares() []MiddlewareFunc {
+	return []MiddlewareFunc{
+		m.RecoveryMiddleware(),  // Panic 恢复
+		m.RequestIDMiddleware(), // 请求 ID 追踪
+		m.I18nMiddleware(),      // 国际化
+	}
+}
+
+// appendObservabilityMiddlewares 添加可观测性中间件（监控、追踪）
+func (m *Manager) appendObservabilityMiddlewares(middlewares []MiddlewareFunc) []MiddlewareFunc {
+	// 添加监控中间件（如果启用）
+	if m.metricsManager != nil {
+		middlewares = append(middlewares, m.HTTPMetricsMiddleware())
+	}
+
+	// 添加链路追踪中间件（如果启用）
+	if m.tracingManager != nil {
+		middlewares = append(middlewares, m.HTTPTracingMiddleware())
+	}
+
+	return middlewares
+}
+
 // GetDefaultMiddlewares 获取默认中间件链
 func (m *Manager) GetDefaultMiddlewares() []MiddlewareFunc {
-	middlewares := []MiddlewareFunc{
-		m.RecoveryMiddleware(),
-		m.RequestIDMiddleware(),
-		m.I18nMiddleware(),
-	}
+	// 基础中间件
+	middlewares := m.getBaseMiddlewares()
+
+	// 业务中间件
+	middlewares = append(middlewares, m.LoggingMiddleware())
 
 	// 添加限流中间件（如果启用）
 	if m.rateLimiter != nil {
@@ -283,79 +307,54 @@ func (m *Manager) GetDefaultMiddlewares() []MiddlewareFunc {
 	// 添加熔断中间件
 	middlewares = append(middlewares, m.BreakerMiddleware())
 
+	// 安全和功能中间件
 	middlewares = append(middlewares,
-		m.LoggingMiddleware(),
 		m.CORSMiddleware(),
 		m.SecurityMiddleware(),
+		m.AccessRecordMiddleware(),
 	)
 
-	// 添加访问记录中间件
-	middlewares = append(middlewares, m.AccessRecordMiddleware())
-
-	// 添加监控中间件（如果启用）
-	if m.metricsManager != nil {
-		middlewares = append(middlewares, m.HTTPMetricsMiddleware())
-	}
-
-	// 添加链路追踪中间件（如果启用）
-	if m.tracingManager != nil {
-		middlewares = append(middlewares, m.HTTPTracingMiddleware())
-	}
-
-	return middlewares
+	// 可观测性中间件
+	return m.appendObservabilityMiddlewares(middlewares)
 }
 
 // GetProductionMiddlewares 获取生产环境中间件链
 func (m *Manager) GetProductionMiddlewares() []MiddlewareFunc {
-	middlewares := []MiddlewareFunc{
-		m.RecoveryMiddleware(),
-		m.RequestIDMiddleware(),
-		m.RateLimitMiddleware(),
-		m.BreakerMiddleware(), // 生产环境启用熔断
-		m.SignatureMiddleware(),
-		m.SecurityMiddleware(),
-		m.CORSMiddleware(),
-		m.AccessRecordMiddleware(),
-	}
+	// 基础中间件
+	middlewares := m.getBaseMiddlewares()
 
-	// 添加监控中间件（如果启用）
-	if m.metricsManager != nil {
-		middlewares = append(middlewares, m.HTTPMetricsMiddleware())
-	}
+	// 生产环境核心中间件
+	middlewares = append(middlewares,
+		m.RateLimitMiddleware(),    // 限流
+		m.BreakerMiddleware(),      // 熔断
+		m.SignatureMiddleware(),    // 签名验证
+		m.SecurityMiddleware(),     // 安全防护
+		m.CORSMiddleware(),         // 跨域
+		m.AccessRecordMiddleware(), // 访问记录
+	)
 
-	// 添加链路追踪中间件（如果启用）
-	if m.tracingManager != nil {
-		middlewares = append(middlewares, m.HTTPTracingMiddleware())
-	}
-
-	return middlewares
+	// 可观测性中间件
+	return m.appendObservabilityMiddlewares(middlewares)
 }
 
 // GetDevelopmentMiddlewares 获取开发环境中间件链
 func (m *Manager) GetDevelopmentMiddlewares() []MiddlewareFunc {
-	middlewares := []MiddlewareFunc{
-		m.RecoveryMiddleware(),
-		m.RequestIDMiddleware(),
-		m.LoggingMiddleware(),
-		m.CORSMiddleware(),
-	}
+	// 基础中间件
+	middlewares := m.getBaseMiddlewares()
 
-	// 在开发环境中启用pprof中间件
+	// 开发环境中间件
+	middlewares = append(middlewares,
+		m.LoggingMiddleware(), // 详细日志
+		m.CORSMiddleware(),    // 跨域（开发常需要）
+	)
+
+	// PProf 性能分析（仅开发环境）
 	if m.cfg != nil && m.cfg.Middleware.PProf != nil && m.cfg.Middleware.PProf.Enabled {
 		middlewares = append(middlewares, m.PProfMiddleware())
 	}
 
-	// 添加监控中间件（如果启用）
-	if m.metricsManager != nil {
-		middlewares = append(middlewares, m.HTTPMetricsMiddleware())
-	}
-
-	// 添加链路追踪中间件（如果启用）
-	if m.tracingManager != nil {
-		middlewares = append(middlewares, m.HTTPTracingMiddleware())
-	}
-
-	return middlewares
+	// 可观测性中间件
+	return m.appendObservabilityMiddlewares(middlewares)
 }
 
 // HTTPMiddleware 应用HTTP中间件链

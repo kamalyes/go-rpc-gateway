@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-10 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 16:30:00
+ * @LastEditTime: 2025-11-21 11:27:10
  * @FilePath: \go-rpc-gateway\middleware\i18n.go
  * @Description: 国际化i18n中间件
  *
@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -45,7 +47,16 @@ func NewI18nManager(config *goconfigi18n.I18N) (*I18nManager, error) {
 		config = goconfigi18n.Default()
 	}
 
-	// MessageLoader 会在实际使用时创建，这里先不设置
+	// 如果没有设置 MessageLoader，根据 MessagesPath 自动创建 FileMessageLoader
+	if config.MessageLoader == nil && config.MessagesPath != "" {
+		config.MessageLoader = NewFileMessageLoader(config.MessagesPath)
+	}
+
+	// 如果仍然没有 MessageLoader，返回错误
+	if config.MessageLoader == nil {
+		return nil, errors.NewErrorf(errors.ErrCodeMiddlewareError, "MessageLoader is required for i18n")
+	}
+
 	manager := &I18nManager{
 		config:   config,
 		messages: make(map[string]map[string]string),
@@ -463,4 +474,43 @@ func (j *JSONMessageLoader) LoadMessages(language string) (map[string]string, er
 		return messages, nil
 	}
 	return nil, errors.NewErrorf(errors.ErrCodeLanguageNotFound, "language: %s", language)
+}
+
+// FileMessageLoader 文件系统消息加载器，从磁盘文件加载翻译消息
+type FileMessageLoader struct {
+	localesPath string
+}
+
+// NewFileMessageLoader 创建文件消息加载器
+// localesPath: 翻译文件所在目录路径，如 "./locales" 或 "resources/locales"
+func NewFileMessageLoader(localesPath string) *FileMessageLoader {
+	return &FileMessageLoader{
+		localesPath: localesPath,
+	}
+}
+
+// LoadMessages 加载指定语言的消息
+// language: 语言代码，如 "zh", "en", "ja" 等
+// 会读取 {localesPath}/{language}.json 文件
+func (f *FileMessageLoader) LoadMessages(language string) (map[string]string, error) {
+	filePath := filepath.Join(f.localesPath, language+".json")
+
+	// 检查文件是否存在
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil, errors.NewErrorf(errors.ErrCodeLanguageNotFound, "language file not found: %s", filePath)
+	}
+
+	// 读取文件内容
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, errors.NewErrorf(errors.ErrCodeLanguageLoadFailed, "failed to read language file %s: %v", filePath, err)
+	}
+
+	// 解析JSON
+	var messages map[string]string
+	if err := json.Unmarshal(data, &messages); err != nil {
+		return nil, errors.NewErrorf(errors.ErrCodeJSONParseFailed, "failed to parse language file %s: %v", filePath, err)
+	}
+
+	return messages, nil
 }
