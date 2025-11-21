@@ -205,6 +205,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 ```
 
 **访问服务**:
+
 - 🌐 HTTP API: `http://localhost:8080`
 - 🔌 gRPC: `localhost:9090`
 - 📊 监控指标: `http://localhost:8080/metrics`
@@ -220,6 +221,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 <td width="33%">
 
 ### 🚀 入门指南
+
 - [快速开始](docs/QUICK_START.md)
 - [配置指南](docs/CONFIG_GUIDE.md)
 - [API 参考](docs/API_REFERENCE.md)
@@ -228,6 +230,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 <td width="33%">
 
 ### 🏗️ 架构设计
+
 - [系统架构](docs/ARCHITECTURE.md)
 - [初始化机制](docs/INITIALIZER_GUIDE.md)
 - [中间件系统](docs/MIDDLEWARE_GUIDE.md)
@@ -236,6 +239,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 <td width="33%">
 
 ### 🛠️ 高级特性
+
 - [功能特性管理](docs/FEATURE_MANAGEMENT.md)
 - [连接池管理](docs/POOL_MANAGEMENT.md)
 - [WebSocket 通信](wsc/README.md)
@@ -246,14 +250,17 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 <td width="33%">
 
 ### 📦 模块文档
+
 - [PBMO 转换器](pbmo/README.md)
 - [错误处理](errors/README.md)
 - [响应封装](response/README.md)
+- [白名单中间件](middleware/WHITELIST_USAGE.md) 🆕
 
 </td>
 <td width="33%">
 
 ### 🚀 部署运维
+
 - [部署指南](docs/DEPLOYMENT.md)
 - [监控告警](docs/MONITORING.md)
 - [性能优化](docs/PERFORMANCE.md)
@@ -262,6 +269,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 <td width="33%">
 
 ### 💡 最佳实践
+
 - [开发规范](docs/BEST_PRACTICES.md)
 - [示例代码](docs/EXAMPLES.md)
 - [常见问题](docs/FAQ.md)
@@ -328,6 +336,7 @@ if gw.IsFeatureEnabled(server.FeatureSwagger) {
 ```
 
 **支持的特性**:
+
 - `FeatureSwagger` - API 文档服务
 - `FeatureMonitoring` - Prometheus 监控
 - `FeatureHealth` - 健康检查
@@ -549,7 +558,7 @@ git push origin feature/amazing-feature
 
 ## 📞 联系我们
 
-- 📧 Email: 501893067@qq.com
+- 📧 Email: <501893067@qq.com>
 - 💬 讨论: [GitHub Discussions](https://github.com/kamalyes/go-rpc-gateway/discussions)
 - 🐛 问题: [GitHub Issues](https://github.com/kamalyes/go-rpc-gateway/issues)
 

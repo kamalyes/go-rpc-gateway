@@ -14,7 +14,7 @@ require (
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-config v0.9.10
 	github.com/kamalyes/go-logger v0.3.0
-	github.com/kamalyes/go-toolbox v0.11.71
+	github.com/kamalyes/go-toolbox v0.11.74
 	github.com/kamalyes/go-wsc v0.2.2
 	github.com/mssola/user_agent v0.6.0
 	github.com/prometheus/client_golang v1.19.1
