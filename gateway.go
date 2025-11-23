@@ -16,13 +16,6 @@ package gateway
 
 import (
 	"context"
-	"net/http"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
-
 	"github.com/bwmarrin/snowflake"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	goconfig "github.com/kamalyes/go-config"
@@ -37,6 +30,12 @@ import (
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 )
 
 // Gateway 是主要的网关服务器
@@ -298,7 +297,7 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 	}, goconfig.CallbackOptions{
 		ID:       "gateway_config_handler",
 		Types:    []goconfig.CallbackType{goconfig.CallbackTypeConfigChanged},
-		Priority: goconfig.CallbackPriorityHigh,
+		Priority: -100, // 高优先级（负数表示优先）
 		Async:    false,
 		Timeout:  5 * time.Second,
 	})
@@ -312,7 +311,7 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 		func(oldEnv, newEnv goconfig.EnvironmentType) error {
 			global.LOGGER.Info("🌍 环境变更: %s -> %s\n", oldEnv, newEnv)
 			return nil
-		}, goconfig.CallbackPriorityHigh, false)
+		}, -100, false) // 高优先级
 
 	if err != nil {
 		return errors.NewError(errors.ErrCodeInvalidConfiguration, errors.FormatConfigError("注册环境变更回调", err))
@@ -728,7 +727,7 @@ func (g *Gateway) RegisterConfigCallbacks() {
 	}, goconfig.CallbackOptions{
 		ID:       "gateway_config_handler",
 		Types:    []goconfig.CallbackType{goconfig.CallbackTypeConfigChanged},
-		Priority: goconfig.CallbackPriorityHigh,
+		Priority: -100, // 高优先级
 		Async:    false,
 		Timeout:  5 * time.Second,
 	})
@@ -737,7 +736,7 @@ func (g *Gateway) RegisterConfigCallbacks() {
 	g.configManager.RegisterEnvironmentCallback("gateway_env_handler", func(oldEnv, newEnv goconfig.EnvironmentType) error {
 		global.LOGGER.Info(errors.FormatEnvironmentChangeInfo(string(oldEnv), string(newEnv)))
 		return nil
-	}, goconfig.CallbackPriorityHigh, false)
+	}, -100, false) // 高优先级
 }
 
 // ================ 连接池管理方法 ================

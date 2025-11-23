@@ -14,8 +14,6 @@ package global
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"github.com/bwmarrin/snowflake"
 	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
@@ -25,6 +23,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"time"
 )
 
 var (
@@ -174,7 +173,8 @@ func ReloadConfig() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := CONFIG_MANAGER.ReloadConfig(ctx); err != nil {
+	// 通过热重载器进行配置重载
+	if err := CONFIG_MANAGER.GetHotReloader().Reload(ctx); err != nil {
 		return fmt.Errorf("重新加载配置失败: %w", err)
 	}
 

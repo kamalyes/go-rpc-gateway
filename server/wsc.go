@@ -20,14 +20,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"sync/atomic"
-	"time"
-
+	gconfig "github.com/kamalyes/go-config"
 	wscconfig "github.com/kamalyes/go-config/pkg/wsc"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-wsc"
+	"net/http"
+	"sync/atomic"
+	"time"
 )
 
 // ============================================================================
@@ -80,38 +80,36 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	}
 
 	// 使用 Safe 方式检查配置
-	cfgSafe := cfg.Safe()
+	cfgSafe := gconfig.SafeConfig(cfg)
 	if !cfgSafe.Enabled() {
 		global.LOGGER.InfoMsg("⏭️  WebSocket 服务已禁用")
 		return nil, errors.NewError(errors.ErrCodeInvalidConfiguration, "WebSocket is disabled")
 	}
 
-	// 创建 Hub 配置 - 优先使用传入配置，没有的字段使用默认值
-	// 使用 go-config 的 Safe 访问器，已经内置了默认值逻辑
+	// 创建 Hub 配置 - 优先使用传入配置,没有的字段使用默认值
+	// 使用 go-config 的 Safe 访问器,已经内置了默认值逻辑
+	wscSafe := cfgSafe.WSC()
 	hubConfig := cfg.
-		WithNodeIP(cfgSafe.NodeIP()).
-		WithNodePort(cfgSafe.NodePort()).
-		WithHeartbeatInterval(cfgSafe.HeartbeatInterval()).
-		WithClientTimeout(cfgSafe.ClientTimeout()).
-		WithMessageBufferSize(cfgSafe.MessageBufferSize())
-	// 检查性能配置 - 如果Group配置不存在，创建并设置消息记录
+		WithNodeIP(wscSafe.Field("NodeIP").String("0.0.0.0")).
+		WithNodePort(wscSafe.Field("NodePort").Int(8080)).
+		WithHeartbeatInterval(wscSafe.Field("HeartbeatInterval").Int(30)).
+		WithClientTimeout(wscSafe.Field("ClientTimeout").Int(90)).
+		WithMessageBufferSize(wscSafe.Field("MessageBufferSize").Int(256))
+	// 检查性能配置 - 如果Group配置不存在,创建并设置消息记录
 	if hubConfig.Group == nil {
-		perfSafe := cfgSafe.Performance()
+		perfSafe := wscSafe.Field("Performance")
 		enableMetrics := perfSafe.Field("EnableMetrics").Bool(true)
 		hubConfig = hubConfig.WithGroup(wscconfig.DefaultGroup().
 			Enable().
 			WithMessageRecord(enableMetrics))
 	}
 
-	// 检查分布式/ACK 配置 - 如果Ticket配置不存在，根据分布式配置设置ACK
-	if hubConfig.Ticket == nil {
-		distSafe := cfgSafe.Distributed()
-		redisSafe := cfgSafe.Redis()
-		if distSafe.Field("Enabled").Bool(false) && redisSafe.Field("Enabled").Bool(false) {
-			hubConfig = hubConfig.WithTicket(wscconfig.DefaultTicket().
-				Enable().
-				WithAck(true, 5000, 3))
-		}
+	// 检查分布式/ACK 配置
+	distSafe := wscSafe.Field("Distributed")
+	redisSafe := cfgSafe.Redis()
+	if distSafe.Field("Enabled").Bool(false) && redisSafe.Field("Enabled").Bool(false) {
+		// 启用 ACK 机制
+		cfg.EnableAck = true
 	}
 
 	// 创建 Hub
@@ -138,9 +136,9 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	global.LOGGER.InfoKV("✅ WebSocket 服务已初始化",
 		"node_ip", hubConfig.NodeIP,
 		"node_port", hubConfig.NodePort,
-		"heartbeat_interval_sec", cfgSafe.HeartbeatInterval(30),
-		"message_buffer_size", cfgSafe.MessageBufferSize(256),
-		"enable_ack", hubConfig.Ticket != nil && hubConfig.Ticket.EnableAck)
+		"heartbeat_interval_sec", wscSafe.Field("HeartbeatInterval").Int(30),
+		"message_buffer_size", wscSafe.Field("MessageBufferSize").Int(256),
+		"enable_ack", cfg.EnableAck)
 
 	return service, nil
 }
@@ -165,13 +163,13 @@ func (ws *WebSocketService) Start() error {
 	mux.HandleFunc("/ws", ws.handleWebSocketUpgrade)
 
 	// 使用 Safe 访问器获取 HTTP 服务器超时配置
-	cfgSafe := ws.config.Safe()
-	readTimeout := cfgSafe.Field("ReadTimeout").Duration(10 * time.Second)
-	writeTimeout := cfgSafe.Field("WriteWait").Duration(10 * time.Second)
-	idleTimeout := cfgSafe.Field("IdleTimeout").Duration(60 * time.Second)
+	wscSafe := gconfig.SafeConfig(ws.config).WSC()
+	readTimeout := wscSafe.Field("ReadTimeout").Duration(10 * time.Second)
+	writeTimeout := wscSafe.Field("WriteWait").Duration(10 * time.Second)
+	idleTimeout := wscSafe.Field("IdleTimeout").Duration(60 * time.Second)
 
 	ws.httpServer = &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", cfgSafe.NodeIP(), cfgSafe.NodePort()),
+		Addr:         fmt.Sprintf("%s:%d", wscSafe.Field("NodeIP").String("0.0.0.0"), wscSafe.Field("NodePort").Int(8080)),
 		Handler:      mux,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
