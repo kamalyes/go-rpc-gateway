@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-16 15:52:20
- * @FilePath: \go-rpc-gateway\server\core.go
+ * @LastEditTime: 2025-11-23 23:59:26
+ * @FilePath: go-rpc-gateway\server\core.go
  * @Description: 核心组件初始化模块，集成企业级组件和go-logger
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
@@ -44,7 +44,7 @@ func (s *Server) initCore() error {
 func (s *Server) initWebSocket() error {
 	// 使用安全访问方式获取 WSC 配置（与其他配置访问保持一致）
 	wscSafe := s.configSafe.Field("WSC")
-	
+
 	// 检查 WebSocket 是否启用
 	isEnabled := wscSafe.Field("Enabled").Bool(false)
 	if !isEnabled {
@@ -53,27 +53,18 @@ func (s *Server) initWebSocket() error {
 	}
 
 	// 获取完整的 WSC 配置
-	wscCfg := s.config.WSC
-	if wscCfg == nil {
+	if s.config.WSC == nil {
 		global.LOGGER.DebugMsg("WebSocket 配置为空，使用默认配置")
-		wscCfg = wscconfig.Default()
+		s.config.WSC = wscconfig.Default()
 	}
 
 	// 创建 WebSocket 服务
-	wsSvc, err := NewWebSocketService(wscCfg)
+	wsSvc, err := NewWebSocketService(s.config.WSC)
 	if err != nil {
 		return errors.NewErrorf(errors.ErrCodeInternalServerError, "failed to create WebSocket service: %v", err)
 	}
 
 	s.webSocketService = wsSvc
-
-	nodeIP := wscSafe.Field("NodeIP").String("0.0.0.0")
-	nodePort := wscSafe.Field("NodePort").Int(8081)
-	
-	global.LOGGER.InfoKV("✅ WebSocket 服务初始化完成",
-		"node_ip", nodeIP,
-		"node_port", nodePort)
-
 	return nil
 }
 
