@@ -15,7 +15,7 @@ require (
 	github.com/kamalyes/go-config v0.11.0
 	github.com/kamalyes/go-logger v0.4.0
 	github.com/kamalyes/go-toolbox v0.11.78
-	github.com/kamalyes/go-wsc v0.2.4
+	github.com/kamalyes/go-wsc v0.3.0
 	github.com/mssola/user_agent v0.6.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.0
@@ -133,7 +133,7 @@ require (
 )
 
 // 本地开发替换
-replace github.com/kamalyes/go-wsc => ../go-wsc
+// replace github.com/kamalyes/go-wsc => ../go-wsc
 
 // replace github.com/kamalyes/go-cachex => ../go-cachex
 
