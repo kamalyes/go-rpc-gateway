@@ -14,13 +14,12 @@ package global
 import (
 	"context"
 	"fmt"
-	"sort"
-	"sync"
-
 	"github.com/bwmarrin/snowflake"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	"sort"
+	"sync"
 )
 
 // Initializer 初始化器接口 - 统一初始化流程
@@ -159,8 +158,8 @@ func (c *InitializerChain) HealthCheckAll() map[string]error {
 // LoggerInitializer 日志器初始化器
 type LoggerInitializer struct{}
 
-func (i *LoggerInitializer) Name() string     { return "Logger" }
-func (i *LoggerInitializer) Priority() int    { return 1 } // 最高优先级
+func (i *LoggerInitializer) Name() string       { return "Logger" }
+func (i *LoggerInitializer) Priority() int      { return 1 } // 最高优先级
 func (i *LoggerInitializer) HealthCheck() error { return nil }
 
 func (i *LoggerInitializer) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
@@ -179,6 +178,11 @@ func (i *LoggerInitializer) Initialize(ctx context.Context, cfg *gwconfig.Gatewa
 	LOGGER = logger.CreateSimpleLogger(level)
 	if LOGGER == nil {
 		return fmt.Errorf("创建日志器失败")
+	}
+
+	// 配置网关上下文提取器
+	if ultraLogger, ok := LOGGER.(*logger.UltraFastLogger); ok {
+		ultraLogger.SetContextExtractor(logger.GetPresetExtractor(logger.PresetExtractorGateway))
 	}
 
 	LOG = LOGGER // 兼容别名
@@ -280,8 +284,8 @@ func (i *PoolManagerInitializer) HealthCheck() error {
 // ContextInitializer 全局上下文初始化器
 type ContextInitializer struct{}
 
-func (i *ContextInitializer) Name() string     { return "Context" }
-func (i *ContextInitializer) Priority() int    { return 2 }
+func (i *ContextInitializer) Name() string       { return "Context" }
+func (i *ContextInitializer) Priority() int      { return 2 }
 func (i *ContextInitializer) HealthCheck() error { return nil }
 
 func (i *ContextInitializer) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {

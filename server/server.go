@@ -41,7 +41,8 @@ type Server struct {
 	middlewareManager *middleware.Manager
 
 	// grpc-gateway 中间件（runtime.Middleware）
-	grpcGatewayMiddlewares []runtime.Middleware
+	grpcGatewayMiddlewares         []runtime.Middleware
+	grpcGatewayMiddlewareProviders []func() []runtime.Middleware // 中间件提供器
 
 	// 健康检查管理器
 	healthManager *middleware.HealthManager
@@ -179,4 +180,10 @@ func (s *Server) RegisterGRPCService(registerFunc func(*grpc.Server)) {
 // 注意：必须在 initHTTPGateway 之前调用
 func (s *Server) AddGrpcGatewayMiddleware(mw runtime.Middleware) {
 	s.grpcGatewayMiddlewares = append(s.grpcGatewayMiddlewares, mw)
+}
+
+// AddGrpcGatewayMiddlewareProvider 添加 gRPC-Gateway 中间件提供器
+// 提供器会在 initHTTPGateway 时被调用，适用于需要在 Build 后才能创建的中间件
+func (s *Server) AddGrpcGatewayMiddlewareProvider(provider func() []runtime.Middleware) {
+	s.grpcGatewayMiddlewareProviders = append(s.grpcGatewayMiddlewareProviders, provider)
 }

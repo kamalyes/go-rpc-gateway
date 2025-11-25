@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-20 13:25:25
+ * @LastEditTime: 2025-11-25 13:51:09
  * @FilePath: \go-rpc-gateway\gateway.go
  * @Description: Gateway主入口，基于go-config
  *
@@ -16,6 +16,13 @@ package gateway
 
 import (
 	"context"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
 	"github.com/bwmarrin/snowflake"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	goconfig "github.com/kamalyes/go-config"
@@ -30,12 +37,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
-	"net/http"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
 )
 
 // Gateway 是主要的网关服务器
@@ -52,17 +53,18 @@ type Gateway struct {
 
 // GatewayBuilder Gateway构建器 - 支持链式调用
 type GatewayBuilder struct {
-	configPath      string
-	searchPath      string
-	environment     goconfig.EnvironmentType
-	configPrefix    string
-	pattern         string
-	hotReloadConfig *goconfig.HotReloadConfig
-	contextOptions  *goconfig.ContextKeyOptions
-	autoDiscovery   bool
-	usePattern      bool
-	useCustomPrefix bool
-	silent          bool // 是否静默启动
+	configPath             string
+	searchPath             string
+	environment            goconfig.EnvironmentType
+	configPrefix           string
+	pattern                string
+	hotReloadConfig        *goconfig.HotReloadConfig
+	contextOptions         *goconfig.ContextKeyOptions
+	autoDiscovery          bool
+	usePattern             bool
+	useCustomPrefix        bool
+	silent                 bool // 是否静默启动
+	grpcGatewayMiddlewares []runtime.Middleware
 }
 
 // ServiceRegisterFunc gRPC服务注册函数类型
@@ -141,6 +143,12 @@ func (b *GatewayBuilder) Silent() *GatewayBuilder {
 	return b
 }
 
+// WithGrpcGatewayMiddleware 添加 gRPC-Gateway 中间件 (可多次调用)
+func (b *GatewayBuilder) WithGrpcGatewayMiddleware(mw runtime.Middleware) *GatewayBuilder {
+	b.grpcGatewayMiddlewares = append(b.grpcGatewayMiddlewares, mw)
+	return b
+}
+
 // Build 构建Gateway (不启动)
 func (b *GatewayBuilder) Build() (*Gateway, error) {
 	// 确保全局日志器被初始化
@@ -211,6 +219,11 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 	srv, err := server.NewServer()
 	if err != nil {
 		return nil, errors.WrapWithContext(err, errors.ErrCodeServerCreationFailed)
+	}
+
+	// 添加构建器中配置的 gRPC-Gateway 中间件
+	for _, mw := range b.grpcGatewayMiddlewares {
+		srv.AddGrpcGatewayMiddleware(mw)
 	}
 
 	gateway := &Gateway{
@@ -396,6 +409,19 @@ func (g *Gateway) RegisterHTTPRoutes(routes map[string]http.HandlerFunc) {
 func (g *Gateway) AddGrpcGatewayMiddleware(mw runtime.Middleware) {
 	g.Server.AddGrpcGatewayMiddleware(mw)
 	global.LOGGER.Info("✅ 已添加 gRPC-Gateway 中间件")
+}
+
+// AddGrpcGatewayMiddlewareProvider 添加 gRPC-Gateway 中间件提供器
+// 提供器会在 HTTP Gateway 初始化时被调用，适用于需要在 Build 后才能创建的中间件
+func (g *Gateway) AddGrpcGatewayMiddlewareProvider(provider func() []runtime.Middleware) {
+	g.Server.AddGrpcGatewayMiddlewareProvider(provider)
+	global.LOGGER.Info("✅ 已添加 gRPC-Gateway 中间件提供器")
+}
+
+// RebuildHTTPGateway 重建 HTTP Gateway（用于在添加中间件后重新初始化）
+// 注意：需要在注册 HTTP Handlers 之前调用
+func (g *Gateway) RebuildHTTPGateway() error {
+	return g.Server.RebuildHTTPGateway()
 }
 
 // EnableSwagger 启用 Swagger 文档服务 (委托给 Server 层)

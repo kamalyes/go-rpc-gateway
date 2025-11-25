@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-18 12:02:51
+ * @LastEditTime: 2025-11-25 13:50:52
  * @FilePath: \go-rpc-gateway\server\http.go
  * @Description: HTTP服务器和网关初始化模块
  *
@@ -47,6 +47,10 @@ func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
 			UnmarshalOptions: protojson.UnmarshalOptions{
 				DiscardUnknown: discardUnknown, // 忽略未知字段
 			},
+		}),
+		// 🔑 将所有 HTTP Header 传递到 gRPC metadata (支持认证等功能)
+		runtime.WithIncomingHeaderMatcher(func(key string) (string, bool) {
+			return key, true // 传递所有 header
 		}),
 	}
 }
@@ -95,10 +99,21 @@ func (s *Server) initHTTPGateway() error {
 	// 创建gRPC-Gateway多路复用器，配置JSON序列化选项
 	opts := s.buildServeMuxOptions()
 
-	// 添加 grpc-gateway 中间件
-	if len(s.grpcGatewayMiddlewares) > 0 {
-		opts = append(opts, runtime.WithMiddlewares(s.grpcGatewayMiddlewares...))
-		global.LOGGER.Info("✅ 已注册 %d 个 gRPC-Gateway 中间件", len(s.grpcGatewayMiddlewares))
+	// 收集所有中间件（静态 + 动态提供）
+	var allMiddlewares []runtime.Middleware
+	allMiddlewares = append(allMiddlewares, s.grpcGatewayMiddlewares...)
+
+	// 调用中间件提供器获取动态中间件
+	for _, provider := range s.grpcGatewayMiddlewareProviders {
+		if mws := provider(); len(mws) > 0 {
+			allMiddlewares = append(allMiddlewares, mws...)
+		}
+	}
+
+	// 添加所有中间件
+	if len(allMiddlewares) > 0 {
+		opts = append(opts, runtime.WithMiddlewares(allMiddlewares...))
+		global.LOGGER.Info("✅ 已注册 %d 个 gRPC-Gateway 中间件", len(allMiddlewares))
 	}
 
 	s.gwMux = runtime.NewServeMux(opts...)
@@ -165,6 +180,12 @@ func (s *Server) initHTTPGateway() error {
 	}
 
 	return nil
+}
+
+// RebuildHTTPGateway 重建HTTP网关（用于在添加中间件后重新初始化）
+func (s *Server) RebuildHTTPGateway() error {
+	global.LOGGER.Info("🔄 重建 HTTP Gateway...")
+	return s.initHTTPGateway()
 }
 
 // registerComponentHealthChecks 注册组件级健康检查端点
