@@ -1,17 +1,8 @@
-/*
- * @Author: kamalyes 501893067@qq.com
- * @Date: 2023-07-28 00:50:58
- * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 07:40:59
- * @FilePath: \go-rpc-gateway\cpool\database\client.go
- * @Description:
- *
- * Copyright (c) 2024 by kamalyes, All Rights Reserved.
- */
 package database
 
 import (
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"time"
@@ -46,7 +37,7 @@ func Gorm(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 			return GormMySQL(cfg, log) // 默认使用 MySQL
 		}
 	}
-	
+
 	// 默认尝试MySQL
 	return GormMySQL(cfg, log)
 }
@@ -59,7 +50,7 @@ func GormMySQL(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 		}
 		return nil
 	}
-	
+
 	config := cfg.Database.MySQL
 	return initDB(config, database.DBTypeMySQL, log, func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(mysql.New(mysql.Config{DSN: dsn}), gormConfig(config.LogLevel))
@@ -74,7 +65,7 @@ func GormPostgreSQL(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 		}
 		return nil
 	}
-	
+
 	config := cfg.Database.PostgreSQL
 	return initDB(config, database.DBTypePostgreSQL, log, func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), gormConfig(config.LogLevel))
@@ -89,7 +80,7 @@ func GormSQLite(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 		}
 		return nil
 	}
-	
+
 	config := cfg.Database.SQLite
 	return initDB(config, database.DBTypeSQLite, log, func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(sqlite.Open(config.DbPath), gormConfig(config.LogLevel))
@@ -117,7 +108,7 @@ func initDB(provider database.DatabaseProvider, dbType database.DBType, log golo
 	}
 
 	sqlDB, _ := db.DB()
-	
+
 	// 设置连接池参数，直接从provider获取
 	if mysql, ok := provider.(*database.MySQL); ok {
 		sqlDB.SetMaxIdleConns(mysql.MaxIdleConns)
@@ -186,18 +177,15 @@ func gormConfig(logLevel string) *gorm.Config {
 			SingularTable: true,
 		},
 	}
-
-	switch logLevel {
-	case "silent", "Silent":
-		config.Logger = gormlogger.Default.LogMode(gormlogger.Silent)
-	case "error", "Error":
-		config.Logger = gormlogger.Default.LogMode(gormlogger.Error)
-	case "warn", "Warn":
-		config.Logger = gormlogger.Default.LogMode(gormlogger.Warn)
-	case "info", "Info":
-		config.Logger = gormlogger.Default.LogMode(gormlogger.Info)
-	default:
-		config.Logger = gormlogger.Default.LogMode(gormlogger.Error)
-	}
+	// Debug模式：显示所有SQL语句，包括参数值和执行时间
+	config.Logger = gormlogger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags),
+		gormlogger.Config{
+			SlowThreshold:             100 * time.Millisecond, // 慢查询阈值
+			LogLevel:                  gormlogger.Info,        // 记录所有SQL
+			IgnoreRecordNotFoundError: false,                  // 不忽略记录未找到错误
+			Colorful:                  true,                   // 彩色输出
+		},
+	)
 	return config
 }

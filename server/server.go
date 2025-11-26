@@ -59,6 +59,9 @@ type Server struct {
 	// WebSocket 服务
 	webSocketService *WebSocketService
 
+	// 端点信息收集器
+	endpointCollector *EndpointCollector
+
 	// 状态管理
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -152,6 +155,11 @@ func (s *Server) GetPoolManager() cpool.PoolManager {
 // GetWebSocketService 获取 WebSocket 服务
 func (s *Server) GetWebSocketService() *WebSocketService {
 	return s.webSocketService
+}
+
+// GetEndpointCollector 获取端点收集器
+func (s *Server) GetEndpointCollector() *EndpointCollector {
+	return s.endpointCollector
 }
 
 // EnableFeature 启用指定功能（使用配置中的默认设置）

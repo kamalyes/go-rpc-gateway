@@ -13,8 +13,8 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-config v0.11.0
-	github.com/kamalyes/go-logger v0.4.0
-	github.com/kamalyes/go-toolbox v0.11.78
+	github.com/kamalyes/go-logger v0.4.1
+	github.com/kamalyes/go-toolbox v0.11.79
 	github.com/kamalyes/go-wsc v0.3.0
 	github.com/mssola/user_agent v0.6.0
 	github.com/prometheus/client_golang v1.19.1
@@ -133,14 +133,14 @@ require (
 )
 
 // 本地开发替换
-// replace github.com/kamalyes/go-wsc => ../go-wsc
+replace github.com/kamalyes/go-wsc => ../go-wsc
 
-// replace github.com/kamalyes/go-cachex => ../go-cachex
+replace github.com/kamalyes/go-cachex => ../go-cachex
 
-// replace github.com/kamalyes/go-sqlbuiler => ../go-sqlbuiler
+replace github.com/kamalyes/go-sqlbuilder => ../go-sqlbuilder
 
 // replace github.com/kamalyes/go-config => ../go-config
 
-replace github.com/kamalyes/go-logger => ../go-logger
+// replace github.com/kamalyes/go-logger => ../go-logger
 
-// replace github.com/kamalyes/go-toolbox => ../go-toolbox
+replace github.com/kamalyes/go-toolbox => ../go-toolbox

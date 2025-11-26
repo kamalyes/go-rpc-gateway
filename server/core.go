@@ -31,6 +31,10 @@ func (s *Server) initCore() error {
 	// 将连接池管理器保存到服务器中
 	s.poolManager = poolManager
 
+	// 初始化端点收集器
+	s.endpointCollector = NewEndpointCollector()
+	global.LOGGER.InfoMsg("✅ 端点收集器已初始化")
+
 	// 初始化 WebSocket 服务（如果启用）
 	if err := s.initWebSocket(); err != nil {
 		global.LOGGER.WithError(err).WarnMsg("WebSocket 服务初始化失败，将跳过启动")

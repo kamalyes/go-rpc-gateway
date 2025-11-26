@@ -3,7 +3,7 @@
  * @Date: 2025-11-24 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-24 22:32:23
- * @FilePath: \engine-im-service\go-rpc-gateway\pbmo\enum_mapper_test.go
+ * @FilePath: \go-rpc-gateway\pbmo\enum_mapper_test.go
  * @Description: 测试枚举类型映射工具
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.

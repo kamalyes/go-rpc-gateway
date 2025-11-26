@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 07:49:58
+ * @LastEditTime: 2025-11-26 14:28:42
  * @FilePath: \go-rpc-gateway\pbmo\pbmo.go
  * @Description: PBMO - Protocol Buffer Model Object Converter
  * 高性能双向转换系统，支持参数校验
@@ -18,11 +18,10 @@
 package pbmo
 
 import (
-	"reflect"
-	"time"
-
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"reflect"
+	"time"
 )
 
 const (
@@ -32,19 +31,21 @@ const (
 // BidiConverter 双向转换器
 // 支持 PB ↔ Model 转换、参数校验、字段转换
 type BidiConverter struct {
-	pbType       reflect.Type
-	modelType    reflect.Type
-	transformers map[string]func(interface{}) interface{}
-	validators   map[string][]FieldRule // 添加校验规则存储
+	pbType             reflect.Type
+	modelType          reflect.Type
+	transformers       map[string]func(interface{}) interface{}
+	validators         map[string][]FieldRule // 添加校验规则存储
+	autoTimeConversion bool                   // 自动时间转换开关
 }
 
 // NewBidiConverter 创建双向转换器
 func NewBidiConverter(pbType, modelType interface{}) *BidiConverter {
 	return &BidiConverter{
-		pbType:       reflect.TypeOf(pbType),
-		modelType:    reflect.TypeOf(modelType),
-		transformers: make(map[string]func(interface{}) interface{}),
-		validators:   make(map[string][]FieldRule),
+		pbType:             reflect.TypeOf(pbType),
+		modelType:          reflect.TypeOf(modelType),
+		transformers:       make(map[string]func(interface{}) interface{}),
+		validators:         make(map[string][]FieldRule),
+		autoTimeConversion: true, // 默认启用自动时间转换
 	}
 }
 
@@ -56,6 +57,22 @@ func (bc *BidiConverter) RegisterTransformer(field string, transformer func(inte
 // RegisterValidationRules 注册校验规则
 func (bc *BidiConverter) RegisterValidationRules(typeName string, rules ...FieldRule) {
 	bc.validators[typeName] = append(bc.validators[typeName], rules...)
+}
+
+// WithAutoTimeConversion 设置自动时间转换开关
+func (bc *BidiConverter) WithAutoTimeConversion(enabled bool) *BidiConverter {
+	bc.autoTimeConversion = enabled
+	return bc
+}
+
+// SetAutoTimeConversion 设置自动时间转换开关
+func (bc *BidiConverter) SetAutoTimeConversion(enabled bool) {
+	bc.autoTimeConversion = enabled
+}
+
+// IsAutoTimeConversionEnabled 检查是否启用自动时间转换
+func (bc *BidiConverter) IsAutoTimeConversionEnabled() bool {
+	return bc.autoTimeConversion
 }
 
 // ConvertPBToModel 高性能 PB -> Model 转换
@@ -119,7 +136,7 @@ func (bc *BidiConverter) ConvertPBToModel(pb interface{}, modelPtr interface{}) 
 		}
 
 		// 执行字段转换
-		if err := convertFieldFast(pbField, modelField); err != nil {
+		if err := convertFieldFast(pbField, modelField, bc); err != nil {
 			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "field %s: %v", pbFieldName, err)
 		}
 	}
@@ -178,7 +195,7 @@ func (bc *BidiConverter) ConvertModelToPB(model interface{}, pbPtr interface{}) 
 		}
 
 		// 执行字段转换
-		if err := convertFieldFast(modelField, pbField); err != nil {
+		if err := convertFieldFast(modelField, pbField, bc); err != nil {
 			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "field %s: %v", modelFieldName, err)
 		}
 	}
@@ -193,7 +210,7 @@ func (bc *BidiConverter) ConvertModelToPB(model interface{}, pbPtr interface{}) 
 // - 基本类型：string, bool, float 等
 // - 切片：递归转换
 // - 指针：自动解引用和装箱
-func convertFieldFast(src reflect.Value, dst reflect.Value) error {
+func convertFieldFast(src reflect.Value, dst reflect.Value, converter *BidiConverter) error {
 	if !src.IsValid() {
 		return nil
 	}
@@ -207,19 +224,21 @@ func convertFieldFast(src reflect.Value, dst reflect.Value) error {
 		return nil
 	}
 
-	// 时间戳转换（最常用）
-	if srcType == timeType && dstType == timestampPtrType {
-		t := src.Interface().(time.Time)
-		dst.Set(reflect.ValueOf(timestamppb.New(t)))
-		return nil
-	}
-	if srcType == timestampPtrType && dstType == timeType {
-		if src.IsNil() {
+	// 时间戳转换（最常用）- 只在开关启用时执行
+	if converter != nil && converter.autoTimeConversion {
+		if srcType == timeType && dstType == timestampPtrType {
+			t := src.Interface().(time.Time)
+			dst.Set(reflect.ValueOf(timestamppb.New(t)))
 			return nil
 		}
-		ts := src.Interface().(*timestamppb.Timestamp)
-		dst.Set(reflect.ValueOf(ts.AsTime()))
-		return nil
+		if srcType == timestampPtrType && dstType == timeType {
+			if src.IsNil() {
+				return nil
+			}
+			ts := src.Interface().(*timestamppb.Timestamp)
+			dst.Set(reflect.ValueOf(ts.AsTime()))
+			return nil
+		}
 	}
 
 	// ID 字段转换（uint <-> int64）
@@ -248,18 +267,18 @@ func convertFieldFast(src reflect.Value, dst reflect.Value) error {
 		// 如果目标已经是一个指针且不为nil，直接转换到其内容
 		if !dst.IsNil() {
 			if srcType.Kind() == reflect.Ptr {
-				return convertFieldFast(src.Elem(), dst.Elem())
+				return convertFieldFast(src.Elem(), dst.Elem(), converter)
 			}
-			return convertFieldFast(src, dst.Elem())
+			return convertFieldFast(src, dst.Elem(), converter)
 		}
 
 		// 目标为nil，创建新的对象
 		newVal := reflect.New(dstType.Elem())
 		var err error
 		if srcType.Kind() == reflect.Ptr {
-			err = convertFieldFast(src.Elem(), newVal.Elem())
+			err = convertFieldFast(src.Elem(), newVal.Elem(), converter)
 		} else {
-			err = convertFieldFast(src, newVal.Elem())
+			err = convertFieldFast(src, newVal.Elem(), converter)
 		}
 		if err == nil {
 			dst.Set(newVal) // 设置创建的新值到目标字段
@@ -271,17 +290,17 @@ func convertFieldFast(src reflect.Value, dst reflect.Value) error {
 		if src.IsNil() {
 			return nil
 		}
-		return convertFieldFast(src.Elem(), dst)
+		return convertFieldFast(src.Elem(), dst, converter)
 	}
 
 	// 切片转换
 	if srcType.Kind() == reflect.Slice && dstType.Kind() == reflect.Slice {
-		return convertSliceFast(src, dst)
+		return convertSliceFast(src, dst, converter)
 	}
 
 	// 结构体转换
 	if srcType.Kind() == reflect.Struct && dstType.Kind() == reflect.Struct {
-		return convertStructFast(src, dst)
+		return convertStructFast(src, dst, converter)
 	}
 
 	return nil
@@ -312,7 +331,7 @@ func convertInteger(src reflect.Value, dst reflect.Value) error {
 }
 
 // convertSliceFast 快速切片转换
-func convertSliceFast(src reflect.Value, dst reflect.Value) error {
+func convertSliceFast(src reflect.Value, dst reflect.Value, converter *BidiConverter) error {
 	if src.IsNil() {
 		return nil
 	}
@@ -321,7 +340,7 @@ func convertSliceFast(src reflect.Value, dst reflect.Value) error {
 	dstSlice := reflect.MakeSlice(dst.Type(), len, len)
 
 	for i := 0; i < len; i++ {
-		if err := convertFieldFast(src.Index(i), dstSlice.Index(i)); err != nil {
+		if err := convertFieldFast(src.Index(i), dstSlice.Index(i), converter); err != nil {
 			return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 		}
 	}
@@ -331,7 +350,7 @@ func convertSliceFast(src reflect.Value, dst reflect.Value) error {
 }
 
 // convertStructFast 快速结构体转换
-func convertStructFast(src reflect.Value, dst reflect.Value) error {
+func convertStructFast(src reflect.Value, dst reflect.Value, converter *BidiConverter) error {
 	srcType := src.Type()
 
 	// 遍历源结构体的所有字段
@@ -346,7 +365,7 @@ func convertStructFast(src reflect.Value, dst reflect.Value) error {
 		}
 
 		// 递归转换字段
-		if err := convertFieldFast(srcField, dstField); err != nil {
+		if err := convertFieldFast(srcField, dstField, converter); err != nil {
 			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "struct field %s: %v", srcFieldName, err)
 		}
 	}

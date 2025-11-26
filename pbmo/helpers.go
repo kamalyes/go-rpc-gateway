@@ -87,3 +87,40 @@ func getTypeName(t reflect.Type) string {
 	}
 	return t.Name()
 }
+
+// TimeToProtoTimestamp 将 time.Time 转换为 *timestamppb.Timestamp
+// 如果输入为零值时间，返回 nil
+func TimeToProtoTimestamp(t time.Time) *timestamppb.Timestamp {
+	if t.IsZero() {
+		return nil
+	}
+	return timestamppb.New(t)
+}
+
+// ProtoTimestampToTime 将 *timestamppb.Timestamp 转换为 time.Time
+// 如果输入为 nil，返回零值时间
+func ProtoTimestampToTime(ts *timestamppb.Timestamp) time.Time {
+	if ts == nil {
+		return time.Time{}
+	}
+	return ts.AsTime()
+}
+
+// TimePointerToProtoTimestamp 将 *time.Time 转换为 *timestamppb.Timestamp
+// 如果输入为 nil 或零值时间，返回 nil
+func TimePointerToProtoTimestamp(t *time.Time) *timestamppb.Timestamp {
+	if t == nil || t.IsZero() {
+		return nil
+	}
+	return timestamppb.New(*t)
+}
+
+// ProtoTimestampToTimePointer 将 *timestamppb.Timestamp 转换为 *time.Time
+// 如果输入为 nil，返回 nil
+func ProtoTimestampToTimePointer(ts *timestamppb.Timestamp) *time.Time {
+	if ts == nil {
+		return nil
+	}
+	t := ts.AsTime()
+	return &t
+}

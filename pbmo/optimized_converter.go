@@ -22,25 +22,27 @@ import (
 // OptimizedBidiConverter 优化的双向转换器
 // 通过缓存字段映射和索引，减少反射开销
 type OptimizedBidiConverter struct {
-	pbType          reflect.Type
-	modelType       reflect.Type
-	transformers    map[string]func(interface{}) interface{}
-	pbFieldIndex    map[string]int    // PB 字段名 -> 索引
-	modelFieldIndex map[string]int    // Model 字段名 -> 索引
-	fieldMapping    map[string]string // PB 字段名 -> Model 字段名（跳过不存在的字段）
-	mu              sync.RWMutex
-	initOnce        sync.Once
+	pbType             reflect.Type
+	modelType          reflect.Type
+	transformers       map[string]func(interface{}) interface{}
+	pbFieldIndex       map[string]int    // PB 字段名 -> 索引
+	modelFieldIndex    map[string]int    // Model 字段名 -> 索引
+	fieldMapping       map[string]string // PB 字段名 -> Model 字段名（跳过不存在的字段）
+	autoTimeConversion bool              // 自动时间转换开关
+	mu                 sync.RWMutex
+	initOnce           sync.Once
 }
 
 // NewOptimizedBidiConverter 创建优化的双向转换器
 func NewOptimizedBidiConverter(pbType, modelType interface{}) *OptimizedBidiConverter {
 	return &OptimizedBidiConverter{
-		pbType:          reflect.TypeOf(pbType),
-		modelType:       reflect.TypeOf(modelType),
-		transformers:    make(map[string]func(interface{}) interface{}),
-		pbFieldIndex:    make(map[string]int),
-		modelFieldIndex: make(map[string]int),
-		fieldMapping:    make(map[string]string),
+		pbType:             reflect.TypeOf(pbType),
+		modelType:          reflect.TypeOf(modelType),
+		transformers:       make(map[string]func(interface{}) interface{}),
+		pbFieldIndex:       make(map[string]int),
+		modelFieldIndex:    make(map[string]int),
+		fieldMapping:       make(map[string]string),
+		autoTimeConversion: true, // 默认启用自动时间转换
 	}
 }
 
@@ -51,11 +53,42 @@ func (obc *OptimizedBidiConverter) RegisterTransformer(field string, transformer
 	obc.transformers[field] = transformer
 }
 
+// WithAutoTimeConversion 设置自动时间转换开关（链式调用）
+func (obc *OptimizedBidiConverter) WithAutoTimeConversion(enabled bool) *OptimizedBidiConverter {
+	obc.mu.Lock()
+	defer obc.mu.Unlock()
+	obc.autoTimeConversion = enabled
+	return obc
+}
+
+// SetAutoTimeConversion 设置自动时间转换开关
+func (obc *OptimizedBidiConverter) SetAutoTimeConversion(enabled bool) {
+	obc.mu.Lock()
+	defer obc.mu.Unlock()
+	obc.autoTimeConversion = enabled
+}
+
+// asBidiConverter 将 OptimizedBidiConverter 转换为 BidiConverter 的接口
+// 用于传递给 convertFieldFast 函数
+func (obc *OptimizedBidiConverter) asBidiConverter() *BidiConverter {
+	// 创建一个临时的 BidiConverter 实例，只用于传递配置
+	return &BidiConverter{
+		autoTimeConversion: obc.autoTimeConversion,
+	}
+}
+
+// IsAutoTimeConversionEnabled 检查是否启用自动时间转换
+func (obc *OptimizedBidiConverter) IsAutoTimeConversionEnabled() bool {
+	obc.mu.RLock()
+	defer obc.mu.RUnlock()
+	return obc.autoTimeConversion
+}
+
 // initFieldIndexes 初始化字段索引（延迟初始化）
 func (obc *OptimizedBidiConverter) initFieldIndexes() {
 	obc.initOnce.Do(func() {
 		// 初始化 PB 字段索引
-		if obc.pbType != nil && obc.pbType.Kind() != reflect.Ptr {
+		if obc.pbType != nil {
 			pbTypeElem := obc.pbType
 			if obc.pbType.Kind() == reflect.Ptr {
 				pbTypeElem = obc.pbType.Elem()
@@ -97,16 +130,23 @@ func (obc *OptimizedBidiConverter) ConvertPBToModel(pb interface{}, modelPtr int
 		return errors.ErrModelMessageNil
 	}
 
+	// 初始化字段索引（在获取读锁之前）
 	obc.initFieldIndexes()
 
 	modelVal := reflect.ValueOf(modelPtr)
 	if modelVal.Kind() != reflect.Ptr {
 		return errors.ErrMustBePointer
 	}
+	if modelVal.IsNil() {
+		return errors.ErrModelMessageNil
+	}
 	modelVal = modelVal.Elem()
 
 	pbVal := reflect.ValueOf(pb)
 	if pbVal.Kind() == reflect.Ptr {
+		if pbVal.IsNil() {
+			return errors.ErrPBMessageNil
+		}
 		pbVal = pbVal.Elem()
 	}
 
@@ -135,7 +175,7 @@ func (obc *OptimizedBidiConverter) ConvertPBToModel(pb interface{}, modelPtr int
 		}
 
 		// 执行字段转换
-		if err := convertFieldFast(pbField, modelField); err != nil {
+		if err := convertFieldFast(pbField, modelField, obc.asBidiConverter()); err != nil {
 			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "field %s: %v", pbFieldName, err)
 		}
 	}
@@ -152,16 +192,23 @@ func (obc *OptimizedBidiConverter) ConvertModelToPB(model interface{}, pbPtr int
 		return errors.ErrPBMessageNil
 	}
 
+	// 初始化字段索引（在获取读锁之前）
 	obc.initFieldIndexes()
 
 	pbVal := reflect.ValueOf(pbPtr)
 	if pbVal.Kind() != reflect.Ptr {
 		return errors.ErrMustBePointer
 	}
+	if pbVal.IsNil() {
+		return errors.ErrPBMessageNil
+	}
 	pbVal = pbVal.Elem()
 
 	modelVal := reflect.ValueOf(model)
 	if modelVal.Kind() == reflect.Ptr {
+		if modelVal.IsNil() {
+			return errors.ErrModelMessageNil
+		}
 		modelVal = modelVal.Elem()
 	}
 
@@ -190,7 +237,7 @@ func (obc *OptimizedBidiConverter) ConvertModelToPB(model interface{}, pbPtr int
 		}
 
 		// 执行字段转换
-		if err := convertFieldFast(modelField, pbField); err != nil {
+		if err := convertFieldFast(modelField, pbField, obc.asBidiConverter()); err != nil {
 			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "field %s: %v", modelFieldName, err)
 		}
 	}
@@ -215,7 +262,8 @@ func (obc *OptimizedBidiConverter) BatchConvertPBToModel(pbs interface{}, models
 	modelsVal = modelsVal.Elem()
 
 	modelType := modelsVal.Type().Elem()
-	if modelType.Kind() == reflect.Ptr {
+	isModelPtr := modelType.Kind() == reflect.Ptr
+	if isModelPtr {
 		modelType = modelType.Elem()
 	}
 
@@ -228,16 +276,18 @@ func (obc *OptimizedBidiConverter) BatchConvertPBToModel(pbs interface{}, models
 		pb := pbsVal.Index(i)
 		model := models.Index(i)
 
-		if modelType.Kind() == reflect.Ptr {
-			modelPtr := reflect.New(modelType.Elem())
+		if isModelPtr {
+			modelPtr := reflect.New(modelType)
 			if err := obc.ConvertPBToModel(pb.Interface(), modelPtr.Interface()); err != nil {
 				return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 			}
 			model.Set(modelPtr)
 		} else {
-			if err := obc.ConvertPBToModel(pb.Interface(), model.Addr().Interface()); err != nil {
+			modelPtr := reflect.New(modelType)
+			if err := obc.ConvertPBToModel(pb.Interface(), modelPtr.Interface()); err != nil {
 				return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 			}
+			model.Set(modelPtr.Elem())
 		}
 	}
 
@@ -262,7 +312,8 @@ func (obc *OptimizedBidiConverter) BatchConvertModelToPB(models interface{}, pbs
 	pbsVal = pbsVal.Elem()
 
 	pbType := pbsVal.Type().Elem()
-	if pbType.Kind() == reflect.Ptr {
+	isPbPtr := pbType.Kind() == reflect.Ptr
+	if isPbPtr {
 		pbType = pbType.Elem()
 	}
 
@@ -275,16 +326,18 @@ func (obc *OptimizedBidiConverter) BatchConvertModelToPB(models interface{}, pbs
 		model := modelsVal.Index(i)
 		pb := pbs.Index(i)
 
-		if pbType.Kind() == reflect.Ptr {
+		if isPbPtr {
 			pbPtr := reflect.New(pbType)
 			if err := obc.ConvertModelToPB(model.Interface(), pbPtr.Interface()); err != nil {
 				return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 			}
 			pb.Set(pbPtr)
 		} else {
-			if err := obc.ConvertModelToPB(model.Interface(), pb.Addr().Interface()); err != nil {
+			pbPtr := reflect.New(pbType)
+			if err := obc.ConvertModelToPB(model.Interface(), pbPtr.Interface()); err != nil {
 				return errors.NewErrorf(errors.ErrCodeElementConversion, "element %d: %v", i, err)
 			}
+			pb.Set(pbPtr.Elem())
 		}
 	}
 

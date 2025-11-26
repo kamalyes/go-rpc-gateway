@@ -275,7 +275,7 @@ func GetGRPCErrorFromConversion(err error) error {
 	}
 
 	grpcCode, msg := ErrorToGRPCStatus(err)
-	return status.Errorf(grpcCode, msg)
+	return status.Errorf(grpcCode, "%s", msg)
 }
 
 // GetGRPCErrorFromValidation 从校验结果获取 gRPC 错误

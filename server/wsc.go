@@ -3,7 +3,7 @@
  * @Date: 2025-11-16 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-24 15:23:18
- * @FilePath: \engine-im-service\go-rpc-gateway\server\wsc.go
+ * @FilePath: \go-rpc-gateway\server\wsc.go
  * @Description: WebSocket 集成层 - go-wsc 的薄封装
  * 职责：
  * 1. HTTP 升级处理
@@ -20,14 +20,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"sync/atomic"
-	"time"
-
 	wscconfig "github.com/kamalyes/go-config/pkg/wsc"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-wsc"
+	"net/http"
+	"sync/atomic"
+	"time"
 )
 
 // ============================================================================
@@ -307,21 +306,37 @@ func (ws *WebSocketService) handleTextMessage(client *wsc.Client, data []byte) {
 	if err := json.Unmarshal(data, &msg); err != nil {
 		// 不是 JSON 格式，当作纯文本处理
 		msg = wsc.HubMessage{
-			From:     client.UserID,
-			Content:  string(data),
-			Type:     wsc.MessageTypeText,
-			CreateAt: time.Now(),
+			ID:          fmt.Sprintf("text_%s_%d", client.UserID, time.Now().UnixNano()),
+			Sender:      client.UserID,
+			SenderType:  client.UserType,
+			Content:     string(data),
+			MessageType: wsc.MessageTypeText,
+			CreateAt:    time.Now(),
+			Priority:    wsc.PriorityNormal,
+			Status:      wsc.MessageStatusSent,
 		}
 	} else {
 		// 是 JSON 格式，补充必要字段
-		if msg.From == "" {
-			msg.From = client.UserID
+		if msg.Sender == "" {
+			msg.Sender = client.UserID
+		}
+		if msg.SenderType == "" {
+			msg.SenderType = client.UserType
 		}
 		if msg.CreateAt.IsZero() {
 			msg.CreateAt = time.Now()
 		}
-		if msg.Type == "" {
-			msg.Type = wsc.MessageTypeText
+		if msg.MessageType == "" {
+			msg.MessageType = wsc.MessageTypeText
+		}
+		if msg.ID == "" {
+			msg.ID = fmt.Sprintf("json_%s_%d", client.UserID, time.Now().UnixNano())
+		}
+		if msg.Priority == "" {
+			msg.Priority = wsc.PriorityNormal
+		}
+		if msg.Status == "" {
+			msg.Status = wsc.MessageStatusSent
 		}
 	}
 
@@ -334,10 +349,14 @@ func (ws *WebSocketService) handleTextMessage(client *wsc.Client, data []byte) {
 // handleBinaryMessage 处理二进制消息
 func (ws *WebSocketService) handleBinaryMessage(client *wsc.Client, data []byte) {
 	msg := &wsc.HubMessage{
-		From:     client.UserID,
-		Content:  string(data),
-		Type:     wsc.MessageTypeBinary,
-		CreateAt: time.Now(),
+		ID:          fmt.Sprintf("binary_%s_%d", client.UserID, time.Now().UnixNano()),
+		Sender:      client.UserID,
+		SenderType:  client.UserType,
+		Content:     string(data),
+		MessageType: wsc.MessageTypeBinary,
+		CreateAt:    time.Now(),
+		Priority:    wsc.PriorityNormal,
+		Status:      wsc.MessageStatusSent,
 		Data: map[string]interface{}{
 			"binary_length": len(data),
 		},

@@ -237,5 +237,5 @@ func (cec *ConversionErrorContext) ToGRPCError() error {
 		grpcCode = codes.InvalidArgument
 	}
 
-	return status.Errorf(grpcCode, cec.Error())
+	return status.Errorf(grpcCode, "%s", cec.Error())
 }

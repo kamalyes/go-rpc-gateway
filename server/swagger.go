@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-15 16:31:53
- * @FilePath: \engine-im-service\go-rpc-gateway\server\swagger.go
+ * @LastEditTime: 2025-11-26 12:11:05
+ * @FilePath: \go-rpc-gateway\server\swagger.go
  * @Description: Swagger 文档服务管理
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
@@ -12,12 +12,11 @@
 package server
 
 import (
-	"net/http"
-
 	goswagger "github.com/kamalyes/go-config/pkg/swagger"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-toolbox/pkg/safe"
+	"net/http"
 )
 
 // EnableSwagger 启用 Swagger 文档服务

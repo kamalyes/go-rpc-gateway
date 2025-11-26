@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-21 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-21 16:29:23
- * @FilePath: \engine-im-service\go-rpc-gateway\middleware\whitelist_test.go
+ * @LastEditTime: 2025-11-26 21:23:37
+ * @FilePath: \go-rpc-gateway\middleware\whitelist_test.go
  * @Description: 白名单中间件测试
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
@@ -12,14 +12,12 @@
 package middleware
 
 import (
+	"github.com/kamalyes/go-toolbox/pkg/netx"
+	"github.com/stretchr/testify/assert"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/kamalyes/go-toolbox/pkg/netx"
-
-	"github.com/stretchr/testify/assert"
 )
 
 // TestGetClientIP 测试客户端 IP 提取
@@ -243,7 +241,7 @@ func TestWhitelistManager(t *testing.T) {
 	NewRuleBuilder(manager).
 		AddPathPrefix("/api/", "API").
 		AddExactPath("POST", "/v1/install", "安装").
-		AddPathPrefix("/health", "健康检查").
+		AddExactPath("GET", "/health", "健康检查").
 		Build()
 
 	tests := []struct {

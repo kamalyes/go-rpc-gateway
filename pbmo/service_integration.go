@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 21:08:42
+ * @LastEditTime: 2025-11-26 14:36:04
  * @FilePath: \go-rpc-gateway\pbmo\service_integration.go
  * @Description: gRPC 服务集成适配器
  * 职责：自动转换拦截、参数校验拦截、错误处理
@@ -19,10 +19,10 @@ import (
 
 // ServiceIntegration gRPC 服务集成工具
 type ServiceIntegration struct {
-	converter      *EnhancedBidiConverter
-	validator      *FieldValidator
-	logger         logger.ILogger
-	errorHandler   *ConversionErrorHandler
+	converter    *EnhancedBidiConverter
+	validator    *FieldValidator
+	logger       logger.ILogger
+	errorHandler *ConversionErrorHandler
 }
 
 // NewServiceIntegration 创建服务集成工具
@@ -84,7 +84,7 @@ func (si *ServiceIntegration) BatchConvertSafe(
 	if len(result.Errors) > 0 && result.FailureCount > 0 {
 		// 返回部分成功结果和错误信息
 		errMsg := "partial batch conversion: some items failed"
-		return result, status.Errorf(codes.Internal, errMsg)
+		return result, status.Errorf(codes.Internal, "%s", errMsg)
 	}
 
 	return result, nil
@@ -101,7 +101,7 @@ func (si *ServiceIntegration) HandleError(err error, operationType string) error
 	}
 
 	grpcCode, msg := ErrorToGRPCStatus(err)
-	return status.Errorf(grpcCode, msg)
+	return status.Errorf(grpcCode, "%s", msg)
 }
 
 // HandleValidationErrorWithDetails 处理校验错误并返回详细信息
