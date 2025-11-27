@@ -12,35 +12,44 @@
 package server
 
 import (
-	"fmt"
-	"time"
-
+	"context"
 	goconfig "github.com/kamalyes/go-config"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"time"
 )
 
 // StartupReporter 启动状态报告器
 type StartupReporter struct {
+	ctx    context.Context
 	config interface{}
 }
 
 // NewStartupReporter 创建启动状态报告器
 func NewStartupReporter(config interface{}) *StartupReporter {
 	return &StartupReporter{
+		ctx:    context.Background(),
 		config: config,
 	}
+}
+
+// WithContext 设置上下文
+func (r *StartupReporter) WithContext(ctx context.Context) *StartupReporter {
+	if ctx != nil {
+		r.ctx = ctx
+	}
+	return r
 }
 
 // PrintStartupStatus 打印启动状态
 func (r *StartupReporter) PrintStartupStatus() {
 	if r.config == nil {
-		global.LOGGER.Warn("⚠️  配置未初始化，无法打印启动状态")
+		global.LOGGER.WarnContext(r.ctx, "⚠️  配置未初始化，无法打印启动状态")
 		return
 	}
 
 	configSafe := goconfig.SafeConfig(r.config)
 
-	global.LOGGER.Info("🔄 ===== 服务启动状态检查 =====")
+	global.LOGGER.InfoContext(r.ctx, "🔄 ===== 服务启动状态检查 =====")
 
 	// 打印基础信息
 	r.printBasicStatus(configSafe)
@@ -54,63 +63,61 @@ func (r *StartupReporter) PrintStartupStatus() {
 	// 打印监控和分析功能状态
 	r.printMonitoringStatus(configSafe)
 
-	global.LOGGER.Info("✅ ===== 启动状态检查完成 =====")
+	global.LOGGER.InfoContext(r.ctx, "✅ ===== 启动状态检查完成 =====")
 }
 
 // printBasicStatus 打印基础状态
 func (r *StartupReporter) printBasicStatus(configSafe *goconfig.ConfigSafe) {
-	global.LOGGER.Info("📋 基础服务状态:")
+	global.LOGGER.InfoContext(r.ctx, "📋 基础服务状态:")
 
 	// HTTP 服务器
-	httpHost := configSafe.Field("HTTPServer").Field("Host").String("localhost")
-	httpPort := configSafe.Field("HTTPServer").Field("Port").Int(8080)
-	global.LOGGER.Info(fmt.Sprintf("   🌐 HTTP服务: %s:%d", httpHost, httpPort))
+	global.LOGGER.InfoContext(r.ctx, "   🌐 HTTP服务: %s:%d",
+		configSafe.Field("HTTPServer").Field("Host").String("localhost"),
+		configSafe.Field("HTTPServer").Field("Port").Int(8080))
 
 	// gRPC 服务器
-	grpcHost := configSafe.Field("GRPCServer").Field("Host").String("localhost")
-	grpcPort := configSafe.Field("GRPCServer").Field("Port").Int(9090)
-	global.LOGGER.Info(fmt.Sprintf("   📡 gRPC服务: %s:%d", grpcHost, grpcPort))
+	global.LOGGER.InfoContext(r.ctx, "   📡 gRPC服务: %s:%d",
+		configSafe.Field("GRPCServer").Field("Host").String("localhost"),
+		configSafe.Field("GRPCServer").Field("Port").Int(9090))
 
 	// 环境模式
-	environment := configSafe.Field("Environment").String("development")
-	debug := configSafe.Field("Debug").Bool(false)
-	global.LOGGER.Info(fmt.Sprintf("   🌍 运行环境: %s (调试模式: %v)", environment, debug))
+	global.LOGGER.InfoContext(r.ctx, "   🌍 运行环境: %s (调试模式: %v)",
+		configSafe.Field("Environment").String("development"),
+		configSafe.Field("Debug").Bool(false))
 }
 
 // printFeatureStatus 打印功能状态
 func (r *StartupReporter) printFeatureStatus(configSafe *goconfig.ConfigSafe) {
-	global.LOGGER.Info("🔧 功能模块状态:")
+	global.LOGGER.InfoContext(r.ctx, "🔧 功能模块状态:")
 
 	// 健康检查
 	if configSafe.IsHealthEnabled() {
-		healthPath := configSafe.GetHealthPath("/health")
-		global.LOGGER.Info(fmt.Sprintf("   ✅ 健康检查: 已启用 (%s)", healthPath))
+		global.LOGGER.InfoContext(r.ctx, "   ✅ 健康检查: 已启用 (%s)",
+			configSafe.GetHealthPath("/health"))
 	} else {
-		global.LOGGER.Info("   ❌ 健康检查: 已禁用")
+		global.LOGGER.InfoContext(r.ctx, "   ❌ 健康检查: 已禁用")
 	}
 
 	// Swagger 文档
-	swaggerEnabled := configSafe.Field("Swagger").Field("Enabled").Bool(false)
-	if swaggerEnabled {
-		swaggerPath := configSafe.Field("Swagger").Field("UIPath").String("/swagger")
-		global.LOGGER.Info(fmt.Sprintf("   ✅ Swagger文档: 已启用 (%s)", swaggerPath))
+	if configSafe.Field("Swagger").Field("Enabled").Bool(false) {
+		global.LOGGER.InfoContext(r.ctx, "   ✅ Swagger文档: 已启用 (%s)",
+			configSafe.Field("Swagger").Field("UIPath").String("/swagger"))
 	} else {
-		global.LOGGER.Info("   ❌ Swagger文档: 已禁用")
+		global.LOGGER.InfoContext(r.ctx, "   ❌ Swagger文档: 已禁用")
 	}
 
 	// WebSocket 支持
-	wscEnabled := configSafe.Field("WSC").Field("Enabled").Bool(false)
-	if wscEnabled {
-		wscPath := configSafe.Field("WSC").Field("Path").String("/ws")
-		global.LOGGER.Info(fmt.Sprintf("   ✅ WebSocket: 已启用 (%s)", wscPath))
+	if configSafe.Field("WSC").Field("Enabled").Bool(false) {
+		global.LOGGER.InfoContext(r.ctx, "   ✅ WebSocket: 已启用 (%s)",
+			configSafe.Field("WSC").Field("Path").String("/ws"))
 	} else {
-		global.LOGGER.Info("   ❌ WebSocket: 已禁用")
+		global.LOGGER.InfoContext(r.ctx, "   ❌ WebSocket: 已禁用")
 	}
 }
 
 // printMiddlewareStatus 打印中间件状态
 func (r *StartupReporter) printMiddlewareStatus(configSafe *goconfig.ConfigSafe) {
-	global.LOGGER.Info("🔌 中间件状态:")
+	global.LOGGER.InfoContext(r.ctx, "🔌 中间件状态:")
 
 	// CORS 跨域
 	corsEnabled := configSafe.Field("CORS").Field("AllowedAllOrigins").Bool(false) ||
@@ -144,20 +151,18 @@ func (r *StartupReporter) printMiddlewareStatus(configSafe *goconfig.ConfigSafe)
 
 // printMonitoringStatus 打印监控和分析功能状态
 func (r *StartupReporter) printMonitoringStatus(configSafe *goconfig.ConfigSafe) {
-	global.LOGGER.Info("📊 监控与分析状态:")
+	global.LOGGER.InfoContext(r.ctx, "📊 监控与分析状态:")
 
 	// Prometheus Metrics
-	metricsEnabled := configSafe.IsMetricsEnabled()
-	if metricsEnabled {
+	if configSafe.IsMetricsEnabled() {
 		metricsHost := configSafe.Field("metrics").Field("host").String("0.0.0.0")
-		metricsPort := configSafe.Field("metrics").Field("port").Int(9090)
-		metricsPath := configSafe.Field("metrics").Field("path").String("/metrics")
-		displayHost := metricsHost
 		if metricsHost == "0.0.0.0" {
-			displayHost = "localhost"
+			metricsHost = "localhost"
 		}
-		global.LOGGER.Info(fmt.Sprintf("   ✅ Prometheus指标: 已启用 (http://%s:%d%s)",
-			displayHost, metricsPort, metricsPath))
+		global.LOGGER.InfoContext(r.ctx, "   ✅ Prometheus指标: 已启用 (http://%s:%d%s)",
+			metricsHost,
+			configSafe.Field("metrics").Field("port").Int(9090),
+			configSafe.Field("metrics").Field("path").String("/metrics"))
 
 		// 检查自定义指标状态
 		httpMetrics := configSafe.Field("metrics").Field("custom_metrics").Field("http_requests_total").Field("enabled").Bool(false)
@@ -165,57 +170,51 @@ func (r *StartupReporter) printMonitoringStatus(configSafe *goconfig.ConfigSafe)
 		redisMetrics := configSafe.Field("metrics").Field("custom_metrics").Field("redis_operations_total").Field("enabled").Bool(false)
 
 		if httpMetrics || grpcMetrics || redisMetrics {
-			global.LOGGER.Info(fmt.Sprintf("     📈 自定义指标: HTTP(%v) gRPC(%v) Redis(%v)",
-				httpMetrics, grpcMetrics, redisMetrics))
+			global.LOGGER.InfoContext(r.ctx, "     📈 自定义指标: HTTP(%v) gRPC(%v) Redis(%v)",
+				httpMetrics, grpcMetrics, redisMetrics)
 		}
 
 		// 检查中间件指标状态
-		middlewareMetricsEnabled := configSafe.Field("middleware").Field("metrics").Field("enabled").Bool(false)
-		if middlewareMetricsEnabled {
-			excludePaths := configSafe.Field("middleware").Field("metrics").Field("exclude_paths").String("")
-			global.LOGGER.Info(fmt.Sprintf("     🔗 中间件指标: 已启用 (排除路径: %s)", excludePaths))
+		if configSafe.Field("middleware").Field("metrics").Field("enabled").Bool(false) {
+			global.LOGGER.InfoContext(r.ctx, "     🔗 中间件指标: 已启用 (排除路径: %s)",
+				configSafe.Field("middleware").Field("metrics").Field("exclude_paths").String(""))
 		}
 	} else {
-		global.LOGGER.Info("   ❌ Prometheus指标: 已禁用")
+		global.LOGGER.InfoContext(r.ctx, "   ❌ Prometheus指标: 已禁用")
 	}
 
 	// PProf 性能分析
-	pprofEnabled := configSafe.IsPProfEnabled()
-	if pprofEnabled {
+	if configSafe.IsPProfEnabled() {
 		pprofHost := configSafe.Field("pprof").Field("host").String("0.0.0.0")
-		pprofPort := configSafe.Field("pprof").Field("port").Int(6060)
-		pprofPath := configSafe.GetPProfPathPrefix("/debug/pprof")
-		displayHost := pprofHost
 		if pprofHost == "0.0.0.0" {
-			displayHost = "localhost"
+			pprofHost = "localhost"
 		}
-		global.LOGGER.Info(fmt.Sprintf("   ✅ PProf性能分析: 已启用 (http://%s:%d%s/)",
-			displayHost, pprofPort, pprofPath))
+		global.LOGGER.InfoContext(r.ctx, "   ✅ PProf性能分析: 已启用 (http://%s:%d%s/)",
+			pprofHost,
+			configSafe.Field("pprof").Field("port").Int(6060),
+			configSafe.GetPProfPathPrefix("/debug/pprof"))
 
 		// 检查认证状态
-		pprofAuth := configSafe.Field("pprof").Field("auth").Field("enabled").Bool(false)
 		authStatus := "已禁用 ⚠️"
-		if pprofAuth {
+		if configSafe.Field("pprof").Field("auth").Field("enabled").Bool(false) {
 			authStatus = "已启用 🔐"
 		}
-		global.LOGGER.Info("     🔐 PProf认证: " + authStatus)
+		global.LOGGER.InfoContext(r.ctx, "     🔐 PProf认证: %s", authStatus)
 
 		// 检查中间件状态
-		pprofMiddlewareEnabled := configSafe.Field("middleware").Field("pprof").Field("enabled").Bool(false)
-		if pprofMiddlewareEnabled {
-			global.LOGGER.Info("     🔗 PProf中间件: 已启用")
+		if configSafe.Field("middleware").Field("pprof").Field("enabled").Bool(false) {
+			global.LOGGER.InfoContext(r.ctx, "     🔗 PProf中间件: 已启用")
 		}
 	} else {
-		global.LOGGER.Info("   ❌ PProf性能分析: 已禁用")
+		global.LOGGER.InfoContext(r.ctx, "   ❌ PProf性能分析: 已禁用")
 	}
 
 	// Jaeger 链路追踪
-	jaegerEnabled := configSafe.IsJaegerEnabled()
-	if jaegerEnabled {
-		serviceName := configSafe.GetJaegerServiceName("gateway-service")
-		global.LOGGER.Info(fmt.Sprintf("   ✅ 链路追踪: 已启用 (%s)", serviceName))
+	if configSafe.IsJaegerEnabled() {
+		global.LOGGER.InfoContext(r.ctx, "   ✅ 链路追踪: 已启用 (%s)",
+			configSafe.GetJaegerServiceName("gateway-service"))
 	} else {
-		global.LOGGER.Info("   ❌ 链路追踪: 已禁用")
+		global.LOGGER.InfoContext(r.ctx, "   ❌ 链路追踪: 已禁用")
 	}
 }
 
@@ -225,13 +224,13 @@ func (r *StartupReporter) printMiddlewareItem(name string, enabled bool) {
 	if enabled {
 		status = "✅ 已启用"
 	}
-	global.LOGGER.Info(fmt.Sprintf("   %s %s", status, name))
+	global.LOGGER.InfoContext(r.ctx, "   %s %s", status, name)
 }
 
 // PrintStartupTimestamp 打印启动时间戳
 func (r *StartupReporter) PrintStartupTimestamp() {
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	global.LOGGER.Info(fmt.Sprintf("🕐 服务启动时间: %s", timestamp))
+	global.LOGGER.InfoContext(r.ctx, "🕐 服务启动时间: %s",
+		time.Now().Format("2006-01-02 15:04:05"))
 }
 
 // PrintStartupSummary 打印启动摘要
@@ -264,6 +263,6 @@ func (r *StartupReporter) PrintStartupSummary() {
 		}
 	}
 
-	global.LOGGER.Info(fmt.Sprintf("📋 功能启用摘要: %d/%d 个功能已启用 (%.1f%%)",
-		enabledCount, totalCount, float64(enabledCount)/float64(totalCount)*100))
+	global.LOGGER.InfoContext(r.ctx, "📋 功能启用摘要: %d/%d 个功能已启用 (%.1f%%)",
+		enabledCount, totalCount, float64(enabledCount)/float64(totalCount)*100)
 }

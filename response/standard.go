@@ -12,6 +12,7 @@
 package response
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/errors"
@@ -347,7 +348,7 @@ func writeJSONResponse(w http.ResponseWriter, httpStatus int, data interface{}) 
 	w.WriteHeader(httpStatus)
 
 	if err := json.NewEncoder(w).Encode(data); err != nil && global.LOGGER != nil {
-		global.LOGGER.Error("Failed to encode JSON response: %v", err)
+		global.LOGGER.ErrorContext(context.Background(), "Failed to encode JSON response: %v", err)
 	}
 }
 

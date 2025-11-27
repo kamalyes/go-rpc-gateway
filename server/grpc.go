@@ -116,8 +116,8 @@ func (s *Server) startGRPCServer() error {
 // stopGRPCServer 停止gRPC服务器
 func (s *Server) stopGRPCServer() {
 	if s.grpcServer != nil {
-		global.LOGGER.Info("Stopping gRPC server...")
+		global.LOGGER.InfoContext(s.ctx, "Stopping gRPC server...")
 		s.grpcServer.GracefulStop()
-		global.LOGGER.Info("gRPC server stopped")
+		global.LOGGER.InfoContext(s.ctx, "gRPC server stopped")
 	}
 }

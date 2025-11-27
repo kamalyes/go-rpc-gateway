@@ -19,6 +19,7 @@ import (
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	"github.com/kamalyes/go-toolbox/pkg/safe"
 	gowsc "github.com/kamalyes/go-wsc"
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
@@ -59,13 +60,13 @@ func EnsureLoggerInitialized() error {
 	LOGGER = newLogger
 	LOG = newLogger // 兼容别名
 
-	fmt.Println("[INFO] Logger initialized successfully with go-logger")
+	LOGGER.Info("Logger initialized successfully with go-logger")
 	return nil
 }
 
 // CleanupGlobal 清理全局资源
 func CleanupGlobal() {
-	LOGGER.Info("🧹 开始清理全局资源\n")
+	LOGGER.Info("🧹 开始清理全局资源")
 
 	if CANCEL != nil {
 		CANCEL()
@@ -74,18 +75,18 @@ func CleanupGlobal() {
 	// 关闭连接池管理器
 	if POOL_MANAGER != nil {
 		if err := POOL_MANAGER.Close(); err != nil {
-			LOGGER.Info("❌ 关闭连接池管理器失败: %v\n", err)
+			LOGGER.Info("❌ 关闭连接池管理器失败: %v", err)
 		} else {
-			LOGGER.Info("✅ 连接池管理器已关闭\n")
+			LOGGER.Info("✅ 连接池管理器已关闭")
 		}
 	}
 
 	// 停止配置管理器
 	if CONFIG_MANAGER != nil {
 		if err := CONFIG_MANAGER.Stop(); err != nil {
-			LOGGER.Info("❌ 停止配置管理器失败: %v\n", err)
+			LOGGER.Info("❌ 停止配置管理器失败: %v", err)
 		} else {
-			LOGGER.Info("✅ 配置管理器已停止\n")
+			LOGGER.Info("✅ 配置管理器已停止")
 		}
 	}
 
@@ -101,7 +102,7 @@ func CleanupGlobal() {
 	CTX = nil
 	CANCEL = nil
 	WSCHUB = nil
-	LOGGER.Info("✅ 全局资源清理完成\n")
+	LOGGER.Info("✅ 全局资源清理完成")
 }
 
 // GetConfig 获取当前配置
@@ -159,6 +160,36 @@ func GetConfigManager() *goconfig.IntegratedConfigManager {
 	return CONFIG_MANAGER
 }
 
+// ============================================================================
+// WSC 消息归档配置访问函数
+// ============================================================================
+
+// GetWSCArchiveDays 获取消息归档天数阈值（默认3天）
+// 从配置 WSC.Jobs.Tasks["message-archive"].Params["archive_days"] 读取
+func GetWSCArchiveDays() int {
+	return safe.Safe(GATEWAY).
+		Field("WSC").
+		Field("Jobs").
+		Field("Tasks").
+		Field("message-archive").
+		Field("Params").
+		Field("archive_days").
+		Int(3)
+}
+
+// GetWSCArchiveRetentionDays 获取归档保留天数（默认60天）
+// 从配置 WSC.Jobs.Tasks["message-archive"].Params["retention_days"] 读取
+func GetWSCArchiveRetentionDays() int {
+	return safe.Safe(GATEWAY).
+		Field("WSC").
+		Field("Jobs").
+		Field("Tasks").
+		Field("message-archive").
+		Field("Params").
+		Field("retention_days").
+		Int(60)
+}
+
 // IsInitialized 检查是否已初始化
 func IsInitialized() bool {
 	return GATEWAY != nil && LOGGER != nil && CONFIG_MANAGER != nil
@@ -178,7 +209,7 @@ func ReloadConfig() error {
 		return fmt.Errorf("重新加载配置失败: %w", err)
 	}
 
-	LOGGER.Info("🔄 配置重新加载成功\n")
+	LOGGER.Info("🔄 配置重新加载成功")
 	return nil
 }
 

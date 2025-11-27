@@ -13,9 +13,6 @@ package server
 
 import (
 	"context"
-	"net/http"
-	"sync"
-
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
@@ -24,6 +21,8 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"google.golang.org/grpc"
+	"net/http"
+	"sync"
 )
 
 // Server Gateway服务器
@@ -100,7 +99,7 @@ func NewServer() (*Server, error) {
 		configSafe:    configSafe, // 初始化安全配置访问器
 		ctx:           ctx,
 		cancel:        cancel,
-		bannerManager: NewBannerManager(cfg),
+		bannerManager: NewBannerManager(cfg).WithContext(ctx),
 	}
 
 	// 初始化功能管理器

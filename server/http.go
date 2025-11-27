@@ -112,7 +112,7 @@ func (s *Server) initHTTPGateway() error {
 	// 添加所有中间件
 	if len(allMiddlewares) > 0 {
 		opts = append(opts, runtime.WithMiddlewares(allMiddlewares...))
-		global.LOGGER.Info("✅ 已注册 %d 个 gRPC-Gateway 中间件", len(allMiddlewares))
+		global.LOGGER.InfoContext(s.ctx, "✅ 已注册 %d 个 gRPC-Gateway 中间件", len(allMiddlewares))
 	}
 
 	s.gwMux = runtime.NewServeMux(opts...)
@@ -181,9 +181,9 @@ func (s *Server) initHTTPGateway() error {
 	return nil
 }
 
-// RebuildHTTPGateway 重建HTTP网关（用于在添加中间件后重新初始化）
+// RebuildHTTPGateway 重建 HTTP网关（用于在添加中间件后重新初始化）
 func (s *Server) RebuildHTTPGateway() error {
-	global.LOGGER.Info("🔄 重建 HTTP Gateway...")
+	global.LOGGER.InfoContext(s.ctx, "🔄 重建 HTTP Gateway...")
 	return s.initHTTPGateway()
 }
 

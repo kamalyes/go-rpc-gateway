@@ -340,10 +340,34 @@ func (ws *WebSocketService) handleTextMessage(client *wsc.Client, data []byte) {
 		}
 	}
 
+	// 处理心跳消息
+	if msg.MessageType == wsc.MessageTypeHeartbeat {
+		ws.handleHeartbeatMessage(client)
+		return
+	}
+
 	// 执行消息接收回调
 	if err := ws.executeMessageReceivedCallbacks(ws.ctx, client, &msg); err != nil {
 		ws.executeErrorCallbacks(ws.ctx, err, "warning")
 	}
+}
+
+// handleHeartbeatMessage 处理心跳消息
+func (ws *WebSocketService) handleHeartbeatMessage(client *wsc.Client) {
+	// 更新心跳时间
+	ws.hub.UpdateHeartbeat(client.ID)
+
+	// 发送 pong 响应
+	pongMsg := &wsc.HubMessage{
+		ID:          fmt.Sprintf("pong_%s_%d", client.UserID, time.Now().UnixNano()),
+		MessageType: wsc.MessageTypePong,
+		Sender:      "system",
+		Receiver:    client.UserID,
+		CreateAt:    time.Now(),
+		Priority:    wsc.PriorityNormal,
+		Status:      wsc.MessageStatusSent,
+	}
+	_ = ws.hub.SendToUser(ws.ctx, client.UserID, pongMsg)
 }
 
 // handleBinaryMessage 处理二进制消息
@@ -438,6 +462,62 @@ func (ws *WebSocketService) OnMessageReceived(cb MessageReceivedCallback) {
 // OnError 注册错误处理回调
 func (ws *WebSocketService) OnError(cb ErrorCallback) {
 	ws.errorCallbacks = append(ws.errorCallbacks, cb)
+}
+
+// ============================================================================
+// Hub 级别回调方法 - 直接暴露 go-wsc Hub 的回调
+// ============================================================================
+
+// OnHeartbeatTimeout 注册心跳超时回调函数
+// 当客户端心跳超时时会调用此回调
+//
+// 参数:
+//   - callback: 心跳超时回调函数，接收 clientID, userID, lastHeartbeat 参数
+//
+// 示例:
+//   ws.OnHeartbeatTimeout(func(clientID, userID string, lastHeartbeat time.Time) {
+//       log.Printf("客户端 %s 心跳超时", clientID)
+//       更新数据库、清理缓存等
+//   })
+func (ws *WebSocketService) OnHeartbeatTimeout(callback func(clientID, userID string, lastHeartbeat time.Time)) {
+	ws.hub.OnHeartbeatTimeout(callback)
+}
+
+// OnSecurityEvent 注册安全事件处理器
+// 当发生安全相关事件时会调用此回调
+//
+// 参数:
+//   - handler: 安全事件处理函数，接收 SecurityEvent 参数
+//
+// 示例:
+//   ws.OnSecurityEvent(func(event wsc.SecurityEvent) {
+//       log.Printf("安全事件: %v", event)
+//   })
+func (ws *WebSocketService) OnSecurityEvent(handler func(wsc.SecurityEvent)) {
+	ws.hub.OnSecurityEvent(handler)
+}
+
+// SetHeartbeatConfig 设置心跳配置
+//
+// 参数:
+//   - interval: 心跳检查间隔，建议30秒
+//   - timeout: 心跳超时时间，建议90秒（interval的3倍）
+//
+// 示例:
+//   ws.SetHeartbeatConfig(30*time.Second, 90*time.Second)
+func (ws *WebSocketService) SetHeartbeatConfig(interval, timeout time.Duration) {
+	ws.hub.SetHeartbeatConfig(interval, timeout)
+}
+
+// UpdateHeartbeat 更新客户端心跳时间
+//
+// 参数:
+//   - clientID: 客户端ID
+//
+// 示例:
+//   ws.UpdateHeartbeat(client.ID)
+func (ws *WebSocketService) UpdateHeartbeat(clientID string) {
+	ws.hub.UpdateHeartbeat(clientID)
 }
 
 // ============================================================================
