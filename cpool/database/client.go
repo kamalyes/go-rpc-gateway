@@ -2,20 +2,20 @@ package database
 
 import (
 	"fmt"
-	"log"
-	"net/url"
-	"os"
-	"time"
-
+	"github.com/go-sql-driver/mysql"
 	"github.com/kamalyes/go-config/pkg/database"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	gologger "github.com/kamalyes/go-logger"
-	"gorm.io/driver/mysql"
+	mysqldriver "gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
+	"log"
+	"os"
+	"strings"
+	"time"
 )
 
 // Gorm 初始化数据库并产生数据库全局变量
@@ -53,7 +53,7 @@ func GormMySQL(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 
 	config := cfg.Database.MySQL
 	return initDB(config, database.DBTypeMySQL, log, func(dsn string) (*gorm.DB, error) {
-		return gorm.Open(mysql.New(mysql.Config{DSN: dsn}), gormConfig(config.LogLevel))
+		return gorm.Open(mysqldriver.New(mysqldriver.Config{DSN: dsn}), gormConfig(config.LogLevel))
 	})
 }
 
@@ -146,27 +146,51 @@ func initDB(provider database.DatabaseProvider, dbType database.DBType, log golo
 func buildDSN(provider database.DatabaseProvider, dbType database.DBType) string {
 	host := provider.GetHost()
 	user := provider.GetUsername()
-	password := url.QueryEscape(provider.GetPassword()) // 只对密码进行编码
+	password := provider.GetPassword()
 	dbname := provider.GetDBName()
 	port := provider.GetPort()
-	configString := provider.GetConfig() // 配置字符串不编码
+	configString := provider.GetConfig()
 
 	var dsn string
 	switch dbType {
 	case database.DBTypeMySQL:
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?%s", user, password, host, port, dbname, configString)
+		// 使用 mysql.Config 来安全构建 DSN,自动处理特殊字符
+		cfg := mysql.Config{
+			User:                 user,
+			Passwd:               password,
+			Net:                  "tcp",
+			Addr:                 fmt.Sprintf("%s:%s", host, port),
+			DBName:               dbname,
+			Params:               parseConfigParams(configString),
+			AllowNativePasswords: true,
+		}
+		dsn = cfg.FormatDSN()
 	case database.DBTypePostgreSQL:
-		// PostgreSQL需要对所有参数进行适当编码
-		hostEscaped := url.QueryEscape(host)
-		userEscaped := url.QueryEscape(user)
-		passwordEscaped := url.QueryEscape(provider.GetPassword())
-		dbnameEscaped := url.QueryEscape(dbname)
-		portEscaped := url.QueryEscape(port)
-		dsn = fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s %s", hostEscaped, userEscaped, passwordEscaped, dbnameEscaped, portEscaped, configString)
+		// PostgreSQL DSN 格式
+		dsn = fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s %s",
+			host, user, password, dbname, port, configString)
 	case database.DBTypeSQLite:
 		dsn = provider.GetDBName() // SQLite使用DbPath
 	}
 	return dsn
+}
+
+// parseConfigParams 解析配置字符串为参数 map
+func parseConfigParams(configString string) map[string]string {
+	params := make(map[string]string)
+	if configString == "" {
+		return params
+	}
+
+	// 分割配置字符串 (格式: key1=value1&key2=value2)
+	pairs := strings.Split(configString, "&")
+	for _, pair := range pairs {
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) == 2 {
+			params[kv[0]] = kv[1]
+		}
+	}
+	return params
 }
 
 // gormConfig 根据配置决定是否开启日志
