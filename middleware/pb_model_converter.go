@@ -11,14 +11,13 @@ package middleware
 
 import (
 	"context"
-	"reflect"
-	"sync"
-
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/pbmo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"reflect"
+	"sync"
 )
 
 // ConversionMiddleware 自动转换中间件配置
@@ -26,16 +25,16 @@ type ConversionMiddleware struct {
 	Enabled        bool
 	LogConversions bool
 	Logger         logger.ILogger
-	pbmo     map[string]*pbmo.BidiConverter
+	pbmo           map[string]*pbmo.BidiConverter
 	lock           sync.RWMutex
 }
 
 // NewConversionMiddleware 创建转换中间件
 func NewConversionMiddleware(log logger.ILogger, enabled bool) *ConversionMiddleware {
 	return &ConversionMiddleware{
-		Enabled:    enabled,
-		Logger:     log,
-		pbmo: make(map[string]*pbmo.BidiConverter),
+		Enabled: enabled,
+		Logger:  log,
+		pbmo:    make(map[string]*pbmo.BidiConverter),
 	}
 }
 
@@ -193,7 +192,7 @@ func AutoModelConverterInterceptor(config ConversionConfig, log logger.ILogger) 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		// 记录请求信息
 		if config.LogConversions && log != nil {
-			log.Debug("🔄 Processing gRPC call: %s", info.FullMethod)
+			log.DebugContext(ctx, "🔄 Processing gRPC call: %s", info.FullMethod)
 		}
 
 		// 调用实际处理器
@@ -211,11 +210,11 @@ func AutoModelConverterInterceptor(config ConversionConfig, log logger.ILogger) 
 		if config.Enabled {
 			if converted, convErr := autoConvertResponse(resp, log); convErr == nil {
 				if config.LogConversions && log != nil {
-					log.Debug("✅ Auto-converted response: %T -> %T", resp, converted)
+					log.DebugContext(ctx, "✅ Auto-converted response: %T -> %T", resp, converted)
 				}
 				return converted, nil
 			} else if config.LogConversions && log != nil {
-				log.Warn("⚠️  Failed to auto-convert response: %v", convErr)
+				log.WarnContext(ctx, "⚠️  Failed to auto-convert response: %v", convErr)
 			}
 		}
 
@@ -251,7 +250,8 @@ func (s *modelConversionStream) RecvMsg(m interface{}) error {
 	// 自动从 PB 转换为 Model（如果需要）
 	if s.config.Enabled {
 		if _, convErr := autoConvertRequest(m, s.log); convErr != nil && s.log != nil {
-			s.log.Warn("Failed to convert received message: %v", convErr)
+			ctx := s.ServerStream.Context()
+			s.log.WarnContext(ctx, "Failed to convert received message: %v", convErr)
 		}
 	}
 
@@ -348,7 +348,7 @@ func NewConversionRegistry(log logger.ILogger) *ConversionRegistry {
 	return &ConversionRegistry{
 		pbToModelpbmo: make(map[string]func(interface{}) (interface{}, error)),
 		modelToPBpbmo: make(map[string]func(interface{}) (interface{}, error)),
-		log:                 log,
+		log:           log,
 	}
 }
 

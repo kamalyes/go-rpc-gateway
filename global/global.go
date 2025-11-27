@@ -60,13 +60,15 @@ func EnsureLoggerInitialized() error {
 	LOGGER = newLogger
 	LOG = newLogger // 兼容别名
 
-	LOGGER.Info("Logger initialized successfully with go-logger")
+	ctx := context.Background()
+	LOGGER.InfoContext(ctx, "Logger initialized successfully with go-logger")
 	return nil
 }
 
 // CleanupGlobal 清理全局资源
 func CleanupGlobal() {
-	LOGGER.Info("🧹 开始清理全局资源")
+	ctx := context.Background()
+	LOGGER.InfoContext(ctx, "🧹 开始清理全局资源")
 
 	if CANCEL != nil {
 		CANCEL()
@@ -75,18 +77,18 @@ func CleanupGlobal() {
 	// 关闭连接池管理器
 	if POOL_MANAGER != nil {
 		if err := POOL_MANAGER.Close(); err != nil {
-			LOGGER.Info("❌ 关闭连接池管理器失败: %v", err)
+			LOGGER.InfoContext(ctx, "❌ 关闭连接池管理器失败: %v", err)
 		} else {
-			LOGGER.Info("✅ 连接池管理器已关闭")
+			LOGGER.InfoContext(ctx, "✅ 连接池管理器已关闭")
 		}
 	}
 
 	// 停止配置管理器
 	if CONFIG_MANAGER != nil {
 		if err := CONFIG_MANAGER.Stop(); err != nil {
-			LOGGER.Info("❌ 停止配置管理器失败: %v", err)
+			LOGGER.InfoContext(ctx, "❌ 停止配置管理器失败: %v", err)
 		} else {
-			LOGGER.Info("✅ 配置管理器已停止")
+			LOGGER.InfoContext(ctx, "✅ 配置管理器已停止")
 		}
 	}
 
@@ -94,7 +96,6 @@ func CleanupGlobal() {
 	GATEWAY = nil
 	CONFIG_MANAGER = nil
 	POOL_MANAGER = nil
-	LOGGER = nil
 	REDIS = nil
 	DB = nil
 	MinIO = nil
@@ -102,7 +103,11 @@ func CleanupGlobal() {
 	CTX = nil
 	CANCEL = nil
 	WSCHUB = nil
-	LOGGER.Info("✅ 全局资源清理完成")
+
+	if LOGGER != nil {
+		LOGGER.InfoContext(ctx, "✅ 全局资源清理完成")
+		LOGGER = nil
+	}
 }
 
 // GetConfig 获取当前配置
@@ -209,7 +214,7 @@ func ReloadConfig() error {
 		return fmt.Errorf("重新加载配置失败: %w", err)
 	}
 
-	LOGGER.Info("🔄 配置重新加载成功")
+	LOGGER.InfoContext(ctx, "🔄 配置重新加载成功")
 	return nil
 }
 

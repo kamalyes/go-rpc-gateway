@@ -12,17 +12,16 @@ package redis
 
 import (
 	"context"
-
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-logger"
 	"github.com/redis/go-redis/v9"
 )
 
 // Redis 初始化redis客户端
-func Redis(cfg *gwconfig.Gateway, log logger.ILogger) *redis.Client {
+func Redis(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogger) *redis.Client {
 	if cfg == nil {
 		if log != nil {
-			log.Warn("Gateway configuration not found")
+			log.WarnContext(ctx, "Gateway configuration not found")
 		}
 		return nil
 	}
@@ -30,7 +29,7 @@ func Redis(cfg *gwconfig.Gateway, log logger.ILogger) *redis.Client {
 	// 检查Redis配置
 	if cfg.Cache == nil {
 		if log != nil {
-			log.Warn("Redis configuration not found")
+			log.WarnContext(ctx, "Redis configuration not found")
 		}
 		return nil
 	}
@@ -39,7 +38,7 @@ func Redis(cfg *gwconfig.Gateway, log logger.ILogger) *redis.Client {
 	redisCfg := cfg.Cache.Redis
 	if redisCfg.Addr == "" {
 		if log != nil {
-			log.Warn("Redis address not configured")
+			log.WarnContext(ctx, "Redis address not configured")
 		}
 		return nil
 	}
@@ -51,25 +50,31 @@ func Redis(cfg *gwconfig.Gateway, log logger.ILogger) *redis.Client {
 
 	client := redis.NewClient(&redis.Options{
 		Addr:             redisCfg.Addr,
+		Username:         redisCfg.Username,
 		Password:         redisCfg.Password,
 		DB:               db,
 		MaxRetries:       redisCfg.MaxRetries,
 		PoolSize:         redisCfg.PoolSize,
 		MinIdleConns:     redisCfg.MinIdleConns,
+		MaxIdleConns:     redisCfg.MaxIdleConns,
+		PoolTimeout:      redisCfg.PoolTimeout,
+		DialTimeout:      redisCfg.DialTimeout,
+		WriteTimeout:     redisCfg.WriteTimeout,
+		ReadTimeout:      redisCfg.ReadTimeout,
+		MaxRetryBackoff:  redisCfg.MaxRetryBackoff,
+		MinRetryBackoff:  redisCfg.MinRetryBackoff,
 		DisableIndentity: true, // 禁用客户端身份标识，避免 maint_notifications 错误
 	})
 
 	// 测试连接
-	pong, err := client.Ping(context.Background()).Result()
+	pong, err := client.Ping(ctx).Result()
 	if err != nil {
-		if log != nil {
-			log.ErrorKV("Redis connect ping failed", "err", err)
-		}
+		log.ErrorContextKV(ctx, "Redis connection failed", "addr", redisCfg.Addr, "db", db, "err", err)
 		return nil
 	}
 
 	if log != nil {
-		log.InfoKV("Redis connect ping response", "pong", pong)
+		log.InfoContextKV(ctx, "Redis connect ping response", "pong", pong)
 	}
 
 	return client

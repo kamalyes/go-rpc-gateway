@@ -14,11 +14,10 @@ package smtp
 import (
 	"context"
 	"fmt"
-	"net/smtp"
-
 	"github.com/jordan-wright/email"
 	smtpconfig "github.com/kamalyes/go-config/pkg/smtp"
 	"github.com/kamalyes/go-logger"
+	"net/smtp"
 )
 
 // MailHandler SMTP邮件处理接口
@@ -47,7 +46,8 @@ func NewSmtpClient(cfg *smtpconfig.Smtp, log logger.ILogger) (*SmtpClient, error
 	}
 
 	if log != nil {
-		log.Info("SMTP client initialized: %s:%d", cfg.SMTPHost, cfg.SMTPPort)
+		ctx := context.Background()
+		log.InfoContextKV(ctx, "SMTP client initialized", "host", cfg.SMTPHost, "port", cfg.SMTPPort)
 	}
 
 	return &SmtpClient{config: cfg, logger: log}, nil
@@ -72,12 +72,12 @@ func (s *SmtpClient) SendEmail(ctx context.Context, to []string, subject, body s
 	em.Text = []byte(body)
 
 	if s.logger != nil {
-		s.logger.InfoKV("Sending email", "to", to, "subject", subject)
+		s.logger.InfoContextKV(ctx, "Sending email", "to", to, "subject", subject)
 	}
 
 	if err := s.send(em); err != nil {
 		if s.logger != nil {
-			s.logger.ErrorKV("Send email failed", "error", err, "to", to)
+			s.logger.ErrorContextKV(ctx, "Send email failed", "error", err, "to", to)
 		}
 		return err
 	}
@@ -96,12 +96,12 @@ func (s *SmtpClient) SendEmailWithHTML(ctx context.Context, to []string, subject
 	em.HTML = []byte(htmlBody)
 
 	if s.logger != nil {
-		s.logger.InfoKV("Sending HTML email", "to", to, "subject", subject)
+		s.logger.InfoContextKV(ctx, "Sending HTML email", "to", to, "subject", subject)
 	}
 
 	if err := s.send(em); err != nil {
 		if s.logger != nil {
-			s.logger.ErrorKV("Send HTML email failed", "error", err, "to", to)
+			s.logger.ErrorContextKV(ctx, "Send HTML email failed", "error", err, "to", to)
 		}
 		return err
 	}
@@ -111,7 +111,8 @@ func (s *SmtpClient) SendEmailWithHTML(ctx context.Context, to []string, subject
 // Close 关闭连接
 func (s *SmtpClient) Close() error {
 	if s.logger != nil {
-		s.logger.Info("SMTP client closed")
+		ctx := context.Background()
+		s.logger.InfoContext(ctx, "SMTP client closed")
 	}
 	return nil
 }

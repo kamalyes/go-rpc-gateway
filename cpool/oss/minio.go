@@ -11,24 +11,24 @@
 package oss
 
 import (
-	"time"
-
+	"context"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-logger"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"time"
 )
 
 // Minio 初始化minio客户端
-func Minio(cfg *gwconfig.Gateway, log logger.ILogger) *minio.Client {
+func Minio(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogger) *minio.Client {
 	if cfg.OSS == nil || cfg.OSS.Minio == nil {
-		log.Warn("MinIO configuration not found")
+		log.WarnContext(ctx, "MinIO configuration not found")
 		return nil
 	}
 
 	minioCfg := cfg.OSS.Minio
 	if minioCfg.Endpoint == "" {
-		log.Warn("MinIO endpoint not configured")
+		log.WarnContext(ctx, "MinIO endpoint not configured")
 		return nil
 	}
 
@@ -38,18 +38,18 @@ func Minio(cfg *gwconfig.Gateway, log logger.ILogger) *minio.Client {
 		Secure: minioCfg.UseSSL,
 	})
 	if err != nil {
-		log.ErrorKV("MinIO new client failed", "err", err)
+		log.ErrorContextKV(ctx, "MinIO new client failed", "endpoint", minioCfg.Endpoint, "err", err)
 		return nil
 	}
 
 	// 检查服务状态
 	_, err = client.HealthCheck(5 * time.Second)
 	if err != nil {
-		log.ErrorKV("MinIO connect ping failed", "err", err)
+		log.ErrorContextKV(ctx, "MinIO connect ping failed", "endpoint", minioCfg.Endpoint, "err", err)
 		return nil
 	}
 
-	log.Info("MinIO client initialized successfully")
+	log.InfoContextKV(ctx, "MinIO client initialized successfully", "endpoint", minioCfg.Endpoint)
 
 	return client
 }

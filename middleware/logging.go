@@ -11,14 +11,12 @@
 package middleware
 
 import (
-	"fmt"
-	"net/http"
-	"time"
-
 	gologging "github.com/kamalyes/go-config/pkg/logging"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/osx"
+	"net/http"
+	"time"
 )
 
 // LoggingMiddleware 日志中间件
@@ -77,61 +75,52 @@ func (rw *loggingResponseWriter) Write(data []byte) (int, error) {
 
 // logRequestText 文本格式日志
 func logRequestText(r *http.Request, rw *loggingResponseWriter, duration time.Duration, config *gologging.Logging) {
-	logLine := fmt.Sprintf("[%s] %s %s %d %d %v %s",
-		time.Now().Format(time.RFC3339),
-		r.Method,
-		r.URL.Path,
-		rw.statusCode,
-		rw.bytesWritten,
-		duration,
-		r.RemoteAddr,
+	ctx := r.Context()
+
+	// 提取关键信息
+	requestID := r.Header.Get(constants.HeaderXRequestID)
+	traceID := r.Header.Get(constants.HeaderXTraceID)
+
+	// 使用 ContextKV 记录日志
+	global.LOGGER.InfoContextKV(ctx, "HTTP Request",
+		"method", r.Method,
+		"path", r.URL.Path,
+		"status", rw.statusCode,
+		"bytes", rw.bytesWritten,
+		"duration_ms", duration.Milliseconds(),
+		"remote_addr", r.RemoteAddr,
+		"request_id", requestID,
+		"trace_id", traceID,
+		"user_agent", r.Header.Get(constants.HeaderUserAgent),
 	)
-
-	if config.EnableRequest && r.URL.RawQuery != "" {
-		logLine += fmt.Sprintf(" query=%s", r.URL.RawQuery)
-	}
-
-	// 添加常用头部信息
-	if userAgent := r.Header.Get(constants.HeaderUserAgent); userAgent != "" {
-		logLine += fmt.Sprintf(" user-agent=%s", userAgent)
-	}
-	if requestID := r.Header.Get(constants.HeaderXRequestID); requestID != "" {
-		logLine += fmt.Sprintf(" request-id=%s", requestID)
-	}
-
-	global.LOGGER.Info(logLine)
 }
 
 // logRequestJSON JSON 格式日志
 func logRequestJSON(r *http.Request, rw *loggingResponseWriter, duration time.Duration, config *gologging.Logging) {
-	logData := map[string]interface{}{
-		"timestamp":     time.Now().Format(time.RFC3339),
-		"method":        r.Method,
-		"path":          r.URL.Path,
-		"status_code":   rw.statusCode,
-		"bytes_written": rw.bytesWritten,
-		"duration_ms":   duration.Milliseconds(),
-		"remote_addr":   r.RemoteAddr,
-		"user_agent":    r.UserAgent(),
-	}
+	ctx := r.Context()
 
+	// 提取关键信息
+	requestID := r.Header.Get(constants.HeaderXRequestID)
+	traceID := r.Header.Get(constants.HeaderXTraceID)
+	query := ""
 	if config.EnableRequest && r.URL.RawQuery != "" {
-		logData["query"] = r.URL.RawQuery
+		query = r.URL.RawQuery
 	}
 
-	// 添加常用头部信息
-	if userAgent := r.Header.Get(constants.HeaderUserAgent); userAgent != "" {
-		logData["user_agent_header"] = userAgent
-	}
-	if requestID := r.Header.Get(constants.HeaderXRequestID); requestID != "" {
-		logData["request_id"] = requestID
-	}
-	if traceID := r.Header.Get(constants.HeaderXTraceID); traceID != "" {
-		logData["trace_id"] = traceID
-	}
-
-	// 简单的 JSON 输出（生产环境建议使用专业的日志库）
-	global.LOGGER.WithField("request", logData).InfoMsg("REQUEST")
+	// 使用 ContextKV 记录详细日志
+	global.LOGGER.InfoContextKV(ctx, "HTTP Request",
+		"timestamp", time.Now().Format(time.RFC3339),
+		"method", r.Method,
+		"path", r.URL.Path,
+		"query", query,
+		"status_code", rw.statusCode,
+		"bytes_written", rw.bytesWritten,
+		"duration_ms", duration.Milliseconds(),
+		"remote_addr", r.RemoteAddr,
+		"user_agent", r.UserAgent(),
+		"request_id", requestID,
+		"trace_id", traceID,
+	)
 }
 
 // RecoveryMiddleware 恢复中间件
@@ -140,11 +129,19 @@ func RecoveryMiddleware() HTTPMiddleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if err := recover(); err != nil {
-					global.LOGGER.ErrorKV("PANIC",
+					ctx := r.Context()
+					requestID := r.Header.Get(constants.HeaderXRequestID)
+					traceID := r.Header.Get(constants.HeaderXTraceID)
+
+					global.LOGGER.ErrorContextKV(ctx, "PANIC Recovered",
 						"error", err,
-						"request", r.Method+" "+r.URL.String(),
-						"remote", r.RemoteAddr,
-						"user_agent", r.UserAgent())
+						"method", r.Method,
+						"path", r.URL.String(),
+						"remote_addr", r.RemoteAddr,
+						"user_agent", r.UserAgent(),
+						"request_id", requestID,
+						"trace_id", traceID,
+					)
 
 					// 返回 500 错误
 					w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)

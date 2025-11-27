@@ -14,12 +14,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
-	"net/http/pprof"
-	"runtime/debug"
-	"time"
-
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	grpc_logging "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
@@ -44,6 +38,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
+	"net"
+	"net/http"
+	"net/http/pprof"
+	"runtime/debug"
+	"time"
 )
 
 const TraceID = "trace_id"
@@ -246,13 +245,13 @@ func (es *EnhancedServer) initDialOptions() {
 		return grpc_logging.LoggerFunc(func(ctx context.Context, lvl grpc_logging.Level, msg string, fields ...any) {
 			switch lvl {
 			case grpc_logging.LevelDebug:
-				l.DebugKV(msg, fields...)
+				l.DebugContextKV(ctx, msg, fields...)
 			case grpc_logging.LevelInfo:
-				l.InfoKV(msg, fields...)
+				l.InfoContextKV(ctx, msg, fields...)
 			case grpc_logging.LevelWarn:
-				l.WarnKV(msg, fields...)
+				l.WarnContextKV(ctx, msg, fields...)
 			case grpc_logging.LevelError:
-				l.ErrorKV(msg, fields...)
+				l.ErrorContextKV(ctx, msg, fields...)
 			}
 		})
 	}

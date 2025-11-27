@@ -11,17 +11,17 @@
 package mqtt
 
 import (
-	"time"
-
+	"context"
 	pahoMqtt "github.com/eclipse/paho.mqtt.golang"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	gologger "github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"time"
 )
 
 // DefaultMqtt 创建默认的mqtt客户端
-func DefaultMqtt(cfg *gwconfig.Gateway, log gologger.ILogger) *pahoMqtt.Client {
-	global.LOGGER.Info("MQTT连接地址：" + cfg.Mqtt.Endpoint)
+func DefaultMqtt(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *pahoMqtt.Client {
+	global.LOGGER.InfoContextKV(ctx, "MQTT连接地址", "endpoint", cfg.Mqtt.Endpoint)
 	opts := pahoMqtt.NewClientOptions().AddBroker(cfg.Mqtt.Endpoint).SetClientID(cfg.Mqtt.ClientID)
 	// 设置mqtt协议版本 4是3.1.1，3是3.1
 	opts.SetProtocolVersion(cfg.Mqtt.ProtocolVersion)
@@ -46,15 +46,15 @@ func DefaultMqtt(cfg *gwconfig.Gateway, log gologger.ILogger) *pahoMqtt.Client {
 	opts.SetWill(cfg.Mqtt.WillTopic, cfg.Mqtt.ClientID, 1, false)
 	client := pahoMqtt.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		global.LOGGER.ErrorKV("MQTT连接异常", "mqtt_error", token.Error())
+		global.LOGGER.ErrorContextKV(ctx, "MQTT连接异常", "error", token.Error(), "endpoint", cfg.Mqtt.Endpoint)
 	}
 	return &client
 }
 
 // Mqtt 连接和订阅
-func Mqtt(cfg *gwconfig.Gateway, log gologger.ILogger, onConn pahoMqtt.OnConnectHandler, onLost pahoMqtt.ConnectionLostHandler, reConn pahoMqtt.ReconnectHandler) *pahoMqtt.Client {
-	global.LOGGER.Info("MQTT开始连接......")
-	global.LOGGER.Info("MQTT连接地址：" + cfg.Mqtt.Endpoint)
+func Mqtt(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger, onConn pahoMqtt.OnConnectHandler, onLost pahoMqtt.ConnectionLostHandler, reConn pahoMqtt.ReconnectHandler) *pahoMqtt.Client {
+	global.LOGGER.InfoContext(ctx, "MQTT开始连接......")
+	global.LOGGER.InfoContextKV(ctx, "MQTT连接地址", "endpoint", cfg.Mqtt.Endpoint)
 	opts := pahoMqtt.NewClientOptions().AddBroker(cfg.Mqtt.Endpoint).SetClientID(cfg.Mqtt.ClientID)
 	// 设置mqtt协议版本 4是3.1.1，3是3.1
 	opts.SetProtocolVersion(cfg.Mqtt.ProtocolVersion)
@@ -93,17 +93,19 @@ func Mqtt(cfg *gwconfig.Gateway, log gologger.ILogger, onConn pahoMqtt.OnConnect
 	}
 	client := pahoMqtt.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		global.LOGGER.ErrorKV("MQTT连接异常", "mqtt_error", token.Error())
+		global.LOGGER.ErrorContextKV(ctx, "MQTT连接异常", "error", token.Error(), "endpoint", cfg.Mqtt.Endpoint)
 	}
 	return &client
 }
 
 // 连接断开
 func onLostHandler(client pahoMqtt.Client, err error) {
-	global.LOGGER.Info("MQTT连接已经断开")
+	ctx := context.Background()
+	global.LOGGER.InfoContext(ctx, "MQTT连接已经断开")
 }
 
 // 断线重连后重新回调
 func reConnHandler(client pahoMqtt.Client, options *pahoMqtt.ClientOptions) {
-	global.LOGGER.Info("MQTT开始重新连接")
+	ctx := context.Background()
+	global.LOGGER.InfoContext(ctx, "MQTT开始重新连接")
 }

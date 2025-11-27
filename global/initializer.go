@@ -79,7 +79,7 @@ func (c *InitializerChain) InitializeAll(ctx context.Context, cfg *gwconfig.Gate
 		name := init.Name()
 
 		if LOGGER != nil {
-			LOGGER.Info("🔧 初始化 %s...", name)
+			LOGGER.InfoContext(ctx, "🔧 初始化 %s...", name)
 		} else {
 			fmt.Printf("🔧 初始化 %s...\n", name)
 		}
@@ -91,7 +91,7 @@ func (c *InitializerChain) InitializeAll(ctx context.Context, cfg *gwconfig.Gate
 		c.initialized[name] = true
 
 		if LOGGER != nil {
-			LOGGER.Info("✅ %s 初始化完成", name)
+			LOGGER.InfoContext(ctx, "✅ %s 初始化完成", name)
 		} else {
 			fmt.Printf("✅ %s 初始化完成\n", name)
 		}
@@ -108,6 +108,7 @@ func (c *InitializerChain) CleanupAll() error {
 	var errs []error
 
 	// 逆序清理
+	ctx := context.Background()
 	for i := len(c.initializers) - 1; i >= 0; i-- {
 		init := c.initializers[i]
 		name := init.Name()
@@ -117,14 +118,14 @@ func (c *InitializerChain) CleanupAll() error {
 		}
 
 		if LOGGER != nil {
-			LOGGER.Info("🧹 清理 %s...", name)
+			LOGGER.InfoContext(ctx, "🧹 清理 %s...", name)
 		}
 
 		if err := init.Cleanup(); err != nil {
 			errs = append(errs, fmt.Errorf("清理 %s 失败: %w", name, err))
 		} else {
 			if LOGGER != nil {
-				LOGGER.Info("✅ %s 清理完成", name)
+				LOGGER.InfoContext(ctx, "✅ %s 清理完成", name)
 			}
 		}
 	}

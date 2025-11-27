@@ -13,7 +13,6 @@ package server
 
 import (
 	"context"
-
 	gojaeger "github.com/kamalyes/go-config/pkg/jaeger"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -164,13 +163,13 @@ func (tm *TracingManager) Shutdown(ctx context.Context) error {
 		return nil
 	}
 
-	global.LOGGER.InfoMsg("正在关闭OpenTelemetry追踪...")
+	global.LOGGER.InfoContext(ctx, "正在关闭OpenTelemetry追踪...")
 
 	if err := tm.provider.Shutdown(ctx); err != nil {
 		return errors.NewErrorf(errors.ErrCodeTracingError, "failed to shutdown tracer provider: %v", err)
 	}
 
-	global.LOGGER.InfoMsg("OpenTelemetry追踪已关闭")
+	global.LOGGER.InfoContext(ctx, "OpenTelemetry追踪已关闭")
 	return nil
 }
 

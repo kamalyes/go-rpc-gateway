@@ -17,14 +17,13 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
-	"io"
-	"net/http"
-	"time"
-
 	jsoniter "github.com/json-iterator/go"
 	ossconfig "github.com/kamalyes/go-config/pkg/oss"
 	"github.com/kamalyes/go-logger"
 	bolt "go.etcd.io/bbolt"
+	"io"
+	"net/http"
+	"time"
 )
 
 const (
@@ -40,13 +39,13 @@ type BoltDBStorage struct {
 }
 
 // NewBoltDBStorage 创建BoltDB存储
-func NewBoltDBStorage(cfg *ossconfig.BoltDB, log logger.ILogger) (*BoltDBStorage, error) {
+func NewBoltDBStorage(ctx context.Context, cfg *ossconfig.BoltDB, log logger.ILogger) (*BoltDBStorage, error) {
 	// 打开BoltDB数据库
 	db, err := bolt.Open(cfg.Path, 0600, &bolt.Options{
 		Timeout: 1 * time.Second,
 	})
 	if err != nil {
-		log.ErrorKV("Failed to open BoltDB", "path", cfg.Path, "error", err)
+		log.ErrorContextKV(ctx, "Failed to open BoltDB", "path", cfg.Path, "error", err)
 		return nil, ErrBoltDBOpenFailed
 	}
 
@@ -57,11 +56,11 @@ func NewBoltDBStorage(cfg *ossconfig.BoltDB, log logger.ILogger) (*BoltDBStorage
 	})
 	if err != nil {
 		db.Close()
-		log.ErrorKV("Failed to create metadata bucket", "error", err)
+		log.ErrorContextKV(ctx, "Failed to create metadata bucket", "error", err)
 		return nil, ErrBoltDBCreateBucketFailed
 	}
 
-	log.Info("BoltDB storage initialized successfully at: %s", cfg.Path)
+	log.InfoContextKV(ctx, "BoltDB storage initialized successfully", "path", cfg.Path)
 
 	return &BoltDBStorage{
 		db:     db,
@@ -365,14 +364,15 @@ func (b *BoltDBStorage) GetPresignedUploadURL(ctx context.Context, bucketName, o
 // Close 关闭数据库
 func (b *BoltDBStorage) Close() error {
 	if b.db != nil {
+		ctx := context.Background()
 		if err := b.db.Close(); err != nil {
 			if b.logger != nil {
-				b.logger.ErrorKV("Failed to close BoltDB", "error", err)
+				b.logger.ErrorContextKV(ctx, "Failed to close BoltDB", "error", err)
 			}
 			return err
 		}
 		if b.logger != nil {
-			b.logger.Info("BoltDB storage closed successfully")
+			b.logger.InfoContext(ctx, "BoltDB storage closed successfully")
 		}
 	}
 	return nil

@@ -13,8 +13,6 @@ package cpool
 import (
 	"context"
 	"fmt"
-	"sync"
-
 	"github.com/bwmarrin/snowflake"
 	"github.com/casbin/casbin/v2"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -28,6 +26,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	redisClient "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"sync"
 )
 
 // PoolManager 连接池管理器接口
@@ -149,11 +148,11 @@ func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
 	}
 
 	// 初始化各个连接池
-	if err := m.initDatabase(); err != nil {
+	if err := m.initDatabase(ctx); err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
 
-	if err := m.initRedis(); err != nil {
+	if err := m.initRedis(ctx); err != nil {
 		return fmt.Errorf("failed to initialize redis: %w", err)
 	}
 
@@ -161,19 +160,19 @@ func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
 		return fmt.Errorf("failed to initialize cache: %w", err)
 	}
 
-	if err := m.initMinIO(); err != nil {
+	if err := m.initMinIO(ctx); err != nil {
 		return fmt.Errorf("failed to initialize minio: %w", err)
 	}
 
-	if err := m.initStorage(); err != nil {
+	if err := m.initStorage(ctx); err != nil {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
-	if err := m.initSMTP(); err != nil {
+	if err := m.initSMTP(ctx); err != nil {
 		return fmt.Errorf("failed to initialize smtp: %w", err)
 	}
 
-	if err := m.initMQTT(); err != nil {
+	if err := m.initMQTT(ctx); err != nil {
 		return fmt.Errorf("failed to initialize mqtt: %w", err)
 	}
 
@@ -186,33 +185,33 @@ func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
 	}
 
 	m.initialized = true
-	m.logger.Info("Connection pool manager initialized successfully")
+	m.logger.InfoContext(ctx, "Connection pool manager initialized successfully")
 
 	return nil
 }
 
 // initDatabase 初始化数据库连接
-func (m *Manager) initDatabase() error {
-	db := database.Gorm(m.cfg, m.logger)
+func (m *Manager) initDatabase(ctx context.Context) error {
+	db := database.Gorm(ctx, m.cfg, m.logger)
 	if db != nil {
 		m.db = db
-		m.logger.Info("Database initialized successfully")
+		m.logger.InfoContext(ctx, "Database initialized successfully")
 	} else {
-		m.logger.Warn("Failed to initialize database")
+		m.logger.WarnContext(ctx, "Failed to initialize database")
 	}
 
 	return nil
 }
 
 // initRedis 初始化Redis连接
-func (m *Manager) initRedis() error {
+func (m *Manager) initRedis(ctx context.Context) error {
 	// 检查 Redis 配置是否存在
-	rdb := redis.Redis(m.cfg, m.logger)
+	rdb := redis.Redis(ctx, m.cfg, m.logger)
 	if rdb != nil {
 		m.redis = rdb
-		m.logger.Info("Redis initialized successfully")
+		m.logger.InfoContext(ctx, "Redis initialized successfully")
 	} else {
-		m.logger.Warn("Failed to initialize Redis")
+		m.logger.WarnContext(ctx, "Failed to initialize Redis")
 	}
 
 	return nil
@@ -220,90 +219,93 @@ func (m *Manager) initRedis() error {
 
 // initCache 初始化缓存
 func (m *Manager) initCache() error {
+	ctx := context.Background()
 	// 如果有Redis，使用Redis作为缓存后端
 	if m.redis != nil {
 		// 这里可以初始化基于Redis的缓存
-		m.logger.Info("Cache will use Redis as backend")
+		m.logger.InfoContext(ctx, "Cache will use Redis as backend")
 	}
 	return nil
 }
 
 // initMinIO 初始化MinIO客户端
-func (m *Manager) initMinIO() error {
+func (m *Manager) initMinIO(ctx context.Context) error {
 	// 检查 MinIO 配置是否存在
-	minio := oss.Minio(m.cfg, m.logger)
+	minio := oss.Minio(ctx, m.cfg, m.logger)
 	if minio != nil {
 		m.minio = minio
-		m.logger.Info("MinIO initialized successfully")
+		m.logger.InfoContext(ctx, "MinIO initialized successfully")
 	} else {
-		m.logger.Warn("Failed to initialize MinIO")
+		m.logger.WarnContext(ctx, "Failed to initialize MinIO")
 	}
 
 	return nil
 }
 
 // initStorage 初始化Storage处理器
-func (m *Manager) initStorage() error {
+func (m *Manager) initStorage(ctx context.Context) error {
 	// 创建统一的Storage处理器
-	storage, err := oss.NewStorage(m.cfg, m.logger)
+	storage, err := oss.NewStorage(ctx, m.cfg, m.logger)
 	if err != nil {
-		m.logger.Warn("Failed to initialize Storage: %v", err)
+		m.logger.WarnContextKV(ctx, "Failed to initialize Storage", "error", err)
 		return nil // 非关键组件,不阻止启动
 	}
 
 	m.storage = storage
-	m.logger.Info("Storage initialized successfully")
+	m.logger.InfoContext(ctx, "Storage initialized successfully")
 
 	return nil
 }
 
 // initSMTP 初始化SMTP客户端
-func (m *Manager) initSMTP() error {
+func (m *Manager) initSMTP(ctx context.Context) error {
 	// 检查 SMTP 配置是否存在
 	if m.cfg.Smtp == nil {
-		m.logger.Info("SMTP configuration not found, skipping initialization")
+		m.logger.InfoContext(ctx, "SMTP configuration not found, skipping initialization")
 		return nil
 	}
 
 	// 创建SMTP客户端
 	smtpClient, err := smtp.NewSmtpClient(m.cfg.Smtp, m.logger)
 	if err != nil {
-		m.logger.Warn("Failed to initialize SMTP: %v", err)
+		m.logger.WarnContextKV(ctx, "Failed to initialize SMTP", "error", err)
 		return nil // 非关键组件,不阻止启动
 	}
 
 	m.smtp = smtpClient
-	m.logger.Info("SMTP initialized successfully")
+	m.logger.InfoContext(ctx, "SMTP initialized successfully")
 
 	return nil
 }
 
 // initMQTT 初始化MQTT客户端
-func (m *Manager) initMQTT() error {
+func (m *Manager) initMQTT(ctx context.Context) error {
 	// MQTT客户端初始化暂时跳过，等待具体实现
-	m.logger.Info("MQTT initialization skipped (not implemented)")
+	m.logger.InfoContext(ctx, "MQTT initialization skipped (not implemented)")
 	return nil
 }
 
 // initSnowflake 初始化雪花ID生成器
 func (m *Manager) initSnowflake() error {
+	ctx := context.Background()
 	// 使用默认节点ID 1
 	node, err := snowflake.NewNode(1)
 	if err != nil {
-		m.logger.ErrorKV("Failed to create snowflake node", "error", err)
+		m.logger.ErrorContextKV(ctx, "Failed to create snowflake node", "error", err)
 		return nil // 非关键组件，不阻止启动
 	}
 
 	m.snowflake = node
-	m.logger.Info("Snowflake ID generator initialized successfully")
+	m.logger.InfoContext(ctx, "Snowflake ID generator initialized successfully")
 
 	return nil
 }
 
 // initCasbin 初始化权限管理
 func (m *Manager) initCasbin() error {
+	ctx := context.Background()
 	// Casbin初始化暂时跳过，等待具体实现
-	m.logger.Info("Casbin initialization skipped (not implemented)")
+	m.logger.InfoContext(ctx, "Casbin initialization skipped (not implemented)")
 	return nil
 }
 
@@ -486,7 +488,8 @@ func (m *Manager) Close() error {
 		return fmt.Errorf("errors closing connections: %v", errs)
 	}
 
-	m.logger.Info("Connection pool manager closed successfully")
+	ctx := context.Background()
+	m.logger.InfoContext(ctx, "Connection pool manager closed successfully")
 	return nil
 }
 

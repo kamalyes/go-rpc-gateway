@@ -153,14 +153,15 @@ func (ws *WebSocketService) Stop() error {
 		return nil
 	}
 
-	global.LOGGER.InfoMsg("🛑 停止 WebSocket 服务...")
+	ctx := context.Background()
+	global.LOGGER.InfoContext(ctx, "🛑 停止 WebSocket 服务...")
 
 	ws.cancel()
 
 	if ws.httpServer != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = ws.httpServer.Shutdown(ctx)
+		_ = ws.httpServer.Shutdown(shutdownCtx)
 	}
 
 	if ws.hub != nil {
@@ -168,7 +169,7 @@ func (ws *WebSocketService) Stop() error {
 	}
 
 	ws.running.Store(false)
-	global.LOGGER.InfoMsg("✅ WebSocket 服务已停止")
+	global.LOGGER.InfoContext(ctx, "✅ WebSocket 服务已停止")
 
 	return nil
 }

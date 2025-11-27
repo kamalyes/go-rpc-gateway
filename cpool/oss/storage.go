@@ -13,9 +13,6 @@ package oss
 
 import (
 	"context"
-	"io"
-	"time"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -24,6 +21,8 @@ import (
 	ossconfig "github.com/kamalyes/go-config/pkg/oss"
 	"github.com/kamalyes/go-logger"
 	"github.com/minio/minio-go/v7"
+	"io"
+	"time"
 )
 
 // ObjectInfo 对象信息
@@ -72,8 +71,8 @@ type MinIOStorage struct {
 }
 
 // NewMinIOStorage 创建MinIO存储
-func NewMinIOStorage(cfg *gwconfig.Gateway, log logger.ILogger) (*MinIOStorage, error) {
-	client := Minio(cfg, log)
+func NewMinIOStorage(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogger) (*MinIOStorage, error) {
+	client := Minio(ctx, cfg, log)
 	if client == nil {
 		return nil, ErrMinIOInitFailed
 	}
@@ -233,9 +232,9 @@ type S3Storage struct {
 }
 
 // NewS3Storage 创建S3存储
-func NewS3Storage(cfg *ossconfig.S3, log logger.ILogger) (*S3Storage, error) {
+func NewS3Storage(ctx context.Context, cfg *ossconfig.S3, log logger.ILogger) (*S3Storage, error) {
 	// 创建AWS配置
-	awsCfg, err := config.LoadDefaultConfig(context.Background(),
+	awsCfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(cfg.Region),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			cfg.AccessKey,
@@ -441,24 +440,24 @@ func (s *S3Storage) Close() error {
 }
 
 // NewStorage 根据配置创建存储实例
-func NewStorage(cfg *gwconfig.Gateway, log logger.ILogger) (StorageHandler, error) {
+func NewStorage(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogger) (StorageHandler, error) {
 	if cfg.OSS == nil {
 		return nil, ErrOSSConfigNotFound
 	}
 
 	// 优先使用MinIO配置
 	if cfg.OSS.Minio != nil && cfg.OSS.Minio.Endpoint != "" {
-		return NewMinIOStorage(cfg, log)
+		return NewMinIOStorage(ctx, cfg, log)
 	}
 
 	// 其次使用S3配置
 	if cfg.OSS.S3 != nil && cfg.OSS.S3.Endpoint != "" {
-		return NewS3Storage(cfg.OSS.S3, log)
+		return NewS3Storage(ctx, cfg.OSS.S3, log)
 	}
 
 	// 最后使用BoltDB本地存储
 	if cfg.OSS.BoltDB != nil && cfg.OSS.BoltDB.Path != "" {
-		return NewBoltDBStorage(cfg.OSS.BoltDB, log)
+		return NewBoltDBStorage(ctx, cfg.OSS.BoltDB, log)
 	}
 
 	return nil, ErrNoOSSConfigured

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"github.com/go-sql-driver/mysql"
 	"github.com/kamalyes/go-config/pkg/database"
@@ -19,7 +20,7 @@ import (
 )
 
 // Gorm 初始化数据库并产生数据库全局变量
-func Gorm(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
+func Gorm(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil {
 		return nil
 	}
@@ -28,71 +29,71 @@ func Gorm(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg.Database != nil && cfg.Database.Type != "" {
 		switch cfg.Database.Type {
 		case database.DBTypeMySQL:
-			return GormMySQL(cfg, log)
+			return GormMySQL(ctx, cfg, log)
 		case database.DBTypePostgreSQL:
-			return GormPostgreSQL(cfg, log)
+			return GormPostgreSQL(ctx, cfg, log)
 		case database.DBTypeSQLite:
-			return GormSQLite(cfg, log)
+			return GormSQLite(ctx, cfg, log)
 		default:
-			return GormMySQL(cfg, log) // 默认使用 MySQL
+			return GormMySQL(ctx, cfg, log) // 默认使用 MySQL
 		}
 	}
 
 	// 默认尝试MySQL
-	return GormMySQL(cfg, log)
+	return GormMySQL(ctx, cfg, log)
 }
 
 // GormMySQL 初始化MySQL数据库
-func GormMySQL(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
+func GormMySQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.MySQL == nil {
 		if log != nil {
-			log.Error("MySQL config not found")
+			log.ErrorContext(ctx, "MySQL config not found")
 		}
 		return nil
 	}
 
 	config := cfg.Database.MySQL
-	return initDB(config, database.DBTypeMySQL, log, func(dsn string) (*gorm.DB, error) {
+	return initDB(ctx, config, database.DBTypeMySQL, log, func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(mysqldriver.New(mysqldriver.Config{DSN: dsn}), gormConfig(config.LogLevel))
 	})
 }
 
 // GormPostgreSQL 初始化PostgreSQL数据库
-func GormPostgreSQL(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
+func GormPostgreSQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.PostgreSQL == nil {
 		if log != nil {
-			log.Error("PostgreSQL config not found")
+			log.ErrorContext(ctx, "PostgreSQL config not found")
 		}
 		return nil
 	}
 
 	config := cfg.Database.PostgreSQL
-	return initDB(config, database.DBTypePostgreSQL, log, func(dsn string) (*gorm.DB, error) {
+	return initDB(ctx, config, database.DBTypePostgreSQL, log, func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), gormConfig(config.LogLevel))
 	})
 }
 
 // GormSQLite 连接SQLite数据库
-func GormSQLite(cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
+func GormSQLite(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.SQLite == nil {
 		if log != nil {
-			log.Error("SQLite config not found")
+			log.ErrorContext(ctx, "SQLite config not found")
 		}
 		return nil
 	}
 
 	config := cfg.Database.SQLite
-	return initDB(config, database.DBTypeSQLite, log, func(dsn string) (*gorm.DB, error) {
+	return initDB(ctx, config, database.DBTypeSQLite, log, func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(sqlite.Open(config.DbPath), gormConfig(config.LogLevel))
 	})
 }
 
 // initDB 初始化数据库连接
-func initDB(provider database.DatabaseProvider, dbType database.DBType, log gologger.ILogger, openFunc func(string) (*gorm.DB, error)) *gorm.DB {
+func initDB(ctx context.Context, provider database.DatabaseProvider, dbType database.DBType, log gologger.ILogger, openFunc func(string) (*gorm.DB, error)) *gorm.DB {
 	host := provider.GetHost()
 	if dbType != database.DBTypeSQLite && host == "" {
 		if log != nil {
-			log.Error("Database host is empty")
+			log.ErrorContext(ctx, "Database host is empty")
 		}
 		return nil
 	}
@@ -100,10 +101,8 @@ func initDB(provider database.DatabaseProvider, dbType database.DBType, log golo
 	dsn := buildDSN(provider, dbType)
 	db, err := openFunc(dsn)
 	if err != nil {
-		if log != nil {
-			log.ErrorKV(fmt.Sprintf("%s database startup error", dbType), "err", err)
-		}
-		os.Exit(0)
+		log.ErrorContextKV(ctx, fmt.Sprintf("%s database connection failed", dbType), "host", host, "dbname", provider.GetDBName(), "err", err)
+		os.Exit(1)
 		return nil
 	}
 

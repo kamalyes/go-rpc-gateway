@@ -11,9 +11,6 @@
 package middleware
 
 import (
-	"context"
-	"net/http"
-
 	breakercof "github.com/kamalyes/go-config/pkg/breaker"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-config/pkg/middleware"
@@ -21,6 +18,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
+	"net/http"
 )
 
 // Manager 中间件管理器 - 使用 go-config 的 middleware 配置
@@ -142,15 +140,6 @@ func (m *Manager) GRPCTracingInterceptor() GRPCInterceptor {
 	return GRPCTracingInterceptor(m.tracingManager)
 }
 
-// LoggingMiddleware 日志中间件
-// TODO: 重构为使用 go-config 的 logging.Logging 配置
-func (m *Manager) LoggingMiddleware() MiddlewareFunc {
-	// if m.cfg.Middleware.Logging != nil && m.cfg.Middleware.Logging.Enabled {
-	// 	return MiddlewareFunc(ConfigurableLoggingMiddleware(m.cfg.Middleware.Logging))
-	// }
-	return MiddlewareFunc(LoggingMiddleware(nil)) // 回退到默认实现
-}
-
 // CORSMiddleware CORS 中间件
 func (m *Manager) CORSMiddleware() MiddlewareFunc {
 	// CORS配置通常在gateway配置中，这里暂时返回空实现
@@ -197,6 +186,16 @@ func (m *Manager) RateLimitMiddleware() MiddlewareFunc {
 // TODO: 实现访问日志配置
 func (m *Manager) AccessRecordMiddleware() MiddlewareFunc {
 	return func(next http.Handler) http.Handler { return next }
+}
+
+// LoggingMiddleware HTTP日志中间件
+func (m *Manager) LoggingMiddleware() MiddlewareFunc {
+	// 使用配置的日志中间件
+	if m.cfg.Middleware != nil && m.cfg.Middleware.Logging != nil {
+		return MiddlewareFunc(LoggingMiddleware(m.cfg.Middleware.Logging))
+	}
+	// 回退到默认实现
+	return MiddlewareFunc(LoggingMiddleware(nil))
 }
 
 // SignatureMiddleware 签名验证中间件
@@ -373,18 +372,12 @@ func (m *Manager) HTTPMiddleware(handler http.Handler) http.Handler {
 
 // UnaryServerInterceptor 返回gRPC一元拦截器
 func (m *Manager) UnaryServerInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		// 这里可以添加通用的gRPC拦截逻辑
-		return handler(ctx, req)
-	}
+	return UnaryServerLoggingInterceptor()
 }
 
 // StreamServerInterceptor 返回gRPC流拦截器
 func (m *Manager) StreamServerInterceptor() grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		// 这里可以添加通用的gRPC流拦截逻辑
-		return handler(srv, ss)
-	}
+	return StreamServerLoggingInterceptor()
 }
 
 // isProductionMode 检查是否为生产模式

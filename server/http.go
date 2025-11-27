@@ -234,18 +234,18 @@ func (s *Server) stopHTTPServer() error {
 		return nil
 	}
 
-	global.LOGGER.InfoMsg("Stopping HTTP server...")
-
 	// 创建30秒超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	global.LOGGER.InfoContext(ctx, "Stopping HTTP server...")
+
 	if err := s.httpServer.Shutdown(ctx); err != nil {
-		global.LOGGER.WithError(err).ErrorMsg("Failed to shutdown HTTP server")
+		global.LOGGER.WithError(err).ErrorContext(ctx, "Failed to shutdown HTTP server")
 		return err
 	}
 
-	global.LOGGER.InfoMsg("HTTP server stopped")
+	global.LOGGER.InfoContext(ctx, "HTTP server stopped")
 	return nil
 }
 
