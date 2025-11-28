@@ -13,14 +13,13 @@ package server
 
 import (
 	"fmt"
-	"net"
-	"time"
-
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
+	"net"
+	"time"
 )
 
 // initGRPCServer 初始化gRPC服务器
@@ -98,8 +97,8 @@ func (s *Server) initGRPCServer() error {
 func (s *Server) startGRPCServer() error {
 	grpcSafe := s.configSafe.Field("GRPC").Field("Server")
 
-	// 安全获取网络和地址配置
-	network := grpcSafe.Field("Network").String("tcp")
+	// 安全获取网络和地址配置，默认使用 tcp4 强制 IPv4
+	network := grpcSafe.Field("Network").String("tcp4")
 	host := grpcSafe.Field("Host").String("0.0.0.0")
 	port := grpcSafe.Field("Port").Int(9090)
 	address := fmt.Sprintf("%s:%d", host, port)

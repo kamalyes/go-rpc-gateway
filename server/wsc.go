@@ -24,6 +24,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-wsc"
+	"net"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -132,9 +133,22 @@ func (ws *WebSocketService) Start() error {
 		IdleTimeout:  ws.config.IdleTimeout,
 	}
 
-	// 启动 HTTP 服务器
+	// 从配置中获取网络类型,默认 tcp4 避免绑定到 IPv6
+	network := ws.config.Network
+	if network == "" {
+		network = "tcp4" // 默认使用 tcp4
+		global.LOGGER.WarnMsg("⚠️ WebSocket network 配置为空，使用默认值 tcp4")
+	} else {
+		global.LOGGER.InfoKV("WebSocket 网络配置", "network", network)
+	}
+
 	go func() {
-		if err := ws.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		listener, err := net.Listen(network, ws.httpServer.Addr)
+		if err != nil {
+			global.LOGGER.WithError(err).ErrorKV("❌ WebSocket 监听器创建失败", "network", network, "address", ws.httpServer.Addr)
+			return
+		}
+		if err := ws.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			global.LOGGER.WithError(err).ErrorMsg("❌ WebSocket HTTP 服务器启动失败")
 		}
 	}()
@@ -142,6 +156,7 @@ func (ws *WebSocketService) Start() error {
 	ws.running.Store(true)
 	global.LOGGER.InfoKV("✅ WebSocket 服务已启动",
 		"address", ws.httpServer.Addr,
+		"network", network,
 		"path", "/ws")
 
 	return nil

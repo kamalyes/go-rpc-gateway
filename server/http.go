@@ -15,6 +15,12 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -22,10 +28,6 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/protobuf/encoding/protojson"
-	"io"
-	"net/http"
-	"strings"
-	"time"
 )
 
 // buildServeMuxOptions 构建ServeMux选项，支持从配置文件读取JSON序列化配置
@@ -225,7 +227,15 @@ func (s *Server) startHTTPServer() error {
 	// }
 
 	global.LOGGER.InfoKV("Starting HTTP server", "address", address)
-	return s.httpServer.ListenAndServe()
+	
+	// 从配置中获取网络类型，默认 tcp4 避免绑定到 IPv6
+	network := s.configSafe.Field("HTTPServer").Field("Network").String("tcp4")
+	listener, err := net.Listen(network, address)
+	if err != nil {
+		return fmt.Errorf("failed to create %s listener: %w", network, err)
+	}
+	
+	return s.httpServer.Serve(listener)
 }
 
 // stopHTTPServer 停止HTTP服务器
