@@ -44,26 +44,30 @@ chain.InitializeAll(ctx, cfg)
 
 ### 初始化流程
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    InitializerChain                         │
-├─────────────────────────────────────────────────────────────┤
-│  1. 注册所有初始化器                                          │
-│     └─> Register(&Initializer{}) × N                        │
-├─────────────────────────────────────────────────────────────┤
-│  2. 按优先级自动排序                                          │
-│     └─> sort.Slice(initializers, by Priority)              │
-├─────────────────────────────────────────────────────────────┤
-│  3. 顺序初始化                                               │
-│     ├─> Logger (1) → Context (2) → Snowflake (5)            │
-│     └─> PoolManager (10) → Custom (20+)                     │
-├─────────────────────────────────────────────────────────────┤
-│  4. 健康检查                                                 │
-│     └─> HealthCheckAll() → map[string]error                 │
-├─────────────────────────────────────────────────────────────┤
-│  5. 优雅清理 (逆序)                                          │
-│     └─> CleanupAll() → Custom → Pool → ... → Logger         │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Start["InitializerChain 开始"] --> Register
+    
+    Register["① 注册所有初始化器<br/>Register(&Initializer{}) × N"]
+    Register --> Sort
+    
+    Sort["② 按优先级自动排序<br/>sort.Slice(initializers, by Priority)"]
+    Sort --> Init
+    
+    Init["③ 顺序初始化<br/>Logger(1) → Context(2) → Snowflake(5)<br/>→ PoolManager(10) → Custom(20+)"]
+    Init --> Health
+    
+    Health["④ 健康检查<br/>HealthCheckAll() → map[string]error"]
+    Health --> Cleanup
+    
+    Cleanup["⑤ 优雅清理 (逆序)<br/>CleanupAll()<br/>Custom → Pool → ... → Logger"]
+    Cleanup --> End["✅ 完成"]
+    
+    style Register fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style Sort fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style Init fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style Health fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style Cleanup fill:#fce4ec,stroke:#c2185b,stroke-width:2px
 ```
 
 ---

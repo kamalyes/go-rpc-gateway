@@ -10,8 +10,6 @@
 - [核心组件](#核心组件)
 - [初始化流程](#初始化流程)
 - [请求处理流程](#请求处理流程)
-- [设计模式](#设计模式)
-- [扩展性设计](#扩展性设计)
 
 ---
 
@@ -19,41 +17,53 @@
 
 Go RPC Gateway 采用分层架构设计，将系统分为 6 个核心层次：
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      🌐 客户端层 (Client Layer)                  │
-│           HTTP/1.1  │  HTTP/2  │  gRPC  │  WebSocket            │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────┐
-│                   🎯 网关入口层 (Gateway Layer)                  │
-│                    链式构建器模式 (Builder Pattern)               │
-│      NewGateway() → WithConfig() → WithFeatures() → Build()    │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────┐
-│                  🔧 中间件层 (Middleware Layer)                  │
-│  Recovery │ RequestID │ RateLimit │ Breaker │ Auth │ ...       │
-│                   责任链模式 (Chain of Responsibility)            │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────┐
-│                   🎮 路由层 (Routing Layer)                      │
-│         gRPC Services ←→ HTTP Handlers ←→ Custom Routes        │
-│                      适配器模式 (Adapter Pattern)                │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────┐
-│              📊 初始化层 (Initialization Layer)                  │
-│                   InitializerChain (优先级管理)                  │
-│     Logger → Context → Snowflake → PoolManager → Custom        │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────┐
-│               🗄️ 基础设施层 (Infrastructure Layer)               │
-│     Database │  Redis  │  MinIO  │  MQTT  │  Consul │ ...     │
-│                   连接池管理 (Pool Management)                   │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph Client["🌐 客户端层"]
+        HTTP1["HTTP/1.1"]
+        HTTP2["HTTP/2"]
+        GRPC["gRPC"]
+        WS["WebSocket"]
+    end
+    
+    subgraph Gateway["🎯 网关入口层"]
+        Builder["链式构建器模式<br/>NewGateway → WithConfig<br/>→ WithFeatures → Build"]
+    end
+    
+    subgraph Middleware["🔧 中间件层"]
+        MW1["Recovery RequestID RateLimit<br/>Breaker Auth 等"]
+        Chain["责任链模式"]
+    end
+    
+    subgraph Router["🎮 路由层"]
+        Routes["gRPC Services ⇄ HTTP Handlers<br/>⇄ Custom Routes"]
+        Adapter["适配器模式"]
+    end
+    
+    subgraph Init["📊 初始化层"]
+        InitChain["InitializerChain 优先级管理<br/>Logger → Context → Snowflake<br/>→ PoolManager → Custom"]
+    end
+    
+    subgraph Infra["🗄️ 基础设施层"]
+        DB[("Database")]
+        Redis[("Redis")]
+        MinIO[("MinIO")]
+        MQTT[("MQTT")]
+        Pool["连接池管理"]
+    end
+    
+    Client --> Gateway
+    Gateway --> Middleware
+    Middleware --> Router
+    Router --> Init
+    Init --> Infra
+    
+    style Client fill:#e1f5ff
+    style Gateway fill:#fff3e0
+    style Middleware fill:#f3e5f5
+    style Router fill:#e8f5e9
+    style Init fill:#fff9c4
+    style Infra fill:#fce4ec
 ```
 
 ---
@@ -182,26 +192,26 @@ func (c *InitializerChain) CleanupAll() error
 **执行流程**:
 
 ```
-注册阶段:
-  Register(&LoggerInitializer{})      → Priority: 1
-  Register(&ContextInitializer{})     → Priority: 2
-  Register(&SnowflakeInitializer{})   → Priority: 5
-  Register(&PoolManagerInitializer{}) → Priority: 10
-  Register(&CustomInitializer{})      → Priority: 20
+[注册阶段]
+  Register(&LoggerInitializer{})      -> Priority: 1
+  Register(&ContextInitializer{})     -> Priority: 2
+  Register(&SnowflakeInitializer{})   -> Priority: 5
+  Register(&PoolManagerInitializer{}) -> Priority: 10
+  Register(&CustomInitializer{})      -> Priority: 20
   
-排序阶段:
+[排序阶段]
   sort.Slice(initializers, func(i, j int) bool {
       return initializers[i].Priority() < initializers[j].Priority()
   })
   
-执行阶段:
+[执行阶段]
   for _, init := range initializers {
       if err := init.Initialize(ctx, cfg); err != nil {
           return err  // 快速失败
       }
   }
   
-清理阶段 (逆序):
+[清理阶段 (逆序)]
   for i := len(initializers) - 1; i >= 0; i-- {
       init.Cleanup()
   }
@@ -234,21 +244,21 @@ func (m *Manager) Chain(handler http.Handler) http.Handler
 
 ```
 执行顺序 (从外到内):
-  1. Recovery        → Panic 捕获
-  2. RequestID       → 请求ID生成
-  3. Logging         → 访问日志
-  4. Metrics         → 指标收集
-  5. Tracing         → 链路追踪
-  6. Security        → 安全防护
-  7. CORS            → 跨域处理
-  8. RateLimit       → 流量控制
-  9. Breaker         → 熔断保护
- 10. Auth            → 身份认证
- 11. I18N            → 国际化
+  1. Recovery        -> Panic 捕获
+  2. RequestID       -> 请求ID生成
+  3. Logging         -> 访问日志
+  4. Metrics         -> 指标收集
+  5. Tracing         -> 链路追踪
+  6. Security        -> 安全防护
+  7. CORS            -> 跨域处理
+  8. RateLimit       -> 流量控制
+  9. Breaker         -> 熔断保护
+ 10. Auth            -> 身份认证
+ 11. I18N            -> 国际化
  ... (自定义中间件)
  
 请求流向:
-  Client → Recovery → RequestID → ... → Handler → ... → Client
+  Client -> Recovery -> RequestID -> ... -> Handler -> ... -> Client
 ```
 
 ---
@@ -305,57 +315,47 @@ if cfg.Minio.Enabled {
 
 ### 完整初始化时序图
 
-```
-┌─────────┐    ┌──────────┐    ┌────────────┐    ┌──────────┐
-│ Gateway │    │  Server  │    │ InitChain  │    │PoolMgr   │
-└────┬────┘    └─────┬────┘    └──────┬─────┘    └─────┬────┘
-     │               │                │                │
-     │ Build()       │                │                │
-     ├──────────────>│                │                │
-     │               │                │                │
-     │               │ NewServer()    │                │
-     │               ├───────────────>│                │
-     │               │                │                │
-     │               │ InitializeAll()│                │
-     │               ├───────────────>│                │
-     │               │                │                │
-     │               │                │ Logger (P:1)   │
-     │               │                ├───────────────>│
-     │               │                │ ✅ global.LOG   │
-     │               │                │                │
-     │               │                │ Context (P:2)  │
-     │               │                ├───────────────>│
-     │               │                │ ✅ global.CTX   │
-     │               │                │                │
-     │               │                │ Snowflake(P:5) │
-     │               │                ├───────────────>│
-     │               │                │ ✅ global.Node  │
-     │               │                │                │
-     │               │                │ PoolMgr (P:10) │
-     │               │                ├───────────────>│
-     │               │                │  Initialize()  │
-     │               │                │  ├────────────>│
-     │               │                │  │ Init DB     │
-     │               │                │  │ Init Redis  │
-     │               │                │  │ Init MinIO  │
-     │               │                │  │ Bind Global │
-     │               │                │  <────────────┤
-     │               │                │ ✅ global.DB    │
-     │               │                │ ✅ global.REDIS │
-     │               │                │                │
-     │               │ ✅ Initialize完成│                │
-     │               <───────────────┤                │
-     │               │                │                │
-     │ ✅ Server     │                │                │
-     <───────────────┤                │                │
-     │               │                │                │
-     │ Start()       │                │                │
-     ├──────────────>│                │                │
-     │               │ StartHTTP()    │                │
-     │               │ StartgRPC()    │                │
-     │               │ ✅ Running     │                │
-     <───────────────┤                │                │
-     │               │                │                │
+```mermaid
+sequenceDiagram
+    participant G as Gateway
+    participant S as Server
+    participant IC as InitChain
+    participant PM as PoolMgr
+    
+    G->>S: Build()
+    S->>IC: NewServer()
+    S->>IC: InitializeAll()
+    
+    Note over IC,PM: 优先级排序初始化
+    
+    IC->>PM: Logger (Priority: 1)
+    PM-->>IC: ✅ global.LOGGER
+    
+    IC->>PM: Context (Priority: 2)
+    PM-->>IC: ✅ global.CTX
+    
+    IC->>PM: Snowflake (Priority: 5)
+    PM-->>IC: ✅ global.Node
+    
+    IC->>PM: PoolMgr (Priority: 10)
+    activate PM
+    Note over PM: Initialize()
+    PM->>PM: Init DB
+    PM->>PM: Init Redis
+    PM->>PM: Init MinIO
+    PM->>PM: Bind Global
+    deactivate PM
+    PM-->>IC: ✅ global.DB<br/>✅ global.REDIS<br/>✅ global.MinIO
+    
+    IC-->>S: ✅ Initialize Complete
+    S-->>G: ✅ Server Ready
+    
+    G->>S: Start()
+    activate S
+    S->>S: StartHTTP()
+    S->>S: StartgRPC()
+    S-->>G: ✅ Running
+    deactivate S
 ```
 
 ### 初始化步骤详解
@@ -414,302 +414,92 @@ gw.Start()
 
 ### HTTP 请求流程
 
-```
-Client Request
-     │
-     ▼
-┌─────────────────────────────────┐
-│  HTTP Server (:8080)            │
-│  http.Server.Handler            │
-└────────────┬────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────┐
-│  Middleware Chain               │
-│  ┌──────────────────────┐       │
-│  │ 1. Recovery          │       │
-│  │ 2. RequestID         │       │
-│  │ 3. Logging           │       │
-│  │ 4. Metrics           │       │
-│  │ 5. Tracing           │       │
-│  │ 6. Security          │       │
-│  │ 7. CORS              │       │
-│  │ 8. RateLimit         │       │
-│  │ 9. Breaker           │       │
-│  │ 10. Auth             │       │
-│  └──────────────────────┘       │
-└────────────┬────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────┐
-│  Router (http.ServeMux)         │
-│  - gRPC Gateway Handlers        │
-│  - Custom HTTP Handlers         │
-│  - Feature Handlers             │
-│    (swagger, pprof, health)     │
-└────────────┬────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────┐
-│  Business Handler               │
-│  - 数据库操作 (global.DB)        │
-│  - 缓存读写 (global.REDIS)      │
-│  - 对象存储 (global.MinIO)      │
-│  - 业务逻辑处理                  │
-└────────────┬────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────┐
-│  Response                        │
-│  - JSON/Protobuf 编码           │
-│  - 统一响应格式                  │
-│  - 错误码转换                    │
-└─────────────────────────────────┘
-     │
-     ▼
-Client Response
+```mermaid
+flowchart TD
+    Client["🌐 Client Request"] --> HTTPServer["HTTP Server :8080<br/>http.Server.Handler"]
+    
+    HTTPServer --> MW["🔧 Middleware Chain"]
+    
+    subgraph Middlewares["中间件执行顺序"]
+        MW1["Recovery"] --> MW2["RequestID"]
+        MW2 --> MW3["Logging"]
+        MW3 --> MW4["Metrics"]
+        MW4 --> MW5["Tracing"]
+        MW5 --> MW6["Security"]
+        MW6 --> MW7["CORS"]
+        MW7 --> MW8["RateLimit"]
+        MW8 --> MW9["Breaker"]
+        MW9 --> MW10["Auth"]
+    end
+    
+    MW --> MW1
+    MW10 --> Router
+    
+    Router["🎮 Router<br/>http.ServeMux"] --> Handlers
+    
+    subgraph Handlers["处理器类型"]
+        H1["gRPC Gateway"]
+        H2["Custom HTTP"]
+        H3["Features<br/>swagger/pprof/health"]
+    end
+    
+    Handlers --> Business["💼 Business Handler"]
+    
+    subgraph Business
+        DB[("global.DB")]
+        Redis[("global.REDIS")]
+        MinIO[("global.MinIO")]
+        Logic["业务逻辑"]
+    end
+    
+    Business --> Response["📤 Response<br/>JSON/Protobuf"]
+    Response --> ClientResp["🌐 Client Response"]
+    
+    style Client fill:#e1f5ff
+    style HTTPServer fill:#fff3e0
+    style Middlewares fill:#f3e5f5
+    style Router fill:#e8f5e9
+    style Business fill:#fff9c4
+    style Response fill:#fce4ec
 ```
 
 ### gRPC 请求流程
 
-```
-gRPC Client
-     │
-     ▼
-┌─────────────────────────────────┐
-│  gRPC Server (:9090)            │
-│  grpc.Server                    │
-└────────────┬────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────┐
-│  gRPC Interceptors              │
-│  - UnaryInterceptor             │
-│  - StreamInterceptor            │
-│  - Recovery                     │
-│  - Logging                      │
-│  - Metrics                      │
-│  - Tracing                      │
-└────────────┬────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────┐
-│  Service Implementation         │
-│  pb.RegisterXXXServer(s, impl)  │
-└────────────┬────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────┐
-│  Business Logic                 │
-│  - global.DB 数据库访问         │
-│  - global.REDIS 缓存             │
-│  - PBMO 模型转换                │
-└────────────┬────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────┐
-│  Protobuf Response              │
-└─────────────────────────────────┘
-     │
-     ▼
-gRPC Client Response
-```
-
----
-
-## 🎨 设计模式
-
-### 1. Builder Pattern (构建器模式)
-
-**应用**: `GatewayBuilder`
-
-**优势**:
-- 参数可选，接口清晰
-- 链式调用，流畅优雅
-- 默认值推断，简化使用
-
-```go
-gateway.NewGateway().
-    WithConfigPath("config.yaml").  // 可选
-    WithEnvironment("production").   // 可选
-    WithHotReload(nil).             // 可选
-    Silent().                        // 可选
-    BuildAndStart()
-```
-
----
-
-### 2. Chain of Responsibility (责任链模式)
-
-**应用**: `InitializerChain`, `MiddlewareChain`
-
-**优势**:
-- 解耦发送者和接收者
-- 动态添加/删除处理器
-- 顺序可控
-
-```go
-// 初始化链
-chain.Register(&LoggerInitializer{})
-chain.Register(&ContextInitializer{})
-chain.InitializeAll()
-
-// 中间件链
-manager.Use(RecoveryMiddleware())
-manager.Use(LoggingMiddleware())
-manager.Chain(handler)
-```
-
----
-
-### 3. Strategy Pattern (策略模式)
-
-**应用**: `Initializer` 接口
-
-**优势**:
-- 算法族独立变化
-- 避免条件语句
-- 易于扩展
-
-```go
-type Initializer interface {
-    Initialize(ctx, cfg) error
-    Cleanup() error
-    HealthCheck() error
-}
-
-// 不同策略实现
-&LoggerInitializer{}
-&DatabaseInitializer{}
-&CacheInitializer{}
-```
-
----
-
-### 4. Adapter Pattern (适配器模式)
-
-**应用**: gRPC-Gateway, WSC Adapter
-
-**优势**:
-- 接口转换
-- 复用现有代码
-- 解耦不兼容接口
-
-```go
-// gRPC → HTTP 适配
-pb.RegisterUserServiceHandlerFromEndpoint(ctx, mux, endpoint)
-
-// WSC Hub 适配
-adapter := wsc.NewAdapter(hubManager, extractor)
-```
-
----
-
-### 5. Singleton Pattern (单例模式)
-
-**应用**: 全局变量 `global.*`
-
-**优势**:
-- 唯一实例
-- 全局访问点
-- 延迟初始化
-
-```go
-var (
-    DB     *gorm.DB         // 单例数据库
-    REDIS  *redis.Client    // 单例Redis
-    Node   *snowflake.Node  // 单例ID生成器
-    CTX    context.Context  // 单例上下文
-)
-```
-
----
-
-## 🔌 扩展性设计
-
-### 1. 自定义初始化器
-
-```go
-type MyInitializer struct{}
-
-func (i *MyInitializer) Priority() int { return 15 }
-func (i *MyInitializer) Initialize(ctx, cfg) error {
-    // 自定义初始化逻辑
-}
-
-// 注册
-chain.Register(&MyInitializer{})
-```
-
-### 2. 自定义中间件
-
-```go
-func CustomMiddleware() func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            // 前置处理
-            next.ServeHTTP(w, r)
-            // 后置处理
-        })
-    }
-}
-
-// 注册
-manager.Use(CustomMiddleware())
-```
-
-### 3. 自定义功能特性
-
-```go
-const FeatureMyCustom FeatureType = "my_custom"
-
-func enableMyCustomFeature(s *Server) error {
-    // 功能启用逻辑
-    return nil
-}
-
-// 注册
-server.RegisterFeature(FeatureMyCustom, enableMyCustomFeature)
-```
-
----
-
-## 📊 性能优化
-
-### 1. 连接池复用
-
-```go
-// 连接池配置
-mysql:
-  max_idle_conns: 10   # 空闲连接
-  max_open_conns: 100  # 最大连接
-  conn_max_lifetime: 3600s
-
-redis:
-  pool_size: 20
-  min_idle_conns: 5
-```
-
-### 2. 并发控制
-
-```go
-// 使用 errgroup 并发初始化
-g, ctx := errgroup.WithContext(ctx)
-g.Go(func() error { return initDB() })
-g.Go(func() error { return initRedis() })
-err := g.Wait()
-```
-
-### 3. 优雅关闭
-
-```go
-// 30秒优雅关闭
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
-
-httpServer.Shutdown(ctx)
-grpcServer.GracefulStop()
-poolManager.Close()
+```mermaid
+flowchart TD
+    Client["🔌 gRPC Client"] --> GRPCServer["gRPC Server :9090<br/>grpc.Server"]
+    
+    GRPCServer --> Interceptors["🔧 gRPC Interceptors"]
+    
+    subgraph Interceptors
+        I1["Unary"]:::inter
+        I2["Stream"]:::inter
+        I3["Recovery"]:::inter
+        I4["Logging"]:::inter
+        I5["Metrics"]:::inter
+        I6["Tracing"]:::inter
+    end
+    
+    Interceptors --> Service["📦 Service<br/>pb.RegisterXXXServer"]
+    
+    Service --> BusinessLogic["💼 Business Logic"]
+    
+    subgraph BusinessLogic
+        DB[("global.DB")]
+        Redis[("global.REDIS")]
+        PBMO["PBMO 转换"]
+    end
+    
+    BusinessLogic --> Response["📤 Protobuf Response"]
+    Response --> ClientResp["🔌 gRPC Client Response"]
+    
+    style Client fill:#e1f5ff
+    style GRPCServer fill:#fff3e0
+    style Interceptors fill:#f3e5f5
+    style Service fill:#e8f5e9
+    style BusinessLogic fill:#fff9c4
+    style Response fill:#fce4ec
+    classDef inter fill:#f3e5f5,stroke:#9c27b0
 ```
 
 ---
