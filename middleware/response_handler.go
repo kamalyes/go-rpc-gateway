@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/response"
@@ -119,6 +120,8 @@ func HandleError(w http.ResponseWriter, r *http.Request, err error, format respo
 		return
 	}
 
+	ctx := r.Context()
+
 	// 将错误转换为AppError
 	var appErr *errors.AppError
 	if ae, ok := err.(*errors.AppError); ok {
@@ -129,12 +132,27 @@ func HandleError(w http.ResponseWriter, r *http.Request, err error, format respo
 		appErr = errors.NewError(code, err.Error())
 	}
 
-	// 记录错误日志
+	// 记录错误日志（包含上下文信息）
 	if global.LOGGER != nil {
-		global.LOGGER.Error("Request error: %v", appErr)
+		fields := []interface{}{
+			"error_code", appErr.Code,
+			"error_message", appErr.Message,
+			"method", r.Method,
+			"path", r.URL.Path,
+		}
+
+		// 添加用户信息（如果存在）
+		if userID := logger.GetUserID(ctx); userID != "" {
+			fields = append(fields, "user_id", userID)
+		}
+		if tenantID := logger.GetTenantID(ctx); tenantID != "" {
+			fields = append(fields, "tenant_id", tenantID)
+		}
+
+		global.LOGGER.ErrorContextKV(ctx, "Request Error", fields...)
 	}
 
-	// 返回标准错误响应
+	// 返回标准错误响应（包含 trace_id）
 	response.WriteStandardError(w, format, appErr)
 }
 

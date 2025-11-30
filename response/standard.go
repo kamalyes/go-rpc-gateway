@@ -14,6 +14,7 @@ package response
 import (
 	"context"
 	"encoding/json"
+	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -372,4 +373,209 @@ func WriteErrorByCode(w http.ResponseWriter, code errors.ErrorCode, details ...s
 // WriteList 写入列表响应（使用标准格式）
 func WriteList(w http.ResponseWriter, list interface{}, pagination *PaginationMeta, message ...string) {
 	WriteStandardList(w, FormatStandard, list, pagination, message...)
+}
+
+// ==================== 带 Context 的响应方法（推荐使用）====================
+
+// ContextResponseBuilder 带上下文的响应构建器
+type ContextResponseBuilder struct {
+	*ResponseBuilder
+	ctx context.Context
+}
+
+// NewContextResponseBuilder 创建带上下文的响应构建器
+func NewContextResponseBuilder(ctx context.Context, format ResponseFormat) *ContextResponseBuilder {
+	return &ContextResponseBuilder{
+		ResponseBuilder: NewResponseBuilder(format),
+		ctx:             ctx,
+	}
+}
+
+// BuildSuccessResponseWithTrace 构建带追踪信息的成功响应
+func (crb *ContextResponseBuilder) BuildSuccessResponseWithTrace(data interface{}, message ...string) interface{} {
+	msg := "success"
+	if len(message) > 0 && message[0] != "" {
+		msg = message[0]
+	}
+
+	// 从 context 提取 trace 信息
+	traceID := logger.GetTraceID(crb.ctx)
+	requestID := logger.GetRequestID(crb.ctx)
+
+	// 如果没有从 context 获取到，生成新的
+	if traceID == "" {
+		traceID = osx.HashUnixMicroCipherText()
+	}
+	if requestID == "" {
+		requestID = osx.HashUnixMicroCipherText()
+	}
+
+	switch crb.format {
+	case FormatStandard:
+		return &StandardResponse{
+			Code: 0,
+			Msg:  msg,
+			Data: data,
+		}
+	case FormatAliCloud:
+		return &AliCloudResponse{
+			Code:      "Success",
+			Message:   msg,
+			Data:      data,
+			RequestId: requestID,
+		}
+	case FormatTencent:
+		return &TencentResponse{
+			Response: TencentResponseBody{
+				Data:      data,
+				RequestId: requestID,
+			},
+		}
+	case FormatBaidu:
+		return &BaiduResponse{
+			ErrorCode: 0,
+			ErrorMsg:  msg,
+			Result:    data,
+			LogId:     requestID,
+		}
+	case FormatByteDance:
+		return &ByteDanceResponse{
+			Code:    0,
+			Message: msg,
+			Data:    data,
+			TraceId: traceID,
+		}
+	case FormatMicrosoft:
+		return &MicrosoftResponse{
+			Value: data,
+		}
+	case FormatGoogle:
+		return &GoogleResponse{
+			Data: data,
+		}
+	default:
+		return &StandardResponse{
+			Code: 0,
+			Msg:  msg,
+			Data: data,
+		}
+	}
+}
+
+// BuildErrorResponseWithTrace 构建带追踪信息的错误响应
+func (crb *ContextResponseBuilder) BuildErrorResponseWithTrace(appErr *errors.AppError) interface{} {
+	code := int(appErr.GetCode())
+	message := appErr.GetMessage()
+	if appErr.GetDetails() != "" {
+		message = appErr.GetDetails()
+	}
+
+	// 从 context 提取 trace 信息
+	traceID := logger.GetTraceID(crb.ctx)
+	requestID := logger.GetRequestID(crb.ctx)
+
+	// 如果没有从 context 获取到，生成新的
+	if traceID == "" {
+		traceID = osx.HashUnixMicroCipherText()
+	}
+	if requestID == "" {
+		requestID = osx.HashUnixMicroCipherText()
+	}
+
+	switch crb.format {
+	case FormatStandard:
+		return &StandardResponse{
+			Code: code,
+			Msg:  message,
+			Data: nil,
+		}
+	case FormatAliCloud:
+		return &AliCloudResponse{
+			Code:      appErr.GetMessage(),
+			Message:   message,
+			RequestId: requestID,
+		}
+	case FormatTencent:
+		return &TencentResponse{
+			Response: TencentResponseBody{
+				Error: &TencentError{
+					Code:    appErr.GetMessage(),
+					Message: message,
+				},
+				RequestId: requestID,
+			},
+		}
+	case FormatBaidu:
+		return &BaiduResponse{
+			ErrorCode: code,
+			ErrorMsg:  message,
+			LogId:     requestID,
+		}
+	case FormatByteDance:
+		return &ByteDanceResponse{
+			Code:    code,
+			Message: message,
+			Data:    nil,
+			TraceId: traceID,
+		}
+	case FormatMicrosoft:
+		return &MicrosoftResponse{
+			Error: &MicrosoftError{
+				Code:    appErr.GetMessage(),
+				Message: message,
+			},
+		}
+	case FormatGoogle:
+		return &GoogleResponse{
+			Error: &GoogleError{
+				Code:    code,
+				Message: message,
+				Status:  appErr.GetMessage(),
+			},
+		}
+	default:
+		return &StandardResponse{
+			Code: code,
+			Msg:  message,
+			Data: nil,
+		}
+	}
+}
+
+// WriteSuccessWithContext 写入带 context 追踪信息的成功响应
+func WriteSuccessWithContext(ctx context.Context, w http.ResponseWriter, data interface{}, message ...string) {
+	builder := NewContextResponseBuilder(ctx, FormatStandard)
+	response := builder.BuildSuccessResponseWithTrace(data, message...)
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// WriteErrorWithContext 写入带 context 追踪信息的错误响应
+func WriteErrorWithContext(ctx context.Context, w http.ResponseWriter, appErr *errors.AppError) {
+	builder := NewContextResponseBuilder(ctx, FormatStandard)
+	response := builder.BuildErrorResponseWithTrace(appErr)
+	writeJSONResponse(w, appErr.GetHTTPStatus(), response)
+}
+
+// WriteErrorByCodeWithContext 根据错误码写入带 context 追踪信息的错误响应
+func WriteErrorByCodeWithContext(ctx context.Context, w http.ResponseWriter, code errors.ErrorCode, details ...string) {
+	detail := ""
+	if len(details) > 0 {
+		detail = details[0]
+	}
+	appErr := errors.NewError(code, detail)
+	WriteErrorWithContext(ctx, w, appErr)
+}
+
+// WriteStandardResponseWithContext 写入带 context 的标准响应（可指定格式）
+func WriteStandardResponseWithContext(ctx context.Context, w http.ResponseWriter, format ResponseFormat, httpStatus int, data interface{}, message ...string) {
+	builder := NewContextResponseBuilder(ctx, format)
+	response := builder.BuildSuccessResponseWithTrace(data, message...)
+	writeJSONResponse(w, httpStatus, response)
+}
+
+// WriteStandardErrorWithContext 写入带 context 的标准错误响应（可指定格式）
+func WriteStandardErrorWithContext(ctx context.Context, w http.ResponseWriter, format ResponseFormat, appErr *errors.AppError) {
+	builder := NewContextResponseBuilder(ctx, format)
+	response := builder.BuildErrorResponseWithTrace(appErr)
+	writeJSONResponse(w, appErr.GetHTTPStatus(), response)
 }

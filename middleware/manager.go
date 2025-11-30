@@ -154,13 +154,10 @@ func (m *Manager) RecoveryMiddleware() MiddlewareFunc {
 	return MiddlewareFunc(RecoveryMiddleware()) // 恢复中间件通常总是启用
 }
 
-// RequestIDMiddleware 请求 ID 中间件
-// TODO: 重构为使用 go-config 的 requestid.RequestID 配置
-func (m *Manager) RequestIDMiddleware() MiddlewareFunc {
-	// if m.cfg.Middleware.RequestID != nil && m.cfg.Middleware.RequestID.Enabled {
-	// 	return MiddlewareFunc(ConfigurableRequestIDMiddleware(m.cfg.Middleware.RequestID))
-	// }
-	return RequestID() // 回退到默认实现
+// ContextTraceMiddlewareFunc 统一的 Context 追踪中间件
+// 负责 trace_id、request_id 等的注入，使用 go-logger 的统一管理
+func (m *Manager) ContextTraceMiddlewareFunc() MiddlewareFunc {
+	return MiddlewareFunc(ContextTraceMiddleware())
 }
 
 // SecurityMiddleware 安全中间件
@@ -269,9 +266,9 @@ func (m *Manager) GetBreakerAdapter() *BreakerMiddlewareAdapter {
 // getBaseMiddlewares 获取基础中间件链（所有环境共用）
 func (m *Manager) getBaseMiddlewares() []MiddlewareFunc {
 	return []MiddlewareFunc{
-		m.RecoveryMiddleware(),  // Panic 恢复
-		m.RequestIDMiddleware(), // 请求 ID 追踪
-		m.I18nMiddleware(),      // 国际化
+		m.RecoveryMiddleware(),          // Panic 恢复
+		m.ContextTraceMiddlewareFunc(),  // Context 追踪（trace_id、request_id）
+		m.I18nMiddleware(),              // 国际化
 	}
 }
 
