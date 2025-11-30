@@ -15,13 +15,12 @@ package middleware
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"sync"
-	"time"
-
 	goconfigbreaker "github.com/kamalyes/go-config/pkg/breaker"
 	"github.com/kamalyes/go-rpc-gateway/breaker"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"net/http"
+	"sync"
+	"time"
 )
 
 // BreakerMiddlewareAdapter 熔断中间件适配器
@@ -124,8 +123,9 @@ func (a *BreakerMiddlewareAdapter) Middleware() func(http.Handler) http.Handler 
 				return
 			}
 
-			// 包装响应写入器以捕获状态码
-			wrappedWriter := newBreakerResponseWriter(w)
+			// 使用统一的 ResponseWriter 包装器
+			wrappedWriter := NewResponseWriter(w)
+			defer wrappedWriter.Release()
 
 			// 记录开始时间
 			startTime := time.Now()
@@ -137,7 +137,7 @@ func (a *BreakerMiddlewareAdapter) Middleware() func(http.Handler) http.Handler 
 			latency := time.Since(startTime)
 
 			// 根据响应状态码记录成功或失败
-			if wrappedWriter.statusCode >= 500 {
+			if wrappedWriter.IsServerError() {
 				b.RecordFailure()
 				a.incrementFailedRequests()
 			} else {
@@ -149,36 +149,6 @@ func (a *BreakerMiddlewareAdapter) Middleware() func(http.Handler) http.Handler 
 			a.updateAverageLatency(latency)
 		})
 	}
-}
-
-// breakerResponseWriter 响应写入器包装器 - 用于捕获状态码
-type breakerResponseWriter struct {
-	http.ResponseWriter
-	statusCode int
-	written    bool
-}
-
-// newBreakerResponseWriter 创建响应写入器包装器
-func newBreakerResponseWriter(w http.ResponseWriter) *breakerResponseWriter {
-	return &breakerResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-}
-
-// WriteHeader 重写 WriteHeader 方法
-func (rw *breakerResponseWriter) WriteHeader(statusCode int) {
-	if !rw.written {
-		rw.statusCode = statusCode
-		rw.written = true
-	}
-	rw.ResponseWriter.WriteHeader(statusCode)
-}
-
-// Write 重写 Write 方法
-func (rw *breakerResponseWriter) Write(b []byte) (int, error) {
-	if !rw.written {
-		rw.statusCode = http.StatusOK
-		rw.written = true
-	}
-	return rw.ResponseWriter.Write(b)
 }
 
 // Enable 启用熔断器

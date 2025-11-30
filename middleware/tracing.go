@@ -12,8 +12,6 @@ package middleware
 
 import (
 	"context"
-	"net/http"
-
 	"github.com/kamalyes/go-config/pkg/tracing"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"go.opentelemetry.io/otel"
@@ -25,6 +23,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
+	"net/http"
 )
 
 // TracingManager 链路追踪管理器
@@ -184,15 +183,16 @@ func TracingWithConfig(manager *TracingManager) MiddlewareFunc {
 			// 注入trace信息到响应头
 			otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(w.Header()))
 
-			// 包装 responseWriter
-			rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+			// 使用统一的 ResponseWriter 包装器
+			rw := NewResponseWriter(w)
+			defer rw.Release()
 
 			// 将上下文传递给下一个处理器
 			next.ServeHTTP(rw, r.WithContext(ctx))
 
 			// 设置响应状态相关属性
-			span.SetAttributes(attribute.Int(constants.TracingAttrHTTPStatusCode, rw.statusCode))
-			if rw.statusCode >= 400 {
+			span.SetAttributes(attribute.Int(constants.TracingAttrHTTPStatusCode, rw.StatusCode()))
+			if rw.IsError() {
 				span.RecordError(nil) // 记录错误状态
 			}
 		})
@@ -277,27 +277,4 @@ func LogError(ctx context.Context, err error, message string, fields ...attribut
 		span.AddEvent("error", oteltrace.WithAttributes(attrs...))
 		span.RecordError(err)
 	}
-}
-
-// a responseWriter wrapper to capture the status code
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-	written    bool
-}
-
-func (rw *responseWriter) WriteHeader(statusCode int) {
-	if !rw.written {
-		rw.statusCode = statusCode
-		rw.written = true
-	}
-	rw.ResponseWriter.WriteHeader(statusCode)
-}
-
-func (rw *responseWriter) Write(data []byte) (int, error) {
-	if !rw.written {
-		rw.statusCode = http.StatusOK
-		rw.written = true
-	}
-	return rw.ResponseWriter.Write(data)
 }

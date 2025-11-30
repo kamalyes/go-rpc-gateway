@@ -38,19 +38,17 @@ func LoggingMiddleware(config *logging.Logging) HTTPMiddleware {
 			start := time.Now()
 			ctx := r.Context()
 
-			// 包装 ResponseWriter 以获取状态码和响应大小
-			wrapped := &loggingResponseWriter{
-				ResponseWriter: w,
-				statusCode:     http.StatusOK,
-			}
+			// 使用统一的 ResponseWriter 包装器
+			wrapped := NewResponseWriter(w)
+			defer wrapped.Release() // 确保归还到对象池
 
 			next.ServeHTTP(wrapped, r)
 
 			// 记录请求日志（从 context 中提取 trace 信息）
 			duration := time.Since(start)
 
-			// 日志采样：仅记录部分成功请求，但总是记录错误
-			if shouldLogRequest(wrapped.statusCode, config) {
+			// 日志采样:仅记录部分成功请求,但总是记录错误
+			if shouldLogRequest(wrapped.StatusCode(), config) {
 				if config.Format == "json" {
 					logRequestJSON(ctx, r, wrapped, duration, config)
 				} else {
@@ -75,39 +73,21 @@ func shouldLogRequest(statusCode int, config *logging.Logging) bool {
 }
 
 // logRequestText 记录文本格式日志
-func logRequestText(ctx context.Context, r *http.Request, rw *loggingResponseWriter, duration time.Duration, config *logging.Logging) {
+func logRequestText(ctx context.Context, r *http.Request, rw *ResponseWriter, duration time.Duration, config *logging.Logging) {
 	// 使用 ContextKV 记录日志，trace 信息从 context 中自动提取
 	global.LOGGER.InfoContextKV(ctx, "HTTP Request",
 		"method", r.Method,
 		"path", r.URL.Path,
-		"status", rw.statusCode,
-		"bytes", rw.bytesWritten,
+		"status", rw.StatusCode(),
+		"bytes", rw.BytesWritten(),
 		"duration_ms", duration.Milliseconds(),
 		"remote_addr", getClientIP(r),
 		"user_agent", r.Header.Get(constants.HeaderUserAgent),
 	)
 }
 
-// loggingResponseWriter 包装器用于获取状态码和响应大小
-type loggingResponseWriter struct {
-	http.ResponseWriter
-	statusCode   int
-	bytesWritten int64
-}
-
-func (rw *loggingResponseWriter) WriteHeader(code int) {
-	rw.statusCode = code
-	rw.ResponseWriter.WriteHeader(code)
-}
-
-func (rw *loggingResponseWriter) Write(data []byte) (int, error) {
-	n, err := rw.ResponseWriter.Write(data)
-	rw.bytesWritten += int64(n)
-	return n, err
-}
-
 // logRequestJSON JSON 格式日志
-func logRequestJSON(ctx context.Context, r *http.Request, rw *loggingResponseWriter, duration time.Duration, config *logging.Logging) {
+func logRequestJSON(ctx context.Context, r *http.Request, rw *ResponseWriter, duration time.Duration, config *logging.Logging) {
 	query := ""
 	if config.EnableRequest && r.URL.RawQuery != "" {
 		query = r.URL.RawQuery
@@ -119,8 +99,8 @@ func logRequestJSON(ctx context.Context, r *http.Request, rw *loggingResponseWri
 		"method", r.Method,
 		"path", r.URL.Path,
 		"query", query,
-		"status_code", rw.statusCode,
-		"bytes_written", rw.bytesWritten,
+		"status_code", rw.StatusCode(),
+		"bytes_written", rw.BytesWritten(),
 		"duration_ms", duration.Milliseconds(),
 		"remote_addr", getClientIP(r),
 		"user_agent", r.UserAgent(),
