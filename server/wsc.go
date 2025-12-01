@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-16 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-24 15:23:18
+ * @LastEditTime: 2025-12-01 19:41:17
  * @FilePath: \go-rpc-gateway\server\wsc.go
  * @Description: WebSocket 集成层 - go-wsc 的薄封装
  * 职责：
@@ -20,14 +20,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	wscconfig "github.com/kamalyes/go-config/pkg/wsc"
-	"github.com/kamalyes/go-rpc-gateway/errors"
-	"github.com/kamalyes/go-rpc-gateway/global"
-	"github.com/kamalyes/go-wsc"
 	"net"
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	wscconfig "github.com/kamalyes/go-config/pkg/wsc"
+	"github.com/kamalyes/go-rpc-gateway/errors"
+	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-wsc"
 )
 
 // ============================================================================
@@ -266,16 +267,32 @@ func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *htt
 		Context:  context.WithValue(r.Context(), wsc.ContextKeySenderID, userID),
 	}
 
-	// 注册到 Hub（go-wsc 接管后续所有处理）
-	ws.hub.Register(client)
-	defer ws.hub.Unregister(client)
+	// 🔥 关键修复：先启动客户端写入 goroutine，再注册到 Hub
+	// 这样可以避免在注册和启动 write goroutine 之间收到消息时导致消息丢失
+	go func() {
+		defer ws.hub.Unregister(client)
+		defer func() {
+			if client.Conn != nil {
+				client.Conn.Close()
+			}
+		}()
 
-	// 执行连接回调
-	if err := ws.executeConnectCallbacks(ws.ctx, client); err != nil {
-		ws.executeErrorCallbacks(ws.ctx, err, "error")
-	}
+		// 注册到 Hub（go-wsc 接管后续所有处理）
+		ws.hub.Register(client)
 
-	// 处理消息循环
+		// 执行连接回调
+		if err := ws.executeConnectCallbacks(ws.ctx, client); err != nil {
+			ws.executeErrorCallbacks(ws.ctx, err, "error")
+			return
+		}
+
+		// 处理消息循环
+		ws.handleMessageLoop(client)
+	}()
+}
+
+// handleMessageLoop 处理客户端消息循环
+func (ws *WebSocketService) handleMessageLoop(client *wsc.Client) {
 	for {
 		select {
 		case <-ws.ctx.Done():
@@ -283,7 +300,6 @@ func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *htt
 			return
 		default:
 		}
-
 		// 读取消息
 		messageType, data, err := client.Conn.ReadMessage()
 		if err != nil {
@@ -366,6 +382,23 @@ func (ws *WebSocketService) handleTextMessage(client *wsc.Client, data []byte) {
 	if err := ws.executeMessageReceivedCallbacks(ws.ctx, client, &msg); err != nil {
 		ws.executeErrorCallbacks(ws.ctx, err, "warning")
 	}
+
+	// 🔥 关键修复：将消息转发到 Hub 的 broadcast 队列
+	if msg.Receiver != "" {
+		// 点对点消息
+		if err := ws.hub.SendToUser(ws.ctx, msg.Receiver, &msg); err != nil {
+			global.LOGGER.WarnKV("消息发送失败",
+				"message_id", msg.ID,
+				"sender", msg.Sender,
+				"receiver", msg.Receiver,
+				"error", err,
+			)
+			ws.executeErrorCallbacks(ws.ctx, err, "error")
+		}
+	} else {
+		// 广播消息（没有指定接收者）
+		ws.hub.Broadcast(ws.ctx, &msg)
+	}
 }
 
 // handleHeartbeatMessage 处理心跳消息
@@ -373,7 +406,7 @@ func (ws *WebSocketService) handleHeartbeatMessage(client *wsc.Client) {
 	// 更新心跳时间
 	ws.hub.UpdateHeartbeat(client.ID)
 
-	// 发送 pong 响应
+	// 🔥 发送 pong 响应
 	pongMsg := &wsc.HubMessage{
 		ID:          fmt.Sprintf("pong_%s_%d", client.UserID, time.Now().UnixNano()),
 		MessageType: wsc.MessageTypePong,
@@ -383,7 +416,21 @@ func (ws *WebSocketService) handleHeartbeatMessage(client *wsc.Client) {
 		Priority:    wsc.PriorityNormal,
 		Status:      wsc.MessageStatusSent,
 	}
-	_ = ws.hub.SendToUser(ws.ctx, client.UserID, pongMsg)
+
+	// 添加错误处理和日志
+	if err := ws.hub.SendToUser(ws.ctx, client.UserID, pongMsg); err != nil {
+		global.LOGGER.WarnKV("心跳 pong 响应发送失败",
+			"client_id", client.ID,
+			"user_id", client.UserID,
+			"error", err,
+		)
+	} else {
+		global.LOGGER.DebugKV("心跳 pong 响应发送成功",
+			"client_id", client.ID,
+			"user_id", client.UserID,
+			"pong_msg_id", pongMsg.ID,
+		)
+	}
 }
 
 // handleBinaryMessage 处理二进制消息
@@ -405,6 +452,19 @@ func (ws *WebSocketService) handleBinaryMessage(client *wsc.Client, data []byte)
 	// 执行消息接收回调
 	if err := ws.executeMessageReceivedCallbacks(ws.ctx, client, msg); err != nil {
 		ws.executeErrorCallbacks(ws.ctx, err, "warning")
+	}
+
+	// 🔥 关键修复：将二进制消息转发到 Hub
+	if msg.Receiver != "" {
+		if err := ws.hub.SendToUser(ws.ctx, msg.Receiver, msg); err != nil {
+			global.LOGGER.WarnKV("二进制消息发送失败",
+				"message_id", msg.ID,
+				"sender", msg.Sender,
+				"receiver", msg.Receiver,
+				"error", err,
+			)
+			ws.executeErrorCallbacks(ws.ctx, err, "error")
+		}
 	}
 }
 
@@ -491,10 +551,11 @@ func (ws *WebSocketService) OnError(cb ErrorCallback) {
 //   - callback: 心跳超时回调函数，接收 clientID, userID, lastHeartbeat 参数
 //
 // 示例:
-//   ws.OnHeartbeatTimeout(func(clientID, userID string, lastHeartbeat time.Time) {
-//       log.Printf("客户端 %s 心跳超时", clientID)
-//       更新数据库、清理缓存等
-//   })
+//
+//	ws.OnHeartbeatTimeout(func(clientID, userID string, lastHeartbeat time.Time) {
+//	    log.Printf("客户端 %s 心跳超时", clientID)
+//	    更新数据库、清理缓存等
+//	})
 func (ws *WebSocketService) OnHeartbeatTimeout(callback func(clientID, userID string, lastHeartbeat time.Time)) {
 	ws.hub.OnHeartbeatTimeout(callback)
 }
@@ -506,9 +567,10 @@ func (ws *WebSocketService) OnHeartbeatTimeout(callback func(clientID, userID st
 //   - handler: 安全事件处理函数，接收 SecurityEvent 参数
 //
 // 示例:
-//   ws.OnSecurityEvent(func(event wsc.SecurityEvent) {
-//       log.Printf("安全事件: %v", event)
-//   })
+//
+//	ws.OnSecurityEvent(func(event wsc.SecurityEvent) {
+//	    log.Printf("安全事件: %v", event)
+//	})
 func (ws *WebSocketService) OnSecurityEvent(handler func(wsc.SecurityEvent)) {
 	ws.hub.OnSecurityEvent(handler)
 }
@@ -520,7 +582,8 @@ func (ws *WebSocketService) OnSecurityEvent(handler func(wsc.SecurityEvent)) {
 //   - timeout: 心跳超时时间，建议90秒（interval的3倍）
 //
 // 示例:
-//   ws.SetHeartbeatConfig(30*time.Second, 90*time.Second)
+//
+//	ws.SetHeartbeatConfig(30*time.Second, 90*time.Second)
 func (ws *WebSocketService) SetHeartbeatConfig(interval, timeout time.Duration) {
 	ws.hub.SetHeartbeatConfig(interval, timeout)
 }
@@ -531,7 +594,8 @@ func (ws *WebSocketService) SetHeartbeatConfig(interval, timeout time.Duration) 
 //   - clientID: 客户端ID
 //
 // 示例:
-//   ws.UpdateHeartbeat(client.ID)
+//
+//	ws.UpdateHeartbeat(client.ID)
 func (ws *WebSocketService) UpdateHeartbeat(clientID string) {
 	ws.hub.UpdateHeartbeat(clientID)
 }

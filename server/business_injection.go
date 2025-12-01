@@ -54,6 +54,18 @@ type BusinessConfigAdapter interface {
 	// IsDebug 是否调试模式
 	IsDebug() bool
 
+	// IsDev 是否为开发环境
+	IsDev() bool
+
+	// IsProduction 是否为生产环境
+	IsProduction() bool
+
+	// IsTest 是否为测试环境
+	IsTest() bool
+
+	// IsProductionLevel 是否为生产级别环境
+	IsProductionLevel() bool
+
 	// 其他配置获取方法...
 }
 

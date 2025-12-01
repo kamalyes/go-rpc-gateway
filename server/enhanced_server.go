@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-13 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-15 01:32:47
+ * @LastEditTime: 2025-12-01 19:41:07
  * @FilePath: \go-rpc-gateway\server\enhanced_server.go
  * @Description: 增强的服务器实现，集成业务服务注入能力
  *
@@ -14,6 +14,12 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
+	"net/http/pprof"
+	"runtime/debug"
+	"time"
+
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	grpc_logging "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
@@ -38,11 +44,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
-	"net"
-	"net/http"
-	"net/http/pprof"
-	"runtime/debug"
-	"time"
 )
 
 const TraceID = "trace_id"
@@ -660,6 +661,5 @@ func (es *EnhancedServer) GetBusinessInjectionManager() *BusinessInjectionManage
 
 // isProductionMode 检查是否为生产模式
 func (es *EnhancedServer) isProductionMode() bool {
-	config := global.GetConfig()
-	return config.Environment == "production" || config.Environment == "prod"
+	return goconfig.IsProduction()
 }

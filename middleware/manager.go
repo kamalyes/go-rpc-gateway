@@ -11,6 +11,9 @@
 package middleware
 
 import (
+	"net/http"
+
+	goconfig "github.com/kamalyes/go-config"
 	breakercof "github.com/kamalyes/go-config/pkg/breaker"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-config/pkg/middleware"
@@ -18,7 +21,6 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
-	"net/http"
 )
 
 // Manager 中间件管理器 - 使用 go-config 的 middleware 配置
@@ -266,9 +268,9 @@ func (m *Manager) GetBreakerAdapter() *BreakerMiddlewareAdapter {
 // getBaseMiddlewares 获取基础中间件链（所有环境共用）
 func (m *Manager) getBaseMiddlewares() []MiddlewareFunc {
 	return []MiddlewareFunc{
-		m.RecoveryMiddleware(),          // Panic 恢复
-		m.ContextTraceMiddlewareFunc(),  // Context 追踪（trace_id、request_id）
-		m.I18nMiddleware(),              // 国际化
+		m.RecoveryMiddleware(),         // Panic 恢复
+		m.ContextTraceMiddlewareFunc(), // Context 追踪（trace_id、request_id）
+		m.I18nMiddleware(),             // 国际化
 	}
 }
 
@@ -379,8 +381,7 @@ func (m *Manager) StreamServerInterceptor() grpc.StreamServerInterceptor {
 
 // isProductionMode 检查是否为生产模式
 func (m *Manager) isProductionMode() bool {
-	// 这里可以根据环境变量或配置判断
-	return false // 默认开发模式
+	return goconfig.IsProduction()
 }
 
 // ApplyMiddlewares 应用中间件链到处理器

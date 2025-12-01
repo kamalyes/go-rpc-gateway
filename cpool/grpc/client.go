@@ -12,6 +12,8 @@
 package grpc
 
 import (
+	"context"
+	"net"
 	"time"
 
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
@@ -41,8 +43,23 @@ func InitClient[T any](
 
 	endpoint := clientCfg.Endpoints[0]
 
+	// 准备拨号选项
+	dialOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+
+	// 如果配置了 Network，添加到拨号选项
+	if clientCfg.Network != "" {
+		dialOpts = append(dialOpts, grpc.WithContextDialer(
+			func(ctx context.Context, addr string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, clientCfg.Network, addr)
+			},
+		))
+		gwglobal.LOGGER.Debug("🌐 %s 使用网络类型: %s", serviceName, clientCfg.Network)
+	}
+
 	// 创建连接（不等待就绪）
-	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(endpoint, dialOpts...)
 	if err != nil {
 		gwglobal.LOGGER.Warn("⚠️  %s 创建连接失败: %v", serviceName, err)
 		return zero, false
