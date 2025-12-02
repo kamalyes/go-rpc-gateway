@@ -483,8 +483,17 @@ func (ws *WebSocketService) forwardMessage(msg *wsc.HubMessage) {
 
 // handleHeartbeatMessage 处理心跳消息
 func (ws *WebSocketService) handleHeartbeatMessage(client *wsc.Client) {
-	// 更新心跳时间
+	// 更新心跳时间（内存）
 	ws.hub.UpdateHeartbeat(client.ID)
+
+	// 🔥 同步更新 Redis 中的在线状态和心跳时间
+	if err := ws.hub.UpdateUserHeartbeat(client.UserID); err != nil {
+		global.LOGGER.WarnKV("更新 Redis 心跳失败",
+			"client_id", client.ID,
+			"user_id", client.UserID,
+			"error", err,
+		)
+	}
 
 	// 🔥 发送 pong 响应
 	pongMsg := &wsc.HubMessage{
