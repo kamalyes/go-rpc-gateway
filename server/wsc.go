@@ -560,21 +560,6 @@ func (ws *WebSocketService) OnHeartbeatTimeout(callback func(clientID, userID st
 	ws.hub.OnHeartbeatTimeout(callback)
 }
 
-// OnSecurityEvent 注册安全事件处理器
-// 当发生安全相关事件时会调用此回调
-//
-// 参数:
-//   - handler: 安全事件处理函数，接收 SecurityEvent 参数
-//
-// 示例:
-//
-//	ws.OnSecurityEvent(func(event wsc.SecurityEvent) {
-//	    log.Printf("安全事件: %v", event)
-//	})
-func (ws *WebSocketService) OnSecurityEvent(handler func(wsc.SecurityEvent)) {
-	ws.hub.OnSecurityEvent(handler)
-}
-
 // SetHeartbeatConfig 设置心跳配置
 //
 // 参数:

@@ -13,7 +13,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-config v0.12.5
+	github.com/kamalyes/go-config v0.12.6
 	github.com/kamalyes/go-logger v0.4.4
 	github.com/kamalyes/go-toolbox v0.11.83-0.20251130111901-00a2b2cb0f68
 	github.com/kamalyes/go-wsc v0.5.0
