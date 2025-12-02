@@ -16,7 +16,7 @@ require (
 	github.com/kamalyes/go-config v0.12.6
 	github.com/kamalyes/go-logger v0.4.4
 	github.com/kamalyes/go-toolbox v0.11.83-0.20251130111901-00a2b2cb0f68
-	github.com/kamalyes/go-wsc v0.5.1
+	github.com/kamalyes/go-wsc v0.5.2
 	github.com/mssola/user_agent v0.6.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.2
