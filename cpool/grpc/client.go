@@ -13,13 +13,14 @@ package grpc
 
 import (
 	"context"
-	"net"
-	"time"
-
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	gwglobal "github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
+	"net"
+	"time"
 )
 
 // InitClient 初始化 gRPC 客户端的泛型辅助函数
@@ -46,7 +47,28 @@ func InitClient[T any](
 	// 准备拨号选项
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// 默认调用超时时间
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(16*1024*1024), // 16MB 最大接收消息
+			grpc.MaxCallSendMsgSize(16*1024*1024), // 16MB 最大发送消息
+		),
+		// Keepalive 配置（保持连接活跃）
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                10 * time.Second, // 每 10 秒发送一次 keepalive ping
+			Timeout:             3 * time.Second,  // 等待 keepalive ping 响应的超时时间
+			PermitWithoutStream: true,             // 允许在没有活动流时发送 keepalive ping
+		}),
 	}
+
+	// 添加 Context 传播拦截器（确保 trace_id 在服务调用链中传递）
+	dialOpts = append(dialOpts,
+		grpc.WithChainUnaryInterceptor(
+			middleware.UnaryClientContextInterceptor(), // Context 传播
+		),
+		grpc.WithChainStreamInterceptor(
+			middleware.StreamClientContextInterceptor(), // Stream Context 传播
+		),
+	)
 
 	// 如果配置了 Network，添加到拨号选项
 	if clientCfg.Network != "" {
@@ -86,4 +108,4 @@ func BuildEndpointMap(clients map[string]*gwconfig.GRPCClient) map[string]string
 }
 
 // DefaultHealthCheckInterval 默认健康检查间隔
-const DefaultHealthCheckInterval = 30 * time.Second
+const DefaultHealthCheckInterval = 3 * time.Second

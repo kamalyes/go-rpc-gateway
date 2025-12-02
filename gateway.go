@@ -843,12 +843,13 @@ func (g *Gateway) InitDatabaseModels(models ...interface{}) error {
 		return nil
 	}
 
-	// 执行自动迁移
-	if err := db.AutoMigrate(models...); err != nil {
+	// 使用带 trace_id 的 context 执行自动迁移
+	ctx := g.Context()
+	if err := db.WithContext(ctx).AutoMigrate(models...); err != nil {
 		return errors.NewError(errors.ErrCodeOperationFailed, errors.FormatError("数据库模型迁移失败: %v", err))
 	}
 
-	global.LOGGER.InfoContext(g.Context(), "数据库模型迁移完成: models_count=%d", len(models))
+	global.LOGGER.InfoContext(ctx, "数据库模型迁移完成: models_count=%d", len(models))
 	return nil
 }
 

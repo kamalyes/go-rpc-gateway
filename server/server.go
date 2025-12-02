@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-17 21:28:30
- * @FilePath: \engine-im-agent-service\go-rpc-gateway\server\server.go
+ * @LastEditTime: 2025-12-02 09:29:55
+ * @FilePath: \go-rpc-gateway\server\server.go
  * @Description: Gateway服务器核心结构定义
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
@@ -13,6 +13,9 @@ package server
 
 import (
 	"context"
+	"net/http"
+	"sync"
+
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
@@ -21,8 +24,6 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"google.golang.org/grpc"
-	"net/http"
-	"sync"
 )
 
 // Server Gateway服务器

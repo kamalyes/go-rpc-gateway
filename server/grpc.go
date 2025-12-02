@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
@@ -61,17 +62,32 @@ func (s *Server) initGRPCServer() error {
 			"connection_timeout", connectionTimeout)
 	}
 
-	// 添加中间件拦截器
+	// 添加中间件拦截器链（按执行顺序）
 	if s.middlewareManager != nil {
-		// 添加gRPC监控拦截器
-		if metricsInterceptor := s.middlewareManager.GRPCMetricsInterceptor(); metricsInterceptor != nil {
-			opts = append(opts, grpc.UnaryInterceptor(metricsInterceptor))
+		// 构建 Unary 拦截器链
+		unaryInterceptors := []grpc.UnaryServerInterceptor{
+			middleware.UnaryServerContextInterceptor(), // 1. Context 注入（最先执行，注入 trace_id/request_id）
+			middleware.UnaryServerLoggingInterceptor(), // 2. 日志记录
 		}
 
-		// 添加gRPC链路追踪拦截器
-		if tracingInterceptor := s.middlewareManager.GRPCTracingInterceptor(); tracingInterceptor != nil {
-			opts = append(opts, grpc.ChainUnaryInterceptor(tracingInterceptor))
+		// 添加监控拦截器（如果启用）
+		if metricsInterceptor := s.middlewareManager.GRPCMetricsInterceptor(); metricsInterceptor != nil {
+			unaryInterceptors = append(unaryInterceptors, metricsInterceptor)
 		}
+
+		// 添加链路追踪拦截器（如果启用）
+		if tracingInterceptor := s.middlewareManager.GRPCTracingInterceptor(); tracingInterceptor != nil {
+			unaryInterceptors = append(unaryInterceptors, tracingInterceptor)
+		}
+
+		opts = append(opts, grpc.ChainUnaryInterceptor(unaryInterceptors...))
+
+		// 构建 Stream 拦截器链
+		streamInterceptors := []grpc.StreamServerInterceptor{
+			middleware.StreamServerContextInterceptor(), // 1. Context 注入
+			middleware.StreamServerLoggingInterceptor(), // 2. 日志记录
+		}
+		opts = append(opts, grpc.ChainStreamInterceptor(streamInterceptors...))
 	}
 
 	s.grpcServer = grpc.NewServer(opts...)

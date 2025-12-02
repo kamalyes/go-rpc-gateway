@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/go-sql-driver/mysql"
 	"github.com/kamalyes/go-config/pkg/database"
@@ -13,17 +14,22 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
-	"log"
 	"os"
 	"strings"
 	"time"
 )
+
+// contextLogger 存储在context中的logger实例
+var contextLogger gologger.ILogger
 
 // Gorm 初始化数据库并产生数据库全局变量
 func Gorm(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil {
 		return nil
 	}
+
+	// 保存logger到包级变量供GormLogger使用
+	contextLogger = log
 
 	// 根据配置的数据库类型选择对应的初始化方法
 	if cfg.Database != nil && cfg.Database.Type != "" {
@@ -200,15 +206,90 @@ func gormConfig(logLevel string) *gorm.Config {
 			SingularTable: true,
 		},
 	}
-	// Debug模式：显示所有SQL语句，包括参数值和执行时间
-	config.Logger = gormlogger.New(
-		log.New(os.Stdout, "\r\n", log.LstdFlags),
+	// 使用自定义的JSON格式Logger,支持trace_id自动注入
+	config.Logger = NewGormLogger(
 		gormlogger.Config{
 			SlowThreshold:             100 * time.Millisecond, // 慢查询阈值
 			LogLevel:                  gormlogger.Info,        // 记录所有SQL
 			IgnoreRecordNotFoundError: false,                  // 不忽略记录未找到错误
-			Colorful:                  true,                   // 彩色输出
+			Colorful:                  false,                  // 使用JSON格式,不需要彩色
 		},
 	)
 	return config
+}
+
+// GormLogger 自定义GORM日志记录器,支持JSON格式和trace_id自动注入
+type GormLogger struct {
+	Config gormlogger.Config
+}
+
+// NewGormLogger 创建新的GORM日志记录器
+func NewGormLogger(config gormlogger.Config) gormlogger.Interface {
+	return &GormLogger{
+		Config: config,
+	}
+}
+
+// LogMode 实现gormlogger.Interface接口
+func (l *GormLogger) LogMode(level gormlogger.LogLevel) gormlogger.Interface {
+	newLogger := *l
+	newLogger.Config.LogLevel = level
+	return &newLogger
+}
+
+// Info 实现gormlogger.Interface接口
+func (l *GormLogger) Info(ctx context.Context, msg string, data ...interface{}) {
+	if l.Config.LogLevel >= gormlogger.Info && contextLogger != nil {
+		contextLogger.InfoContextKV(ctx, msg, "data", fmt.Sprintf("%v", data))
+	}
+}
+
+// Warn 实现gormlogger.Interface接口
+func (l *GormLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
+	if l.Config.LogLevel >= gormlogger.Warn && contextLogger != nil {
+		contextLogger.WarnContextKV(ctx, msg, "data", fmt.Sprintf("%v", data))
+	}
+}
+
+// Error 实现gormlogger.Interface接口
+func (l *GormLogger) Error(ctx context.Context, msg string, data ...interface{}) {
+	if l.Config.LogLevel >= gormlogger.Error && contextLogger != nil {
+		contextLogger.ErrorContextKV(ctx, msg, "data", fmt.Sprintf("%v", data))
+	}
+}
+
+// Trace 实现gormlogger.Interface接口 - 记录SQL执行
+func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	if l.Config.LogLevel <= gormlogger.Silent || contextLogger == nil {
+		return
+	}
+
+	elapsed := time.Since(begin)
+	sql, rows := fc()
+
+	switch {
+	case err != nil && l.Config.LogLevel >= gormlogger.Error && (!errors.Is(err, gormlogger.ErrRecordNotFound) || !l.Config.IgnoreRecordNotFoundError):
+		// SQL错误 - 显示完整信息
+		contextLogger.ErrorContextKV(ctx, "❌ SQL Error",
+			"ms", fmt.Sprintf("%.2f", float64(elapsed.Nanoseconds())/1e6),
+			"rows", rows,
+			"error", err.Error(),
+			"sql", sql,
+		)
+	case elapsed > l.Config.SlowThreshold && l.Config.SlowThreshold != 0 && l.Config.LogLevel >= gormlogger.Warn:
+		// 慢查询 - 显示详细信息
+		contextLogger.WarnContextKV(ctx, "🐌 SLOW SQL",
+			"ms", fmt.Sprintf("%.2f", float64(elapsed.Nanoseconds())/1e6),
+			"threshold", fmt.Sprintf("%.0f", float64(l.Config.SlowThreshold.Nanoseconds())/1e6),
+			"rows", rows,
+			"sql", sql,
+		)
+	case l.Config.LogLevel >= gormlogger.Info:
+		// 正常SQL
+		contextLogger.InfoContextKV(ctx, "SQL",
+			"ms", fmt.Sprintf("%.2f", float64(elapsed.Nanoseconds())/1e6),
+			"rows", rows,
+			"sql", sql,
+		)
+	}
 }

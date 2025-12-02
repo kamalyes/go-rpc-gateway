@@ -11,11 +11,11 @@ CREATE USER IF NOT EXISTS 'idev'@'%' IDENTIFIED BY 'iDev@2025#Secure!';
 -- CREATE USER IF NOT EXISTS 'idev'@'%' IDENTIFIED WITH mysql_native_password BY 'iDev@2025#Secure!';
 
 -- 2. 授予数据库权限
--- 授予 engine_im_agent 数据库的所有权限
-GRANT ALL PRIVILEGES ON engine_im_agent.* TO 'idev'@'%';
+-- 授予 engine_xx 数据库的所有权限
+GRANT ALL PRIVILEGES ON engine_xx.* TO 'idev'@'%';
 
 -- 或者只授予常用权限 (SELECT, INSERT, UPDATE, DELETE)
--- GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON engine_im_agent.* TO 'idev'@'%';
+-- GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON engine_xx.* TO 'idev'@'%';
 
 -- 3. 刷新权限
 FLUSH PRIVILEGES;
@@ -34,7 +34,7 @@ SHOW GRANTS FOR 'idev'@'%';
 -- 或复制粘贴以上 SQL 语句执行
 --
 -- 3. 测试新用户连接:
---    mysql -u idev -p'iDev@2025#Secure!' -h 120.77.38.35 -P 13306 engine_im_agent
+--    mysql -u idev -p'iDev@2025#Secure!' -h 120.77.38.35 -P 13306 engine_xx
 --
 -- ====================================
 -- 密码说明:
@@ -61,5 +61,5 @@ SHOW GRANTS FOR 'idev'@'%';
 --     port: "13306"
 --     username: idev
 --     password: "iDev@2025#Secure!"
---     db-name: engine_im_agent
+--     db-name: engine_xx
 -- ====================================
