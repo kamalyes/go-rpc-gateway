@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-16 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-01 19:41:17
+ * @LastEditTime: 2025-12-02 10:15:51
  * @FilePath: \go-rpc-gateway\server\wsc.go
  * @Description: WebSocket 集成层 - go-wsc 的薄封装
  * 职责：
@@ -22,9 +22,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"sync/atomic"
 	"time"
 
+	"github.com/gorilla/websocket"
 	wscconfig "github.com/kamalyes/go-config/pkg/wsc"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -82,7 +84,53 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 		return nil, errors.NewError(errors.ErrCodeInternalServerError, "failed to create WebSocket Hub")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// 🔥 关键修复:初始化 Hub 的所有内部仓库(避免空指针)
+	redisClient := global.GetRedis()
+	if redisClient == nil {
+		global.LOGGER.WarnMsg("⚠️  Redis 客户端未初始化,Hub 在线状态/统计/队列功能将受限")
+		global.LOGGER.WarnMsg("⚠️  警告: 这将导致客户端连接时可能出现空指针错误!")
+		os.Exit(1)
+	}
+
+	// 验证 Redis 连接
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		global.LOGGER.ErrorKV("❌ Redis 连接测试失败,WebSocket 功能将受限",
+			"error", err)
+		os.Exit(1)
+	}
+
+	// 在线状态仓库 (key前缀: wsc:online:, TTL: 心跳间隔的3倍)
+	ttl := time.Duration(cfg.HeartbeatInterval) * 3 * time.Second
+	onlineStatusRepo := wsc.NewRedisOnlineStatusRepository(redisClient, "wsc:online:", ttl)
+	hub.SetOnlineStatusRepository(onlineStatusRepo)
+
+	// 统计仓库 (key前缀: wsc:stats:, TTL: 24小时)
+	statsRepo := wsc.NewRedisHubStatsRepository(redisClient, "wsc:stats:", 24*time.Hour)
+	hub.SetHubStatsRepository(statsRepo)
+
+	global.LOGGER.InfoKV("✅ WebSocket Hub Redis 仓库已初始化",
+		"redis_connected", true,
+		"online_status_ttl_seconds", ttl.Seconds(),
+		"stats_ttl_hours", 24)
+
+	// 2. 获取 MySQL/GORM 数据库并初始化 MySQL 仓库
+	db := global.GetDB()
+	if db == nil {
+		global.LOGGER.WarnMsg("⚠️  MySQL 数据库未初始化,Hub 消息记录功能将受限")
+		os.Exit(1)
+	}
+
+	// 消息记录仓库 (MySQL GORM)
+	messageRecordRepo := wsc.NewMessageRecordRepository(db)
+	hub.SetMessageRecordRepository(messageRecordRepo)
+
+	global.LOGGER.InfoKV("✅ WebSocket Hub MySQL 仓库已初始化",
+		"database_connected", true)
+
+	ctx, cancel = context.WithCancel(context.Background())
 
 	service := &WebSocketService{
 		hub:    hub,
@@ -199,16 +247,12 @@ func (ws *WebSocketService) IsRunning() bool {
 // HTTP WebSocket 升级处理
 // ============================================================================
 
-// handleWebSocketUpgrade 处理 WebSocket 升级请求
-// 此函数只负责：升级连接 -> 创建客户端 -> 注册到 Hub
-// 所有消息处理都由 go-wsc Hub 完成
-func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *http.Request) {
-	// 基于 go-wsc 的默认升级器，配置缓冲区大小
+// configureUpgrader 配置 WebSocket 升级器
+func (ws *WebSocketService) configureUpgrader() *websocket.Upgrader {
 	upgrader := wsc.DefaultUpgrader
 	upgrader.ReadBufferSize = 1024
 	upgrader.WriteBufferSize = 1024
 
-	// 从配置中获取缓冲区大小（如果有）
 	if ws.config != nil {
 		if ws.config.MessageBufferSize > 0 {
 			upgrader.ReadBufferSize = int(ws.config.MessageBufferSize)
@@ -217,46 +261,32 @@ func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *htt
 
 		// 自定义 Origin 检查
 		if len(ws.config.WebSocketOrigins) > 0 {
-			upgrader.CheckOrigin = func(r *http.Request) bool {
-				origin := r.Header.Get("Origin")
-				for _, allowedOrigin := range ws.config.WebSocketOrigins {
-					if allowedOrigin == "*" || allowedOrigin == origin {
-						return true
-					}
-				}
-				return false
-			}
+			upgrader.CheckOrigin = ws.createOriginChecker()
 		}
 	}
 
-	// 升级连接
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		global.LOGGER.WithError(err).WarnMsg("WebSocket 升级失败")
-		return
-	}
+	return &upgrader
+}
 
-	// 🔧 从请求中提取客户端属性
+// createOriginChecker 创建 Origin 检查器
+func (ws *WebSocketService) createOriginChecker() func(*http.Request) bool {
+	return func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		for _, allowedOrigin := range ws.config.WebSocketOrigins {
+			if allowedOrigin == "*" || allowedOrigin == origin {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// createClient 创建 WebSocket 客户端
+func (ws *WebSocketService) createClient(r *http.Request, conn *websocket.Conn) *wsc.Client {
 	clientID, userID, userType := ws.extractClientAttributes(r)
+	clientUserType := ws.convertUserType(userType)
 
-	// 转换为 wsc.UserType
-	var clientUserType wsc.UserType
-	switch userType {
-	case "customer":
-		clientUserType = wsc.UserTypeCustomer
-	case "agent":
-		clientUserType = wsc.UserTypeAgent
-	case "admin":
-		clientUserType = wsc.UserTypeAdmin
-	case "bot":
-		clientUserType = wsc.UserTypeBot
-	case "vip":
-		clientUserType = wsc.UserTypeVIP
-	default:
-		clientUserType = wsc.UserTypeCustomer // 默认为客户
-	}
-
-	client := &wsc.Client{
+	return &wsc.Client{
 		ID:       clientID,
 		UserID:   userID,
 		UserType: clientUserType,
@@ -266,6 +296,40 @@ func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *htt
 		SendChan: make(chan []byte, ws.config.MessageBufferSize),
 		Context:  context.WithValue(r.Context(), wsc.ContextKeySenderID, userID),
 	}
+}
+
+// convertUserType 转换用户类型字符串为 wsc.UserType
+func (ws *WebSocketService) convertUserType(userType string) wsc.UserType {
+	switch userType {
+	case "customer":
+		return wsc.UserTypeCustomer
+	case "agent":
+		return wsc.UserTypeAgent
+	case "admin":
+		return wsc.UserTypeAdmin
+	case "bot":
+		return wsc.UserTypeBot
+	case "vip":
+		return wsc.UserTypeVIP
+	default:
+		return wsc.UserTypeCustomer
+	}
+}
+
+// handleWebSocketUpgrade 处理 WebSocket 升级请求
+// 此函数只负责：升级连接 -> 创建客户端 -> 注册到 Hub
+// 所有消息处理都由 go-wsc Hub 完成
+func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *http.Request) {
+	// 配置并升级 WebSocket 连接
+	upgrader := ws.configureUpgrader()
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		global.LOGGER.WithError(err).WarnMsg("WebSocket 升级失败")
+		return
+	}
+
+	// 创建客户端
+	client := ws.createClient(r, conn)
 
 	// 🔥 关键修复：先启动客户端写入 goroutine，再注册到 Hub
 	// 这样可以避免在注册和启动 write goroutine 之间收到消息时导致消息丢失
@@ -333,44 +397,8 @@ func (ws *WebSocketService) handleMessageLoop(client *wsc.Client) {
 
 // handleTextMessage 处理文本消息
 func (ws *WebSocketService) handleTextMessage(client *wsc.Client, data []byte) {
-	// 尝试解析为 JSON 格式的 HubMessage
-	var msg wsc.HubMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
-		// 不是 JSON 格式，当作纯文本处理
-		msg = wsc.HubMessage{
-			ID:          fmt.Sprintf("text_%s_%d", client.UserID, time.Now().UnixNano()),
-			Sender:      client.UserID,
-			SenderType:  client.UserType,
-			Content:     string(data),
-			MessageType: wsc.MessageTypeText,
-			CreateAt:    time.Now(),
-			Priority:    wsc.PriorityNormal,
-			Status:      wsc.MessageStatusSent,
-		}
-	} else {
-		// 是 JSON 格式，补充必要字段
-		if msg.Sender == "" {
-			msg.Sender = client.UserID
-		}
-		if msg.SenderType == "" {
-			msg.SenderType = client.UserType
-		}
-		if msg.CreateAt.IsZero() {
-			msg.CreateAt = time.Now()
-		}
-		if msg.MessageType == "" {
-			msg.MessageType = wsc.MessageTypeText
-		}
-		if msg.ID == "" {
-			msg.ID = fmt.Sprintf("json_%s_%d", client.UserID, time.Now().UnixNano())
-		}
-		if msg.Priority == "" {
-			msg.Priority = wsc.PriorityNormal
-		}
-		if msg.Status == "" {
-			msg.Status = wsc.MessageStatusSent
-		}
-	}
+	// 解析并规范化消息
+	msg := ws.parseAndNormalizeMessage(client, data)
 
 	// 处理心跳消息
 	if msg.MessageType == wsc.MessageTypeHeartbeat {
@@ -383,10 +411,62 @@ func (ws *WebSocketService) handleTextMessage(client *wsc.Client, data []byte) {
 		ws.executeErrorCallbacks(ws.ctx, err, "warning")
 	}
 
-	// 🔥 关键修复：将消息转发到 Hub 的 broadcast 队列
+	// 转发消息
+	ws.forwardMessage(&msg)
+}
+
+// parseAndNormalizeMessage 解析并规范化消息
+func (ws *WebSocketService) parseAndNormalizeMessage(client *wsc.Client, data []byte) wsc.HubMessage {
+	var msg wsc.HubMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		// 不是 JSON 格式，当作纯文本处理
+		return wsc.HubMessage{
+			ID:          fmt.Sprintf("text_%s_%d", client.UserID, time.Now().UnixNano()),
+			Sender:      client.UserID,
+			SenderType:  client.UserType,
+			Content:     string(data),
+			MessageType: wsc.MessageTypeText,
+			CreateAt:    time.Now(),
+			Priority:    wsc.PriorityNormal,
+			Status:      wsc.MessageStatusSent,
+		}
+	}
+
+	// 补充必要字段
+	ws.normalizeMessageFields(client, &msg)
+	return msg
+}
+
+// normalizeMessageFields 规范化消息字段
+func (ws *WebSocketService) normalizeMessageFields(client *wsc.Client, msg *wsc.HubMessage) {
+	if msg.Sender == "" {
+		msg.Sender = client.UserID
+	}
+	if msg.SenderType == "" {
+		msg.SenderType = client.UserType
+	}
+	if msg.CreateAt.IsZero() {
+		msg.CreateAt = time.Now()
+	}
+	if msg.MessageType == "" {
+		msg.MessageType = wsc.MessageTypeText
+	}
+	if msg.ID == "" {
+		msg.ID = fmt.Sprintf("json_%s_%d", client.UserID, time.Now().UnixNano())
+	}
+	if msg.Priority == "" {
+		msg.Priority = wsc.PriorityNormal
+	}
+	if msg.Status == "" {
+		msg.Status = wsc.MessageStatusSent
+	}
+}
+
+// forwardMessage 转发消息到 Hub
+func (ws *WebSocketService) forwardMessage(msg *wsc.HubMessage) {
 	if msg.Receiver != "" {
 		// 点对点消息
-		if err := ws.hub.SendToUser(ws.ctx, msg.Receiver, &msg); err != nil {
+		if err := ws.hub.SendToUser(ws.ctx, msg.Receiver, msg); err != nil {
 			global.LOGGER.WarnKV("消息发送失败",
 				"message_id", msg.ID,
 				"sender", msg.Sender,
@@ -397,7 +477,7 @@ func (ws *WebSocketService) handleTextMessage(client *wsc.Client, data []byte) {
 		}
 	} else {
 		// 广播消息（没有指定接收者）
-		ws.hub.Broadcast(ws.ctx, &msg)
+		ws.hub.Broadcast(ws.ctx, msg)
 	}
 }
 

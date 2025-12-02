@@ -16,7 +16,7 @@ require (
 	github.com/kamalyes/go-config v0.12.6
 	github.com/kamalyes/go-logger v0.4.4
 	github.com/kamalyes/go-toolbox v0.11.83-0.20251130111901-00a2b2cb0f68
-	github.com/kamalyes/go-wsc v0.5.0
+	github.com/kamalyes/go-wsc v0.5.1
 	github.com/mssola/user_agent v0.6.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.2
@@ -89,7 +89,7 @@ require (
 	github.com/go-playground/validator/v10 v10.28.0
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/gorilla/websocket v1.5.3
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12
