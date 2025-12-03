@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-16 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-02 10:15:51
+ * @LastEditTime: 2025-12-03 15:19:59
  * @FilePath: \go-rpc-gateway\server\wsc.go
  * @Description: WebSocket 集成层 - go-wsc 的薄封装
  * 职责：
@@ -31,6 +31,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-wsc"
+	"github.com/redis/go-redis/v9"
 )
 
 // ============================================================================
@@ -488,11 +489,22 @@ func (ws *WebSocketService) handleHeartbeatMessage(client *wsc.Client) {
 
 	// 🔥 同步更新 Redis 中的在线状态和心跳时间
 	if err := ws.hub.UpdateUserHeartbeat(client.UserID); err != nil {
-		global.LOGGER.WarnKV("更新 Redis 心跳失败",
-			"client_id", client.ID,
-			"user_id", client.UserID,
-			"error", err,
-		)
+		// 过滤 redis: nil 错误，这是正常的键不存在情况
+		if err == redis.Nil {
+			// 键不存在是正常的，特别是首次心跳时，不需要记录错误日志
+			global.LOGGER.DebugKV("Redis 心跳键不存在，可能是首次心跳",
+				"client_id", client.ID,
+				"user_id", client.UserID,
+			)
+		} else {
+			// 只有真正的错误才记录警告日志
+			global.LOGGER.WarnKV("更新 Redis 心跳失败",
+				"client_id", client.ID,
+				"user_id", client.UserID,
+				"error", err,
+				"error_type", fmt.Sprintf("%T", err),
+			)
+		}
 	}
 
 	// 🔥 发送 pong 响应
