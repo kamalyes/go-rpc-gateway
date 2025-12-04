@@ -191,6 +191,14 @@ func (m *Manager) AccessRecordMiddleware() MiddlewareFunc {
 func (m *Manager) LoggingMiddleware() MiddlewareFunc {
 	// 使用配置的日志中间件
 	if m.cfg.Middleware != nil && m.cfg.Middleware.Logging != nil {
+		// 强制从全局配置中重新读取（防止配置未更新）
+		if global.GATEWAY != nil && global.GATEWAY.Middleware != nil && global.GATEWAY.Middleware.Logging != nil {
+			m.cfg.Middleware.Logging = global.GATEWAY.Middleware.Logging
+		}
+
+		// 打印日志配置以便调试
+		global.LOGGER.Info("Logging Config: %+v", m.cfg.Middleware.Logging)
+
 		return MiddlewareFunc(LoggingMiddleware(m.cfg.Middleware.Logging))
 	}
 	// 回退到默认实现
@@ -294,9 +302,6 @@ func (m *Manager) GetDefaultMiddlewares() []MiddlewareFunc {
 	// 基础中间件
 	middlewares := m.getBaseMiddlewares()
 
-	// 业务中间件
-	middlewares = append(middlewares, m.LoggingMiddleware())
-
 	// 添加限流中间件（如果启用）
 	if m.rateLimiter != nil {
 		middlewares = append(middlewares, m.RateLimitMiddleware())
@@ -323,6 +328,7 @@ func (m *Manager) GetProductionMiddlewares() []MiddlewareFunc {
 
 	// 生产环境核心中间件
 	middlewares = append(middlewares,
+		m.LoggingMiddleware(),      // 生产环境日志
 		m.RateLimitMiddleware(),    // 限流
 		m.BreakerMiddleware(),      // 熔断
 		m.SignatureMiddleware(),    // 签名验证

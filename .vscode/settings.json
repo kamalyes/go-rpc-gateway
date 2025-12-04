@@ -158,6 +158,11 @@
       "YOUZAN",
       "zeroclient",
       "zerorestful",
-      "zeroserver"
+      "zeroserver",
+      "gwconfig",
+      "gwglobal",
+      "grpcpool",
+      "gruntime",
+      "gsqlconstants"
     ]
 }

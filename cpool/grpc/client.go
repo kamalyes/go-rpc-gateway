@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-21 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-21 10:30:00
+ * @LastEditTime: 2025-12-04 13:51:50
  * @FilePath: \go-rpc-gateway\cpool\grpc\client.go
  * @Description: gRPC 客户端初始化辅助函数
  *
@@ -13,14 +13,21 @@ package grpc
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
+	"net"
+	"os"
+	"time"
+
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	gwglobal "github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
+	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
-	"net"
-	"time"
 )
 
 // InitClient 初始化 gRPC 客户端的泛型辅助函数
@@ -44,41 +51,11 @@ func InitClient[T any](
 
 	endpoint := clientCfg.Endpoints[0]
 
-	// 准备拨号选项
-	dialOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		// 默认调用超时时间
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(16*1024*1024), // 16MB 最大接收消息
-			grpc.MaxCallSendMsgSize(16*1024*1024), // 16MB 最大发送消息
-		),
-		// Keepalive 配置（保持连接活跃）
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                10 * time.Second, // 每 10 秒发送一次 keepalive ping
-			Timeout:             3 * time.Second,  // 等待 keepalive ping 响应的超时时间
-			PermitWithoutStream: true,             // 允许在没有活动流时发送 keepalive ping
-		}),
-	}
+	// 构建 TLS 配置
+	creds := buildTLSConfig(clientCfg, serviceName)
 
-	// 添加 Context 传播拦截器（确保 trace_id 在服务调用链中传递）
-	dialOpts = append(dialOpts,
-		grpc.WithChainUnaryInterceptor(
-			middleware.UnaryClientContextInterceptor(), // Context 传播
-		),
-		grpc.WithChainStreamInterceptor(
-			middleware.StreamClientContextInterceptor(), // Stream Context 传播
-		),
-	)
-
-	// 如果配置了 Network，添加到拨号选项
-	if clientCfg.Network != "" {
-		dialOpts = append(dialOpts, grpc.WithContextDialer(
-			func(ctx context.Context, addr string) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, clientCfg.Network, addr)
-			},
-		))
-		gwglobal.LOGGER.Debug("🌐 %s 使用网络类型: %s", serviceName, clientCfg.Network)
-	}
+	// 构建拨号选项
+	dialOpts := buildDialOptions(clientCfg, serviceName, creds)
 
 	// 创建连接（不等待就绪）
 	conn, err := grpc.NewClient(endpoint, dialOpts...)
@@ -109,3 +86,100 @@ func BuildEndpointMap(clients map[string]*gwconfig.GRPCClient) map[string]string
 
 // DefaultHealthCheckInterval 默认健康检查间隔
 const DefaultHealthCheckInterval = 3 * time.Second
+
+// buildTLSConfig 构建 TLS 配置
+func buildTLSConfig(clientCfg *gwconfig.GRPCClient, serviceName string) credentials.TransportCredentials {
+	if !clientCfg.EnableTLS {
+		return insecure.NewCredentials()
+	}
+
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+	}
+
+	// 加载 CA 证书
+	if clientCfg.TLSCAFile != "" {
+		caCert, err := os.ReadFile(clientCfg.TLSCAFile)
+		if err != nil {
+			gwglobal.LOGGER.Error("❌ %s 读取 CA 证书失败: %v", serviceName, err)
+		} else {
+			caCertPool := x509.NewCertPool()
+			if caCertPool.AppendCertsFromPEM(caCert) {
+				tlsConfig.RootCAs = caCertPool
+				tlsConfig.InsecureSkipVerify = false
+				gwglobal.LOGGER.Debug("🔒 %s 已加载 CA 证书: %s", serviceName, clientCfg.TLSCAFile)
+			}
+		}
+	}
+
+	// 加载客户端证书（双向认证）
+	if clientCfg.TLSCertFile != "" && clientCfg.TLSKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(clientCfg.TLSCertFile, clientCfg.TLSKeyFile)
+		if err != nil {
+			gwglobal.LOGGER.Error("❌ %s 加载客户端证书失败: %v", serviceName, err)
+		} else {
+			tlsConfig.Certificates = []tls.Certificate{cert}
+			gwglobal.LOGGER.Debug("🔒 %s 已加载客户端证书", serviceName)
+		}
+	}
+
+	gwglobal.LOGGER.Info("🔒 %s 启用 TLS 连接", serviceName)
+	return credentials.NewTLS(tlsConfig)
+}
+
+// buildDialOptions 构建 Dial 选项
+func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds credentials.TransportCredentials) []grpc.DialOption {
+	// Keepalive 配置
+	keepaliveTime := mathx.IF(clientCfg.KeepaliveTime > 0, time.Duration(clientCfg.KeepaliveTime)*time.Second, 10*time.Second)
+	keepaliveTimeout := mathx.IF(clientCfg.KeepaliveTimeout > 0, time.Duration(clientCfg.KeepaliveTimeout)*time.Second, 3*time.Second)
+
+	// 消息大小配置
+	maxRecvMsgSize := mathx.IF(clientCfg.MaxRecvMsgSize > 0, clientCfg.MaxRecvMsgSize, 16*1024*1024)
+	maxSendMsgSize := mathx.IF(clientCfg.MaxSendMsgSize > 0, clientCfg.MaxSendMsgSize, 16*1024*1024)
+
+	// 准备拨号选项
+	dialOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+		// 默认调用超时时间
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxRecvMsgSize),
+			grpc.MaxCallSendMsgSize(maxSendMsgSize),
+		),
+		// Keepalive 配置（保持连接活跃）
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                keepaliveTime,    // 发送 keepalive ping 的间隔
+			Timeout:             keepaliveTimeout, // 等待 keepalive ping 响应的超时时间
+			PermitWithoutStream: true,             // 允许在没有活动流时发送 keepalive ping
+		}),
+	}
+
+	// 负载均衡配置
+	if clientCfg.EnableLoadBalance {
+		policy := mathx.IF(clientCfg.LoadBalancePolicy != "", clientCfg.LoadBalancePolicy, "round_robin")
+		// 使用 Service Config 配置负载均衡策略
+		dialOpts = append(dialOpts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingPolicy":"%s"}`, policy)))
+		gwglobal.LOGGER.Info("⚖️ %s 启用负载均衡: %s", serviceName, policy)
+	}
+
+	// 添加 Context 传播拦截器（确保 trace_id 在服务调用链中传递）
+	dialOpts = append(dialOpts,
+		grpc.WithChainUnaryInterceptor(
+			middleware.UnaryClientContextInterceptor(), // Context 传播
+		),
+		grpc.WithChainStreamInterceptor(
+			middleware.StreamClientContextInterceptor(), // Stream Context 传播
+		),
+	)
+
+	// 如果配置了 Network，添加到拨号选项
+	if clientCfg.Network != "" {
+		dialOpts = append(dialOpts, grpc.WithContextDialer(
+			func(ctx context.Context, addr string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, clientCfg.Network, addr)
+			},
+		))
+		gwglobal.LOGGER.Debug("🌐 %s 使用网络类型: %s", serviceName, clientCfg.Network)
+	}
+
+	return dialOpts
+}

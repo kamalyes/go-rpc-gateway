@@ -153,12 +153,6 @@ func (s *Server) initHTTPGateway() error {
 	// 应用中间件
 	var handler http.Handler = s.httpMux
 
-	// 首先应用Gzip压缩中间件（如果启用）
-	if s.configSafe.Field("HTTPServer").Field("EnableGzipCompress").Bool(false) {
-		handler = s.gzipMiddleware(handler)
-		global.LOGGER.InfoMsg("✅ HTTP Gzip压缩已启用")
-	}
-
 	if s.middlewareManager != nil {
 		var middlewares []middleware.MiddlewareFunc
 		if s.configSafe.Field("Debug").Bool(false) {
@@ -167,6 +161,13 @@ func (s *Server) initHTTPGateway() error {
 			middlewares = s.middlewareManager.GetDefaultMiddlewares()
 		}
 		handler = middleware.ApplyMiddlewares(handler, middlewares...)
+	}
+
+	// 最后应用Gzip压缩中间件（如果启用）
+	// 注意：Gzip 应该在日志中间件之后执行，否则日志记录的是压缩后的乱码
+	if s.configSafe.Field("HTTPServer").Field("EnableGzipCompress").Bool(false) {
+		handler = s.gzipMiddleware(handler)
+		global.LOGGER.InfoMsg("✅ HTTP Gzip压缩已启用")
 	}
 
 	// 创建HTTP服务器 - 使用安全访问
@@ -227,14 +228,14 @@ func (s *Server) startHTTPServer() error {
 	// }
 
 	global.LOGGER.InfoKV("Starting HTTP server", "address", address)
-	
+
 	// 从配置中获取网络类型，默认 tcp4 避免绑定到 IPv6
 	network := s.configSafe.Field("HTTPServer").Field("Network").String("tcp4")
 	listener, err := net.Listen(network, address)
 	if err != nil {
 		return fmt.Errorf("failed to create %s listener: %w", network, err)
 	}
-	
+
 	return s.httpServer.Serve(listener)
 }
 

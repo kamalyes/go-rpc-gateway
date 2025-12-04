@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-16 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-03 15:19:59
+ * @LastEditTime: 2025-12-04 15:08:29
  * @FilePath: \go-rpc-gateway\server\wsc.go
  * @Description: WebSocket 集成层 - go-wsc 的薄封装
  * 职责：
@@ -321,13 +321,57 @@ func (ws *WebSocketService) convertUserType(userType string) wsc.UserType {
 // 此函数只负责：升级连接 -> 创建客户端 -> 注册到 Hub
 // 所有消息处理都由 go-wsc Hub 完成
 func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	ctx := r.Context()
+
+	// 提取客户端属性
+	clientID, userID, userType := ws.extractClientAttributes(r)
+
+	// 记录 WebSocket 升级请求开始（包含完整的请求信息）
+	global.LOGGER.InfoContextKV(ctx, "[WebSocket] 升级请求",
+		"method", r.Method,
+		"path", r.URL.Path,
+		"query", r.URL.RawQuery,
+		"client_id", clientID,
+		"user_id", userID,
+		"user_type", userType,
+		"remote_addr", r.RemoteAddr,
+		"user_agent", r.Header.Get("User-Agent"),
+		"origin", r.Header.Get("Origin"),
+		"sec_websocket_key", r.Header.Get("Sec-WebSocket-Key"),
+		"sec_websocket_version", r.Header.Get("Sec-WebSocket-Version"),
+		"sec_websocket_protocol", r.Header.Get("Sec-WebSocket-Protocol"),
+		"connection", r.Header.Get("Connection"),
+		"upgrade", r.Header.Get("Upgrade"),
+	)
+
 	// 配置并升级 WebSocket 连接
 	upgrader := ws.configureUpgrader()
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		global.LOGGER.WithError(err).WarnMsg("WebSocket 升级失败")
+		// 记录升级失败日志
+		global.LOGGER.WithError(err).ErrorContextKV(ctx, "[WebSocket] 升级失败",
+			"client_id", clientID,
+			"user_id", userID,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"error", err.Error(),
+			"upgrade_failed", true,
+		)
 		return
 	}
+
+	// 记录升级成功日志（升级后响应已发送，记录连接信息）
+	global.LOGGER.InfoContextKV(ctx, "[WebSocket] 升级成功",
+		"client_id", clientID,
+		"user_id", userID,
+		"user_type", userType,
+		"status_code", 101, // WebSocket 升级成功状态码固定为 101
+		"protocol", conn.Subprotocol(),
+		"remote_addr", conn.RemoteAddr().String(),
+		"local_addr", conn.LocalAddr().String(),
+		"duration_ms", time.Since(start).Milliseconds(),
+		"upgrade_success", true,
+	)
 
 	// 创建客户端
 	client := ws.createClient(r, conn)
@@ -335,7 +379,15 @@ func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *htt
 	// 🔥 关键修复：先启动客户端写入 goroutine，再注册到 Hub
 	// 这样可以避免在注册和启动 write goroutine 之间收到消息时导致消息丢失
 	go func() {
-		defer ws.hub.Unregister(client)
+		defer func() {
+			// 记录客户端断开连接日志
+			global.LOGGER.InfoContextKV(ctx, "[WebSocket] 客户端连接关闭",
+				"client_id", client.ID,
+				"user_id", client.UserID,
+				"connection_duration_ms", time.Since(start).Milliseconds(),
+			)
+			ws.hub.Unregister(client)
+		}()
 		defer func() {
 			if client.Conn != nil {
 				client.Conn.Close()
@@ -344,6 +396,13 @@ func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *htt
 
 		// 注册到 Hub（go-wsc 接管后续所有处理）
 		ws.hub.Register(client)
+
+		// 记录客户端注册成功日志
+		global.LOGGER.InfoContextKV(ctx, "[WebSocket] 客户端注册成功",
+			"client_id", client.ID,
+			"user_id", client.UserID,
+			"user_type", string(client.UserType),
+		)
 
 		// 执行连接回调
 		if err := ws.executeConnectCallbacks(ws.ctx, client); err != nil {

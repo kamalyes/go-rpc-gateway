@@ -12,6 +12,7 @@ package middleware
 
 import (
 	"bufio"
+	"bytes"
 	"net"
 	"net/http"
 	"sync"
@@ -21,10 +22,12 @@ import (
 // 用于捕获状态码、响应大小等信息，供多个中间件共享使用
 type ResponseWriter struct {
 	http.ResponseWriter
-	statusCode   int   // HTTP 状态码
-	bytesWritten int64 // 写入的字节数
-	wroteHeader  bool  // 是否已写入头部
-	hijacked     bool  // 是否被劫持（WebSocket等）
+	statusCode   int           // HTTP 状态码
+	bytesWritten int64         // 写入的字节数
+	wroteHeader  bool          // 是否已写入头部
+	hijacked     bool          // 是否被劫持（WebSocket等）
+	body         *bytes.Buffer // 响应体缓存
+	captureBody  bool          // 是否捕获响应体
 }
 
 // responseWriterPool 对象池 - 减少内存分配，提升性能
@@ -32,6 +35,7 @@ var responseWriterPool = sync.Pool{
 	New: func() interface{} {
 		return &ResponseWriter{
 			statusCode: http.StatusOK,
+			body:       bytes.NewBuffer(make([]byte, 0, 1024)),
 		}
 	},
 }
@@ -44,13 +48,29 @@ func NewResponseWriter(w http.ResponseWriter) *ResponseWriter {
 	rw.bytesWritten = 0
 	rw.wroteHeader = false
 	rw.hijacked = false
+	rw.captureBody = false
+	rw.body.Reset()
 	return rw
 }
 
 // Release 归还 ResponseWriter 到对象池
 func (rw *ResponseWriter) Release() {
 	rw.ResponseWriter = nil
+	rw.body.Reset()
 	responseWriterPool.Put(rw)
+}
+
+// EnableBodyCapture 启用响应体捕获
+func (rw *ResponseWriter) EnableBodyCapture() {
+	rw.captureBody = true
+}
+
+// GetBody 获取捕获的响应体
+func (rw *ResponseWriter) GetBody() []byte {
+	if rw.body == nil {
+		return nil
+	}
+	return rw.body.Bytes()
 }
 
 // WriteHeader 实现 http.ResponseWriter 接口
@@ -66,6 +86,9 @@ func (rw *ResponseWriter) WriteHeader(statusCode int) {
 func (rw *ResponseWriter) Write(data []byte) (int, error) {
 	if !rw.wroteHeader {
 		rw.WriteHeader(http.StatusOK)
+	}
+	if rw.captureBody {
+		rw.body.Write(data)
 	}
 	n, err := rw.ResponseWriter.Write(data)
 	rw.bytesWritten += int64(n)
