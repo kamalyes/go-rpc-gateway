@@ -15,24 +15,29 @@ import (
 	"net/http"
 	"net/http/pprof"
 
-	"github.com/kamalyes/go-toolbox/pkg/mathx"
+	"github.com/kamalyes/go-rpc-gateway/global"
 )
 
 // EnablePProf 启用性能分析功能（使用配置文件）
 func (s *Server) EnablePProf() error {
-	return mathx.IF(s.configSafe.IsPProfEnabled(),
-		s.EnablePProfWithConfig(),
-		nil)
+	if s.config.Middleware == nil || s.config.Middleware.PProf == nil || !s.config.Middleware.PProf.Enabled {
+		return nil
+	}
+	return s.EnablePProfWithConfig()
 }
 
 // EnablePProfWithConfig 使用自定义配置启用性能分析
 func (s *Server) EnablePProfWithConfig() error {
-	if !s.configSafe.IsPProfEnabled() {
+	if s.config.Middleware == nil || s.config.Middleware.PProf == nil || !s.config.Middleware.PProf.Enabled {
 		return nil
 	}
 
 	// 获取路径前缀
-	prefix := s.configSafe.GetPProfPathPrefix("/debug/pprof") // 注册 pprof 路由
+	prefix := s.config.Middleware.PProf.PathPrefix
+
+	global.LOGGER.InfoContext(s.ctx, "✅ PProf 性能分析已启用: prefix=%s", prefix)
+
+	// 注册 pprof 路由
 	s.RegisterHTTPRoute(prefix+"/", http.HandlerFunc(pprof.Index))
 	s.RegisterHTTPRoute(prefix+"/cmdline", http.HandlerFunc(pprof.Cmdline))
 	s.RegisterHTTPRoute(prefix+"/profile", http.HandlerFunc(pprof.Profile))

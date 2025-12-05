@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-16 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-04 15:08:29
+ * @LastEditTime: 2025-12-05 19:44:10
  * @FilePath: \go-rpc-gateway\server\wsc.go
  * @Description: WebSocket 集成层 - go-wsc 的薄封装
  * 职责：
@@ -166,14 +166,14 @@ func (ws *WebSocketService) Start() error {
 		return nil
 	}
 
-	if ws.config == nil || !ws.config.Enabled {
+	if !ws.config.Enabled {
 		global.LOGGER.InfoMsg("⏭️  WebSocket 服务已禁用，跳过启动")
 		return nil
 	}
 
 	// 创建 HTTP 路由
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", ws.handleWebSocketUpgrade)
+	mux.HandleFunc(ws.config.Path, ws.handleWebSocketUpgrade)
 
 	ws.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", ws.config.NodeIP, ws.config.NodePort),
@@ -183,19 +183,13 @@ func (ws *WebSocketService) Start() error {
 		IdleTimeout:  ws.config.IdleTimeout,
 	}
 
-	// 从配置中获取网络类型,默认 tcp4 避免绑定到 IPv6
-	network := ws.config.Network
-	if network == "" {
-		network = "tcp4" // 默认使用 tcp4
-		global.LOGGER.WarnMsg("⚠️ WebSocket network 配置为空，使用默认值 tcp4")
-	} else {
-		global.LOGGER.InfoKV("WebSocket 网络配置", "network", network)
-	}
-
+	// 从配置中获取网络类型（默认值应该在配置层面处理）
 	go func() {
-		listener, err := net.Listen(network, ws.httpServer.Addr)
+		listener, err := net.Listen(ws.config.Network, ws.httpServer.Addr)
 		if err != nil {
-			global.LOGGER.WithError(err).ErrorKV("❌ WebSocket 监听器创建失败", "network", network, "address", ws.httpServer.Addr)
+			global.LOGGER.WithError(err).ErrorKV("❌ WebSocket 监听器创建失败",
+				"network", ws.config.Network,
+				"address", ws.httpServer.Addr)
 			return
 		}
 		if err := ws.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
@@ -206,8 +200,8 @@ func (ws *WebSocketService) Start() error {
 	ws.running.Store(true)
 	global.LOGGER.InfoKV("✅ WebSocket 服务已启动",
 		"address", ws.httpServer.Addr,
-		"network", network,
-		"path", "/ws")
+		"network", ws.config.Network,
+		"path", ws.config.Path)
 
 	return nil
 }

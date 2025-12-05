@@ -13,10 +13,10 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-config v0.12.8
+	github.com/kamalyes/go-config v0.12.11
 	github.com/kamalyes/go-logger v0.4.4
-	github.com/kamalyes/go-toolbox v0.11.83-0.20251204113204-017bf4f6b9c6
-	github.com/kamalyes/go-wsc v0.5.4-0.20251204113635-840a2ae579c2
+	github.com/kamalyes/go-toolbox v0.11.84
+	github.com/kamalyes/go-wsc v0.5.4
 	github.com/mssola/user_agent v0.6.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.2

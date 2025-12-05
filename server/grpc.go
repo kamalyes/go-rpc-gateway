@@ -13,53 +13,51 @@ package server
 
 import (
 	"fmt"
+	"net"
+	"time"
+
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
-	"net"
-	"time"
 )
 
 // initGRPCServer 初始化gRPC服务器
 // go-config 的 Default() 已经设置了所有默认值，无需再次设置
 func (s *Server) initGRPCServer() error {
-	// 使用安全访问模式
-	grpcSafe := s.configSafe.Field("GRPC").Field("Server")
+	// 配置已通过 safe.MergeWithDefaults 合并默认值
+	grpcServer := s.config.GRPC.Server
 
 	opts := []grpc.ServerOption{
-		grpc.MaxRecvMsgSize(grpcSafe.Field("MaxRecvMsgSize").Int(4194304)),
-		grpc.MaxSendMsgSize(grpcSafe.Field("MaxSendMsgSize").Int(4194304)),
+		grpc.MaxRecvMsgSize(grpcServer.MaxRecvMsgSize),
+		grpc.MaxSendMsgSize(grpcServer.MaxSendMsgSize),
 	}
 
 	// 添加Keepalive配置
-	keepaliveTime := grpcSafe.Field("KeepaliveTime").Int(0)
-	if keepaliveTime > 0 {
-		keepaliveTimeout := grpcSafe.Field("KeepaliveTimeout").Int(10)
+	if grpcServer.KeepaliveTime > 0 {
 		keepalivePolicy := keepalive.ServerParameters{
-			Time:    time.Duration(keepaliveTime) * time.Second,
-			Timeout: time.Duration(keepaliveTimeout) * time.Second,
+			Time:    time.Duration(grpcServer.KeepaliveTime) * time.Second,
+			Timeout: time.Duration(grpcServer.KeepaliveTimeout) * time.Second,
 		}
 		opts = append(opts, grpc.KeepaliveParams(keepalivePolicy))
 
 		global.LOGGER.InfoKV("gRPC Keepalive配置已启用",
-			"keepalive_time", keepaliveTime,
-			"keepalive_timeout", keepaliveTimeout)
+			"keepalive_time", grpcServer.KeepaliveTime,
+			"keepalive_timeout", grpcServer.KeepaliveTimeout)
 	}
 
 	// 添加连接超时配置
-	connectionTimeout := grpcSafe.Field("ConnectionTimeout").Int(0)
-	if connectionTimeout > 0 {
+	if grpcServer.ConnectionTimeout > 0 {
 		keepaliveEnforcement := keepalive.EnforcementPolicy{
-			MinTime:             time.Duration(connectionTimeout) * time.Second,
+			MinTime:             time.Duration(grpcServer.ConnectionTimeout) * time.Second,
 			PermitWithoutStream: true,
 		}
 		opts = append(opts, grpc.KeepaliveEnforcementPolicy(keepaliveEnforcement))
 
 		global.LOGGER.InfoKV("gRPC连接超时配置已启用",
-			"connection_timeout", connectionTimeout)
+			"connection_timeout", grpcServer.ConnectionTimeout)
 	}
 
 	// 添加中间件拦截器链（按执行顺序）
@@ -93,33 +91,27 @@ func (s *Server) initGRPCServer() error {
 	s.grpcServer = grpc.NewServer(opts...)
 
 	// 启用反射
-	enableReflection := grpcSafe.Field("EnableReflection").Bool(false)
-	if enableReflection {
+	if grpcServer.EnableReflection {
 		reflection.Register(s.grpcServer)
 		global.LOGGER.InfoMsg("gRPC反射服务已启用")
 	}
 
-	maxRecvSize := grpcSafe.Field("MaxRecvMsgSize").Int(4194304)
-	maxSendSize := grpcSafe.Field("MaxSendMsgSize").Int(4194304)
 	global.LOGGER.InfoKV("gRPC服务器初始化完成",
-		"max_recv_size", maxRecvSize,
-		"max_send_size", maxSendSize,
-		"reflection_enabled", enableReflection)
+		"max_recv_size", grpcServer.MaxRecvMsgSize,
+		"max_send_size", grpcServer.MaxSendMsgSize,
+		"reflection_enabled", grpcServer.EnableReflection)
 
 	return nil
 }
 
 // startGRPCServer 启动gRPC服务器
 func (s *Server) startGRPCServer() error {
-	grpcSafe := s.configSafe.Field("GRPC").Field("Server")
+	grpcServer := s.config.GRPC.Server
 
-	// 安全获取网络和地址配置，默认使用 tcp4 强制 IPv4
-	network := grpcSafe.Field("Network").String("tcp4")
-	host := grpcSafe.Field("Host").String("0.0.0.0")
-	port := grpcSafe.Field("Port").Int(9090)
-	address := fmt.Sprintf("%s:%d", host, port)
+	// 获取网络和地址配置
+	address := fmt.Sprintf("%s:%d", grpcServer.Host, grpcServer.Port)
 
-	listener, err := net.Listen(network, address)
+	listener, err := net.Listen(grpcServer.Network, address)
 	if err != nil {
 		return errors.NewErrorf(errors.ErrCodeGRPCConnectionFailed, "failed to listen on %s: %v", address, err)
 	}

@@ -220,21 +220,26 @@ var (
 ## 🎨 实际示例
 
 ```go
-// server/enhanced_server.go
-func NewEnhancedServer() (*EnhancedServer, error) {
-    baseServer, err := NewServer()
-    if err != nil {
-        // ✅ 纯错误码：不传消息，自动使用 "创建服务器失败"
-        return nil, errors.WrapWithContext(err, errors.ErrCodeServerCreationFailed)
-    }
-    
-    config := global.GetConfig()
-    if config == nil {
+// server/server.go
+func NewServer() (*Server, error) {
+    cfg := global.GATEWAY
+    if cfg == nil {
         // ✅ 纯错误码：自动使用 "Invalid configuration"
-        return nil, errors.NewError(errors.ErrCodeInvalidConfiguration, "")
+        return nil, errors.NewError(errors.ErrCodeInvalidConfiguration, "global GATEWAY config is not initialized")
     }
     
-    return enhanced, nil
+    server := &Server{
+        config:     cfg,
+        configSafe: goconfig.SafeConfig(cfg),
+    }
+    
+    // 初始化核心组件
+    if err := server.initCore(); err != nil {
+        // ✅ 纯错误码：不传消息，自动使用 "内部服务器错误"
+        return nil, errors.NewErrorf(errors.ErrCodeInternalServerError, "failed to init core: %v", err)
+    }
+    
+    return server, nil
 }
 
 // cpool/jwt/jwt.go

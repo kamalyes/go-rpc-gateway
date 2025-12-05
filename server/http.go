@@ -32,12 +32,10 @@ import (
 
 // buildServeMuxOptions 构建ServeMux选项，支持从配置文件读取JSON序列化配置
 func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
-	jsonSafe := s.configSafe.Field("JSON")
-
-	// 读取配置，使用默认值
-	useProtoNames := jsonSafe.Field("UseProtoNames").Bool(true)
-	emitUnpopulated := jsonSafe.Field("EmitUnpopulated").Bool(true)
-	discardUnknown := jsonSafe.Field("DiscardUnknown").Bool(true)
+	// 配置已通过 safe.MergeWithDefaults 合并默认值，直接使用
+	useProtoNames := s.config.JSON.UseProtoNames
+	emitUnpopulated := s.config.JSON.EmitUnpopulated
+	discardUnknown := s.config.JSON.DiscardUnknown
 
 	return []runtime.ServeMuxOption{
 		runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{
@@ -69,8 +67,8 @@ func (w gzipResponseWriter) Write(b []byte) (int, error) {
 // gzipMiddleware HTTP Gzip压缩中间件
 func (s *Server) gzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 检查是否启用压缩 - 使用安全访问
-		if !s.configSafe.Field("HTTPServer").Field("EnableGzipCompress").Bool(false) {
+		// 检查是否启用压缩
+		if !s.config.HTTPServer.EnableGzipCompress {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -125,13 +123,12 @@ func (s *Server) initHTTPGateway() error {
 	// 注册网关路由（默认路由到gwMux）
 	s.httpMux.Handle("/", s.gwMux)
 
-	// 注册健康检查 - 使用安全访问
-	if s.configSafe.IsHealthEnabled() {
-		healthPath := s.configSafe.GetHealthPath("/health")
+	// 注册健康检查
+	if s.config.Health.Enabled {
+		healthPath := s.config.Health.Path
 		s.httpMux.HandleFunc(healthPath, s.healthCheckHandler)
 
-		httpEndpoint := s.configSafe.Field("HTTPServer").Field("Host").String("0.0.0.0") + ":" +
-			string(rune(s.configSafe.Field("HTTPServer").Field("Port").Int(8080)))
+		httpEndpoint := fmt.Sprintf("%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port)
 		global.LOGGER.InfoKV("❤️  健康检查已启用",
 			"url", "http://"+httpEndpoint+healthPath)
 
@@ -139,13 +136,12 @@ func (s *Server) initHTTPGateway() error {
 		s.registerComponentHealthChecks()
 	}
 
-	// 注册监控指标端点 - 使用安全访问
-	if s.configSafe.IsMetricsEnabled() {
-		prometheusPath := s.configSafe.GetMetricsEndpoint("/metrics")
+	// 注册监控指标端点
+	if s.config.Monitoring.Metrics.Enabled {
+		prometheusPath := s.config.Monitoring.Metrics.Endpoint
 		s.httpMux.Handle(prometheusPath, promhttp.Handler())
 
-		httpEndpoint := s.configSafe.Field("HTTPServer").Field("Host").String("0.0.0.0") + ":" +
-			string(rune(s.configSafe.Field("HTTPServer").Field("Port").Int(8080)))
+		httpEndpoint := fmt.Sprintf("%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port)
 		global.LOGGER.InfoKV("📊 监控指标服务可用",
 			"url", "http://"+httpEndpoint+prometheusPath)
 	}
@@ -155,7 +151,7 @@ func (s *Server) initHTTPGateway() error {
 
 	if s.middlewareManager != nil {
 		var middlewares []middleware.MiddlewareFunc
-		if s.configSafe.Field("Debug").Bool(false) {
+		if s.config.Debug {
 			middlewares = s.middlewareManager.GetDevelopmentMiddlewares()
 		} else {
 			middlewares = s.middlewareManager.GetDefaultMiddlewares()
@@ -165,20 +161,19 @@ func (s *Server) initHTTPGateway() error {
 
 	// 最后应用Gzip压缩中间件（如果启用）
 	// 注意：Gzip 应该在日志中间件之后执行，否则日志记录的是压缩后的乱码
-	if s.configSafe.Field("HTTPServer").Field("EnableGzipCompress").Bool(false) {
+	if s.config.HTTPServer.EnableGzipCompress {
 		handler = s.gzipMiddleware(handler)
 		global.LOGGER.InfoMsg("✅ HTTP Gzip压缩已启用")
 	}
 
-	// 创建HTTP服务器 - 使用安全访问
-	httpSafe := s.configSafe.Field("HTTPServer")
+	// 创建 HTTP 服务器（配置已通过 safe.MergeWithDefaults 合并默认值）
 	s.httpServer = &http.Server{
-		Addr:           fmt.Sprintf("%s:%d", httpSafe.Field("Host").String("0.0.0.0"), httpSafe.Field("Port").Int(8080)),
+		Addr:           fmt.Sprintf("%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port),
 		Handler:        handler,
-		ReadTimeout:    time.Duration(httpSafe.Field("ReadTimeout").Int(30)) * time.Second,
-		WriteTimeout:   time.Duration(httpSafe.Field("WriteTimeout").Int(30)) * time.Second,
-		IdleTimeout:    time.Duration(httpSafe.Field("IdleTimeout").Int(60)) * time.Second,
-		MaxHeaderBytes: httpSafe.Field("MaxHeaderBytes").Int(1048576), // 1MB
+		ReadTimeout:    time.Duration(s.config.HTTPServer.ReadTimeout) * time.Second,
+		WriteTimeout:   time.Duration(s.config.HTTPServer.WriteTimeout) * time.Second,
+		IdleTimeout:    time.Duration(s.config.HTTPServer.IdleTimeout) * time.Second,
+		MaxHeaderBytes: s.config.HTTPServer.MaxHeaderBytes,
 	}
 
 	return nil
@@ -192,26 +187,20 @@ func (s *Server) RebuildHTTPGateway() error {
 
 // registerComponentHealthChecks 注册组件级健康检查端点
 func (s *Server) registerComponentHealthChecks() {
-	httpSafe := s.configSafe.Field("HTTPServer")
-	baseURL := fmt.Sprintf("http://%s:%d",
-		httpSafe.Field("Host").String("0.0.0.0"),
-		httpSafe.Field("Port").Int(8080))
+	baseURL := fmt.Sprintf("http://%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port)
 
 	// 注册Redis健康检查
-	healthSafe := s.configSafe.Field("Health")
-	if healthSafe.Field("Redis").Field("Enabled").Bool(false) {
-		redisPath := healthSafe.Field("Redis").Field("Path").String("/health/redis")
-		s.httpMux.HandleFunc(redisPath, s.redisHealthCheckHandler)
+	if s.config.Health.Redis.Enabled {
+		s.httpMux.HandleFunc(s.config.Health.Redis.Path, s.redisHealthCheckHandler)
 		global.LOGGER.InfoKV("🔴 Redis健康检查已启用",
-			"url", baseURL+redisPath)
+			"url", baseURL+s.config.Health.Redis.Path)
 	}
 
 	// 注册MySQL健康检查
-	if healthSafe.Field("MySQL").Field("Enabled").Bool(false) {
-		mysqlPath := healthSafe.Field("MySQL").Field("Path").String("/health/mysql")
-		s.httpMux.HandleFunc(mysqlPath, s.mysqlHealthCheckHandler)
+	if s.config.Health.MySQL.Enabled {
+		s.httpMux.HandleFunc(s.config.Health.MySQL.Path, s.mysqlHealthCheckHandler)
 		global.LOGGER.InfoKV("🗃️  MySQL健康检查已启用",
-			"url", baseURL+mysqlPath)
+			"url", baseURL+s.config.Health.MySQL.Path)
 	}
 
 	// 后续可以在这里继续添加其他组件的健康检查
@@ -229,11 +218,10 @@ func (s *Server) startHTTPServer() error {
 
 	global.LOGGER.InfoKV("Starting HTTP server", "address", address)
 
-	// 从配置中获取网络类型，默认 tcp4 避免绑定到 IPv6
-	network := s.configSafe.Field("HTTPServer").Field("Network").String("tcp4")
-	listener, err := net.Listen(network, address)
+	// 从配置中获取网络类型
+	listener, err := net.Listen(s.config.HTTPServer.Network, address)
 	if err != nil {
-		return fmt.Errorf("failed to create %s listener: %w", network, err)
+		return fmt.Errorf("failed to create %s listener: %w", s.config.HTTPServer.Network, err)
 	}
 
 	return s.httpServer.Serve(listener)

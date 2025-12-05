@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-28 00:55:19
+ * @LastEditTime: 2025-12-05 19:55:11
  * @FilePath: \go-rpc-gateway\gateway.go
  * @Description: Gateway主入口，基于go-config
  *
@@ -16,6 +16,13 @@ package gateway
 
 import (
 	"context"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
 	"github.com/bwmarrin/snowflake"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	goconfig "github.com/kamalyes/go-config"
@@ -26,16 +33,11 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/kamalyes/go-rpc-gateway/server"
+	"github.com/kamalyes/go-toolbox/pkg/safe"
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
-	"net/http"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
 )
 
 // Gateway 是主要的网关服务器
@@ -282,6 +284,9 @@ func (b *GatewayBuilder) MustBuildAndStart(ctx ...context.Context) *Gateway {
 
 // initializeGlobalState 初始化全局状态
 func (b *GatewayBuilder) initializeGlobalState(manager *goconfig.IntegratedConfigManager, config *gwconfig.Gateway) error {
+	// 使用 safe.MergeWithDefaults 合并默认配置
+	config = safe.MergeWithDefaults(config, gwconfig.Default())
+
 	// 设置全局变量
 	global.CONFIG_MANAGER = manager
 	global.GATEWAY = config
@@ -307,6 +312,8 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 	// 注册配置变更回调
 	err := manager.RegisterConfigCallback(func(ctx context.Context, event goconfig.CallbackEvent) error {
 		if newConfig, ok := event.NewValue.(*gwconfig.Gateway); ok {
+			// 合并默认配置
+			newConfig = safe.MergeWithDefaults(newConfig, gwconfig.Default())
 			global.LOGGER.InfoContext(b.Context(), "📋 配置已更新: %s", newConfig.Name)
 			global.GATEWAY = newConfig
 
@@ -436,108 +443,6 @@ func (g *Gateway) RebuildHTTPGateway() error {
 	return g.Server.RebuildHTTPGateway()
 }
 
-// EnableSwagger 启用 Swagger 文档服务 (委托给 Server 层)
-func (g *Gateway) EnableSwagger() error {
-	return g.Server.EnableFeature(server.FeatureSwagger)
-}
-
-// EnableSwaggerWithConfig 使用自定义配置启用 Swagger
-func (g *Gateway) EnableSwaggerWithConfig(config interface{}) error {
-	return g.Server.EnableFeatureWithConfig(server.FeatureSwagger, config)
-}
-
-// IsSwaggerEnabled 检查 Swagger 是否已启用
-func (g *Gateway) IsSwaggerEnabled() bool {
-	return g.Server.IsFeatureEnabled(server.FeatureSwagger)
-}
-
-// EnableMonitoring 启用监控功能
-func (g *Gateway) EnableMonitoring() error {
-	return g.Server.EnableFeature(server.FeatureMonitoring)
-}
-
-// EnableMonitoringWithConfig 使用自定义配置启用监控
-func (g *Gateway) EnableMonitoringWithConfig(config interface{}) error {
-	return g.Server.EnableFeatureWithConfig(server.FeatureMonitoring, config)
-}
-
-// IsMonitoringEnabled 检查监控是否已启用
-func (g *Gateway) IsMonitoringEnabled() bool {
-	return g.Server.IsFeatureEnabled(server.FeatureMonitoring)
-}
-
-// EnableHealth 启用健康检查功能
-func (g *Gateway) EnableHealth() error {
-	return g.Server.EnableFeature(server.FeatureHealth)
-}
-
-// EnableHealthWithConfig 使用自定义配置启用健康检查
-func (g *Gateway) EnableHealthWithConfig(config interface{}) error {
-	return g.Server.EnableFeatureWithConfig(server.FeatureHealth, config)
-}
-
-// IsHealthEnabled 检查健康检查是否已启用
-func (g *Gateway) IsHealthEnabled() bool {
-	return g.Server.IsFeatureEnabled(server.FeatureHealth)
-}
-
-// EnablePProf 启用性能分析功能
-func (g *Gateway) EnablePProf() error {
-	return g.Server.EnableFeature(server.FeaturePProf)
-}
-
-// EnablePProfWithConfig 使用自定义配置启用性能分析
-func (g *Gateway) EnablePProfWithConfig(config interface{}) error {
-	return g.Server.EnableFeatureWithConfig(server.FeaturePProf, config)
-}
-
-// IsPProfEnabled 检查性能分析是否已启用
-func (g *Gateway) IsPProfEnabled() bool {
-	return g.Server.IsFeatureEnabled(server.FeaturePProf)
-}
-
-// EnableTracing 启用链路追踪功能
-func (g *Gateway) EnableTracing() error {
-	return g.Server.EnableFeature(server.FeatureTracing)
-}
-
-// EnableTracingWithConfig 使用自定义配置启用链路追踪
-func (g *Gateway) EnableTracingWithConfig(config interface{}) error {
-	return g.Server.EnableFeatureWithConfig(server.FeatureTracing, config)
-}
-
-// IsTracingEnabled 检查链路追踪是否已启用
-func (g *Gateway) IsTracingEnabled() bool {
-	return g.Server.IsFeatureEnabled(server.FeatureTracing)
-}
-
-// EnableFeature 启用指定功能（通用接口）
-func (g *Gateway) EnableFeature(feature server.FeatureType) error {
-	global.LOGGER.InfoContext(g.Context(), "启用功能: feature=%s", feature)
-	if err := g.Server.EnableFeature(feature); err != nil {
-		global.LOGGER.ErrorContext(g.Context(), "❌ 启用功能失败: feature=%s, error=%v", feature, err)
-		return err
-	}
-	global.LOGGER.InfoContext(g.Context(), "✅ 功能启用成功: feature=%s", feature)
-	return nil
-}
-
-// EnableFeatureWithConfig 使用自定义配置启用功能（通用接口）
-func (g *Gateway) EnableFeatureWithConfig(feature server.FeatureType, config interface{}) error {
-	global.LOGGER.InfoContext(g.Context(), "使用自定义配置启用功能: feature=%s", feature)
-	if err := g.Server.EnableFeatureWithConfig(feature, config); err != nil {
-		global.LOGGER.ErrorContext(g.Context(), "❌ 使用自定义配置启用功能失败: feature=%s, error=%v", feature, err)
-		return err
-	}
-	global.LOGGER.InfoContext(g.Context(), "✅ 功能启用成功(自定义配置): feature=%s", feature)
-	return nil
-}
-
-// IsFeatureEnabled 检查功能是否已启用（通用接口）
-func (g *Gateway) IsFeatureEnabled(feature server.FeatureType) bool {
-	return g.Server.IsFeatureEnabled(feature)
-}
-
 // ===============================================================================
 // 响应处理相关方法 - 基于错误码的标准化响应
 // ===============================================================================
@@ -632,7 +537,7 @@ func (g *Gateway) StartSilent() error {
 // StartWithBanner 启动网关服务并显示banner
 func (g *Gateway) StartWithBanner() error {
 	// 创建并使用启动状态报告器
-	startupReporter := server.NewStartupReporter(g.configManager.GetConfig())
+	startupReporter := server.NewStartupReporter(g.gatewayConfig)
 
 	// 打印启动时间戳
 	startupReporter.PrintStartupTimestamp()

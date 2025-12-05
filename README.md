@@ -104,17 +104,6 @@ flowchart TB
         ModeSelect --> Obs_MW
     end
     
-    %% 业务注入层
-    Server --> BizInjection
-    
-    subgraph BizInjection["💼 业务服务注入"]
-        direction LR
-        BizManager["BusinessInjectionManager"]
-        BizProvider["BusinessServiceProvider\n注册业务服务"]
-        
-        BizManager --> BizProvider
-    end
-    
     %% 功能特性层
     Server --> Features
     

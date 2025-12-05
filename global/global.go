@@ -14,6 +14,8 @@ package global
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/bwmarrin/snowflake"
 	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
@@ -24,7 +26,6 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
-	"time"
 )
 
 var (

@@ -35,7 +35,7 @@ type TracingManager struct {
 
 // NewTracingManager 创建链路追踪管理器
 func NewTracingManager(cfg *tracing.Tracing) (*TracingManager, error) {
-	if cfg == nil || !cfg.Enabled {
+	if !cfg.Enabled {
 		return &TracingManager{config: cfg}, nil
 	}
 

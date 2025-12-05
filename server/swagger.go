@@ -12,57 +12,30 @@
 package server
 
 import (
+	"net/http"
+
 	goswagger "github.com/kamalyes/go-config/pkg/swagger"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-toolbox/pkg/safe"
-	"net/http"
 )
 
 // EnableSwagger 启用 Swagger 文档服务
 func (s *Server) EnableSwagger() error {
-	// 使用安全访问模式获取 Swagger 配置
-	swaggerSafe := s.configSafe.Field("swagger")
-
-	swaggerConfig := goswagger.Default().
-		WithEnabled(swaggerSafe.Field("enabled").Bool(false)).
-		WithJSONPath(swaggerSafe.Field("json_path").String("")).
-		WithUIPath(swaggerSafe.Field("ui_path").String("/swagger")).
-		WithTitle(swaggerSafe.Field("title").String("API Documentation")).
-		WithDescription(swaggerSafe.Field("description").String("")).
-		WithVersion(swaggerSafe.Field("version").String("1.0.0"))
+	// 配置已通过 safe.MergeWithDefaults 合并,直接使用
+	if !s.config.Swagger.Enabled {
+		return nil
+	}
 
 	// 处理 Aggregate 配置
-	if aggregateSafe := swaggerSafe.Field("aggregate"); aggregateSafe.IsValid() {
-		aggregate := &goswagger.AggregateConfig{
-			Enabled: aggregateSafe.Field("enabled").Bool(false),
-			Mode:    aggregateSafe.Field("mode").String("merge"),
-		}
-
-		// 处理服务列表
-		if servicesSafe := aggregateSafe.Field("services"); servicesSafe.IsValid() {
-			aggregate.Services = s.parseAggregateServices(servicesSafe)
-		}
-
-		swaggerConfig = swaggerConfig.WithAggregate(aggregate)
-
+	if s.config.Swagger.Aggregate.Enabled {
 		global.LOGGER.InfoContext(s.ctx, "🔧 解析聚合配置: enabled=%v, mode=%s, services_count=%d",
-			aggregate.Enabled, aggregate.Mode, len(aggregate.Services))
+			s.config.Swagger.Aggregate.Enabled,
+			s.config.Swagger.Aggregate.Mode,
+			len(s.config.Swagger.Aggregate.Services))
 	}
 
-	// contact 和 license 如果不为空则设置
-	if contact := swaggerSafe.Field("contact").Value(); contact != nil {
-		if contactPtr, ok := contact.(*goswagger.Contact); ok {
-			swaggerConfig = swaggerConfig.WithContact(contactPtr)
-		}
-	}
-	if license := swaggerSafe.Field("license").Value(); license != nil {
-		if licensePtr, ok := license.(*goswagger.License); ok {
-			swaggerConfig = swaggerConfig.WithLicense(licensePtr)
-		}
-	}
-
-	return s.EnableSwaggerWithConfig(swaggerConfig)
+	return s.EnableSwaggerWithConfig(s.config.Swagger)
 }
 
 // EnableSwaggerWithConfig 使用 go-config 的 Swagger 配置启用服务

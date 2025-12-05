@@ -16,7 +16,6 @@ import (
 	"time"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
-	goconfig "github.com/kamalyes/go-config"
 	"github.com/kamalyes/go-config/pkg/monitoring"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/prometheus/client_golang/prometheus"
@@ -47,9 +46,7 @@ type HTTPMetrics struct {
 // NewMetricsManager 创建指标管理器
 // go-config 的 Default() 已经设置了所有默认值（包括 Buckets），无需再次设置
 func NewMetricsManager(cfg *monitoring.Monitoring) *MetricsManager {
-	// 使用SafeConfig安全访问
-	configSafe := goconfig.SafeConfig(cfg)
-	if cfg == nil || !configSafe.Metrics().Enabled(false) {
+	if !cfg.Metrics.Enabled {
 		return nil
 	}
 
@@ -167,12 +164,8 @@ func (mm *MetricsManager) GetPanicCounter() prometheus.Counter {
 func (mm *MetricsManager) Handler() http.Handler {
 	opts := promhttp.HandlerOpts{}
 
-	if mm.config != nil {
-		// 使用SafeConfig安全访问
-		configSafe := goconfig.SafeConfig(mm.config)
-		if configSafe.Metrics().Field("EnableOpenMetrics").Bool(false) {
-			opts.EnableOpenMetrics = true
-		}
+	if mm.config != nil && mm.config.Metrics != nil && mm.config.Metrics.EnableOpenMetrics {
+		opts.EnableOpenMetrics = true
 	}
 
 	return promhttp.HandlerFor(mm.registry, opts)

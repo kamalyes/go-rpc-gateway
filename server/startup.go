@@ -13,19 +13,20 @@ package server
 
 import (
 	"context"
-	goconfig "github.com/kamalyes/go-config"
-	"github.com/kamalyes/go-rpc-gateway/global"
 	"time"
+
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	"github.com/kamalyes/go-rpc-gateway/global"
 )
 
 // StartupReporter 启动状态报告器
 type StartupReporter struct {
 	ctx    context.Context
-	config interface{}
+	config *gwconfig.Gateway
 }
 
 // NewStartupReporter 创建启动状态报告器
-func NewStartupReporter(config interface{}) *StartupReporter {
+func NewStartupReporter(config *gwconfig.Gateway) *StartupReporter {
 	return &StartupReporter{
 		ctx:    context.Background(),
 		config: config,
@@ -47,172 +48,130 @@ func (r *StartupReporter) PrintStartupStatus() {
 		return
 	}
 
-	configSafe := goconfig.SafeConfig(r.config)
-
 	global.LOGGER.InfoContext(r.ctx, "🔄 ===== 服务启动状态检查 =====")
 
 	// 打印基础信息
-	r.printBasicStatus(configSafe)
+	r.printBasicStatus()
 
 	// 打印功能模块状态
-	r.printFeatureStatus(configSafe)
+	r.printFeatureStatus()
 
 	// 打印中间件状态
-	r.printMiddlewareStatus(configSafe)
+	r.printMiddlewareStatus()
 
 	// 打印监控和分析功能状态
-	r.printMonitoringStatus(configSafe)
+	r.printMonitoringStatus()
 
 	global.LOGGER.InfoContext(r.ctx, "✅ ===== 启动状态检查完成 =====")
 }
 
 // printBasicStatus 打印基础状态
-func (r *StartupReporter) printBasicStatus(configSafe *goconfig.ConfigSafe) {
+func (r *StartupReporter) printBasicStatus() {
 	global.LOGGER.InfoContext(r.ctx, "📋 基础服务状态:")
 
 	// HTTP 服务器
 	global.LOGGER.InfoContext(r.ctx, "   🌐 HTTP服务: %s:%d",
-		configSafe.Field("HTTPServer").Field("Host").String("localhost"),
-		configSafe.Field("HTTPServer").Field("Port").Int(8080))
+		r.config.HTTPServer.Host,
+		r.config.HTTPServer.Port)
 
 	// gRPC 服务器
 	global.LOGGER.InfoContext(r.ctx, "   📡 gRPC服务: %s:%d",
-		configSafe.Field("GRPCServer").Field("Host").String("localhost"),
-		configSafe.Field("GRPCServer").Field("Port").Int(9090))
+		r.config.GRPC.Server.Host,
+		r.config.GRPC.Server.Port)
 
 	// 环境模式
 	global.LOGGER.InfoContext(r.ctx, "   🌍 运行环境: %s (调试模式: %v)",
-		configSafe.Field("Environment").String("development"),
-		configSafe.Field("Debug").Bool(false))
+		r.config.Environment,
+		r.config.Debug)
 }
 
 // printFeatureStatus 打印功能状态
-func (r *StartupReporter) printFeatureStatus(configSafe *goconfig.ConfigSafe) {
+func (r *StartupReporter) printFeatureStatus() {
 	global.LOGGER.InfoContext(r.ctx, "🔧 功能模块状态:")
 
 	// 健康检查
-	if configSafe.IsHealthEnabled() {
-		global.LOGGER.InfoContext(r.ctx, "   ✅ 健康检查: 已启用 (%s)",
-			configSafe.GetHealthPath("/health"))
+	if r.config.Health.Enabled {
+		global.LOGGER.InfoContext(r.ctx, "   ✅ 健康检查: 已启用 (%s)", r.config.Health.Path)
 	} else {
 		global.LOGGER.InfoContext(r.ctx, "   ❌ 健康检查: 已禁用")
 	}
 
 	// Swagger 文档
-	if configSafe.Field("Swagger").Field("Enabled").Bool(false) {
-		global.LOGGER.InfoContext(r.ctx, "   ✅ Swagger文档: 已启用 (%s)",
-			configSafe.Field("Swagger").Field("UIPath").String("/swagger"))
+	if r.config.Swagger.Enabled {
+		global.LOGGER.InfoContext(r.ctx, "   ✅ Swagger文档: 已启用 (%s)", r.config.Swagger.UIPath)
 	} else {
 		global.LOGGER.InfoContext(r.ctx, "   ❌ Swagger文档: 已禁用")
 	}
 
 	// WebSocket 支持
-	if configSafe.Field("WSC").Field("Enabled").Bool(false) {
-		global.LOGGER.InfoContext(r.ctx, "   ✅ WebSocket: 已启用 (%s)",
-			configSafe.Field("WSC").Field("Path").String("/ws"))
+	if r.config.WSC.Enabled {
+		global.LOGGER.InfoContext(r.ctx, "   ✅ WebSocket: 已启用 (%s)", r.config.WSC.Path)
 	} else {
 		global.LOGGER.InfoContext(r.ctx, "   ❌ WebSocket: 已禁用")
 	}
 }
 
 // printMiddlewareStatus 打印中间件状态
-func (r *StartupReporter) printMiddlewareStatus(configSafe *goconfig.ConfigSafe) {
+func (r *StartupReporter) printMiddlewareStatus() {
 	global.LOGGER.InfoContext(r.ctx, "🔌 中间件状态:")
 
 	// CORS 跨域
-	corsEnabled := configSafe.Field("CORS").Field("AllowedAllOrigins").Bool(false) ||
-		configSafe.Field("CORS").Field("AllowedOrigins").String("") != ""
+	corsEnabled := r.config.CORS.AllowedAllOrigins || len(r.config.CORS.AllowedOrigins) > 0
 	r.printMiddlewareItem("CORS跨域", corsEnabled)
 
 	// 限流控制
-	rateLimitEnabled := configSafe.Field("RateLimit").Field("Enabled").Bool(false)
-	r.printMiddlewareItem("限流控制", rateLimitEnabled)
+	r.printMiddlewareItem("限流控制", r.config.RateLimit.Enabled)
 
 	// 请求ID生成
-	requestIDEnabled := configSafe.Field("Middleware").Field("RequestID").Field("Enabled").Bool(false)
-	r.printMiddlewareItem("请求ID生成", requestIDEnabled)
+	r.printMiddlewareItem("请求ID生成", r.config.Middleware.RequestID.Enabled)
 
 	// 异常恢复
-	recoveryEnabled := configSafe.Field("Middleware").Field("Recovery").Field("Enabled").Bool(false)
-	r.printMiddlewareItem("异常恢复", recoveryEnabled)
+	r.printMiddlewareItem("异常恢复", r.config.Middleware.Recovery.Enabled)
 
 	// 访问日志
-	accessLogEnabled := configSafe.Field("Middleware").Field("Logging").Field("Enabled").Bool(false)
-	r.printMiddlewareItem("访问日志", accessLogEnabled)
+	r.printMiddlewareItem("访问日志", r.config.Middleware.Logging.Enabled)
 
 	// 身份认证
-	authEnabled := configSafe.Field("JWT").Field("SigningKey").String("") != ""
+	authEnabled := r.config.Security.JWT.Secret != ""
 	r.printMiddlewareItem("身份认证(JWT)", authEnabled)
 
 	// 安全头设置
-	securityEnabled := configSafe.Field("Security").Field("Enabled").Bool(false)
-	r.printMiddlewareItem("安全头设置", securityEnabled)
+	r.printMiddlewareItem("安全头设置", r.config.Security.Enabled)
 }
 
 // printMonitoringStatus 打印监控和分析功能状态
-func (r *StartupReporter) printMonitoringStatus(configSafe *goconfig.ConfigSafe) {
+func (r *StartupReporter) printMonitoringStatus() {
 	global.LOGGER.InfoContext(r.ctx, "📊 监控与分析状态:")
 
 	// Prometheus Metrics
-	if configSafe.IsMetricsEnabled() {
-		metricsHost := configSafe.Field("metrics").Field("host").String("0.0.0.0")
-		if metricsHost == "0.0.0.0" {
-			metricsHost = "localhost"
-		}
-		global.LOGGER.InfoContext(r.ctx, "   ✅ Prometheus指标: 已启用 (http://%s:%d%s)",
-			metricsHost,
-			configSafe.Field("metrics").Field("port").Int(9090),
-			configSafe.Field("metrics").Field("path").String("/metrics"))
-
-		// 检查自定义指标状态
-		httpMetrics := configSafe.Field("metrics").Field("custom_metrics").Field("http_requests_total").Field("enabled").Bool(false)
-		grpcMetrics := configSafe.Field("metrics").Field("custom_metrics").Field("grpc_requests_total").Field("enabled").Bool(false)
-		redisMetrics := configSafe.Field("metrics").Field("custom_metrics").Field("redis_operations_total").Field("enabled").Bool(false)
-
-		if httpMetrics || grpcMetrics || redisMetrics {
-			global.LOGGER.InfoContext(r.ctx, "     📈 自定义指标: HTTP(%v) gRPC(%v) Redis(%v)",
-				httpMetrics, grpcMetrics, redisMetrics)
-		}
-
-		// 检查中间件指标状态
-		if configSafe.Field("middleware").Field("metrics").Field("enabled").Bool(false) {
-			global.LOGGER.InfoContext(r.ctx, "     🔗 中间件指标: 已启用 (排除路径: %s)",
-				configSafe.Field("middleware").Field("metrics").Field("exclude_paths").String(""))
-		}
+	if r.config.Monitoring.Prometheus.Enabled {
+		global.LOGGER.InfoContext(r.ctx, "   ✅ Prometheus指标: 已启用 (http://localhost:%d%s)",
+			r.config.Monitoring.Prometheus.Port,
+			r.config.Monitoring.Prometheus.Path)
 	} else {
 		global.LOGGER.InfoContext(r.ctx, "   ❌ Prometheus指标: 已禁用")
 	}
 
 	// PProf 性能分析
-	if configSafe.IsPProfEnabled() {
-		pprofHost := configSafe.Field("pprof").Field("host").String("0.0.0.0")
-		if pprofHost == "0.0.0.0" {
-			pprofHost = "localhost"
-		}
-		global.LOGGER.InfoContext(r.ctx, "   ✅ PProf性能分析: 已启用 (http://%s:%d%s/)",
-			pprofHost,
-			configSafe.Field("pprof").Field("port").Int(6060),
-			configSafe.GetPProfPathPrefix("/debug/pprof"))
+	if r.config.Middleware.PProf.Enabled {
+		global.LOGGER.InfoContext(r.ctx, "   ✅ PProf性能分析: 已启用 (http://localhost:%d%s/)",
+			r.config.Middleware.PProf.Port,
+			r.config.Middleware.PProf.PathPrefix)
 
 		// 检查认证状态
 		authStatus := "已禁用 ⚠️"
-		if configSafe.Field("pprof").Field("auth").Field("enabled").Bool(false) {
+		if r.config.Middleware.PProf.Authentication.Enabled {
 			authStatus = "已启用 🔐"
 		}
 		global.LOGGER.InfoContext(r.ctx, "     🔐 PProf认证: %s", authStatus)
-
-		// 检查中间件状态
-		if configSafe.Field("middleware").Field("pprof").Field("enabled").Bool(false) {
-			global.LOGGER.InfoContext(r.ctx, "     🔗 PProf中间件: 已启用")
-		}
 	} else {
 		global.LOGGER.InfoContext(r.ctx, "   ❌ PProf性能分析: 已禁用")
 	}
 
 	// Jaeger 链路追踪
-	if configSafe.IsJaegerEnabled() {
+	if r.config.Monitoring.Jaeger.Enabled {
 		global.LOGGER.InfoContext(r.ctx, "   ✅ 链路追踪: 已启用 (%s)",
-			configSafe.GetJaegerServiceName("gateway-service"))
+			r.config.Monitoring.Jaeger.ServiceName)
 	} else {
 		global.LOGGER.InfoContext(r.ctx, "   ❌ 链路追踪: 已禁用")
 	}
@@ -239,21 +198,19 @@ func (r *StartupReporter) PrintStartupSummary() {
 		return
 	}
 
-	configSafe := goconfig.SafeConfig(r.config)
-
 	enabledCount := 0
 	totalCount := 0
 
 	// 统计功能状态
 	features := []bool{
-		configSafe.IsHealthEnabled(),
-		configSafe.Field("Swagger").Field("Enabled").Bool(false),
-		configSafe.IsMetricsEnabled(),
-		configSafe.IsPProfEnabled(),
-		configSafe.IsJaegerEnabled(),
-		configSafe.Field("WSC").Field("Enabled").Bool(false),
-		configSafe.Field("CORS").Field("AllowedAllOrigins").Bool(false) || configSafe.Field("CORS").Field("AllowedOrigins").String("") != "",
-		configSafe.Field("RateLimit").Field("Enabled").Bool(false),
+		r.config.Health.Enabled,
+		r.config.Swagger.Enabled,
+		r.config.Monitoring.Prometheus.Enabled,
+		r.config.Middleware.PProf.Enabled,
+		r.config.Monitoring.Jaeger.Enabled,
+		r.config.WSC.Enabled,
+		r.config.CORS.AllowedAllOrigins || len(r.config.CORS.AllowedOrigins) > 0,
+		r.config.RateLimit.Enabled,
 	}
 
 	for _, enabled := range features {

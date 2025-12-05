@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 00:00:00
+ * @LastEditTime: 2025-12-05 19:47:10
  * @FilePath: \go-rpc-gateway\server\tracing.go
  * @Description: OpenTelemetry 链路追踪管理器
  *
@@ -13,10 +13,10 @@ package server
 
 import (
 	"context"
+
 	gojaeger "github.com/kamalyes/go-config/pkg/jaeger"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
-	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
@@ -38,7 +38,7 @@ type TracingManager struct {
 // NewTracingManager 创建追踪管理器（使用OTLP协议）
 func NewTracingManager(cfg *gojaeger.Jaeger) (*TracingManager, error) {
 	// 如果追踪未启用，返回禁用的管理器
-	if cfg == nil || !cfg.Enabled {
+	if !cfg.Enabled {
 		return &TracingManager{
 			enabled: false,
 		}, nil
@@ -183,15 +183,16 @@ func (tm *TracingManager) StartSpan(ctx context.Context, name string, opts ...tr
 
 // EnableTracing 启用链路追踪功能（使用配置文件，通过OTLP协议兼容Jaeger）
 func (s *Server) EnableTracing() error {
-	return mathx.IF(s.configSafe.IsJaegerEnabled(),
-		s.EnableTracingWithConfig(),
-		nil)
+	if s.config.Monitoring == nil || s.config.Monitoring.Jaeger == nil || !s.config.Monitoring.Jaeger.Enabled {
+		return nil
+	}
+	return s.EnableTracingWithConfig()
 }
 
 // EnableTracingWithConfig 使用自定义配置启用链路追踪（通过OTLP协议）
 func (s *Server) EnableTracingWithConfig() error {
-	if !s.configSafe.IsJaegerEnabled() {
-		return nil // 如果未启用链路追踪，直接返回
+	if s.config.Monitoring == nil || s.config.Monitoring.Jaeger == nil || !s.config.Monitoring.Jaeger.Enabled {
+		return nil
 	}
 
 	// 创建 TracingManager
@@ -203,10 +204,15 @@ func (s *Server) EnableTracingWithConfig() error {
 	// 保存到 Server（可选，如果需要在其他地方访问）
 	// s.tracingManager = tracingManager
 
+	samplingType := "const"
+	if s.config.Monitoring.Jaeger.Sampling != nil && s.config.Monitoring.Jaeger.Sampling.Type != "" {
+		samplingType = s.config.Monitoring.Jaeger.Sampling.Type
+	}
+
 	global.LOGGER.InfoKV("链路追踪已启用（OTLP协议）",
-		"service", s.configSafe.GetJaegerServiceName(""),
-		"endpoint", s.configSafe.GetJaegerEndpoint(""),
-		"sampling_type", s.configSafe.GetJaegerSamplingType(""))
+		"service", s.config.Monitoring.Jaeger.ServiceName,
+		"endpoint", s.config.Monitoring.Jaeger.Endpoint,
+		"sampling_type", samplingType)
 	go func() {
 		<-s.ctx.Done()
 		if err := tracingManager.Shutdown(context.Background()); err != nil {

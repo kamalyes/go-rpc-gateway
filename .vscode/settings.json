@@ -131,6 +131,7 @@
       "casbin",
       "clientidv",
       "cooldown",
+      "cpool",
       "CSBEF",
       "Datetime",
       "DB",
@@ -140,7 +141,11 @@
       "goconfig",
       "gorm",
       "gowsc",
+      "grpcpool",
+      "gruntime",
+      "gsqlconstants",
       "gwconfig",
+      "gwglobal",
       "kamalyes",
       "mapstructure",
       "millis",
@@ -149,8 +154,10 @@
       "modulename",
       "Mqtt",
       "Multipoint",
+      "otlptracehttp",
       "paho",
       "postgre",
+      "semconv",
       "stretchr",
       "stringx",
       "Wechat",
@@ -158,11 +165,6 @@
       "YOUZAN",
       "zeroclient",
       "zerorestful",
-      "zeroserver",
-      "gwconfig",
-      "gwglobal",
-      "grpcpool",
-      "gruntime",
-      "gsqlconstants"
+      "zeroserver"
     ]
 }

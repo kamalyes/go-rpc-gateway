@@ -13,12 +13,13 @@ package server
 
 import (
 	"fmt"
-	"github.com/kamalyes/go-rpc-gateway/errors"
-	"github.com/kamalyes/go-rpc-gateway/global"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/kamalyes/go-rpc-gateway/errors"
+	"github.com/kamalyes/go-rpc-gateway/global"
 )
 
 // Start 启动服务器
@@ -63,11 +64,11 @@ func (s *Server) Start() error {
 
 	s.running = true
 
-	// 使用安全访问获取端点信息
-	httpHost := s.configSafe.Field("HTTPServer").Field("Host").String("0.0.0.0")
-	httpPort := s.configSafe.Field("HTTPServer").Field("Port").Int(8080)
-	grpcHost := s.configSafe.Field("GRPC").Field("Server").Field("Host").String("0.0.0.0")
-	grpcPort := s.configSafe.Field("GRPC").Field("Server").Field("Port").Int(9090)
+	// 获取端点信息（配置已通过 safe.MergeWithDefaults 合并默认值）
+	httpHost := s.config.HTTPServer.Host
+	httpPort := s.config.HTTPServer.Port
+	grpcHost := s.config.GRPC.Server.Host
+	grpcPort := s.config.GRPC.Server.Port
 
 	endpointMsg := fmt.Sprintf("http://%s:%d, grpc://%s:%d", httpHost, httpPort, grpcHost, grpcPort)
 	if s.webSocketService != nil && s.webSocketService.IsRunning() {

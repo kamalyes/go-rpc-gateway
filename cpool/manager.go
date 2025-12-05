@@ -13,6 +13,8 @@ package cpool
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/bwmarrin/snowflake"
 	"github.com/casbin/casbin/v2"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -26,7 +28,6 @@ import (
 	"github.com/minio/minio-go/v7"
 	redisClient "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
-	"sync"
 )
 
 // PoolManager 连接池管理器接口
@@ -364,6 +365,11 @@ func (m *Manager) GetSMTP() smtp.MailHandler {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.smtp
+}
+
+// GetSMTPClient 获取SMTP客户端（兼容 go-wsc.PoolManager 接口）
+func (m *Manager) GetSMTPClient() interface{} {
+	return m.GetSMTP()
 }
 
 // Setter methods

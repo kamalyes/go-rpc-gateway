@@ -98,6 +98,30 @@ func NewManager() (*Manager, error) {
 	// 初始化PB验证中间件
 	manager.pbValidationMiddleware = NewPBValidationMiddleware()
 
+	// 初始化限流器（如果启用）
+	if cfg.RateLimit != nil && cfg.RateLimit.Enabled {
+		// 根据策略选择限流器实现
+		switch cfg.RateLimit.Strategy {
+		case "token-bucket":
+			manager.rateLimiter = NewTokenBucketLimiter()
+		case "sliding-window":
+			if global.REDIS != nil {
+				manager.rateLimiter = NewSlidingWindowLimiter(cfg.RateLimit)
+			} else {
+				manager.rateLimiter = NewTokenBucketLimiter() // 降级到令牌桶
+				global.LOGGER.Warn("Redis不可用，限流器降级为令牌桶模式")
+			}
+		case "fixed-window":
+			manager.rateLimiter = NewFixedWindowLimiter(cfg.RateLimit)
+		default:
+			manager.rateLimiter = NewTokenBucketLimiter()
+		}
+
+		global.LOGGER.Info("限流器已初始化",
+			"strategy", cfg.RateLimit.Strategy,
+			"enabled", true)
+	}
+
 	return manager, nil
 }
 
@@ -302,7 +326,7 @@ func (m *Manager) GetDefaultMiddlewares() []MiddlewareFunc {
 	// 基础中间件
 	middlewares := m.getBaseMiddlewares()
 
-	// 添加限流中间件（如果启用）
+	// 添加限流中间件（如果已初始化）
 	if m.rateLimiter != nil {
 		middlewares = append(middlewares, m.RateLimitMiddleware())
 	}

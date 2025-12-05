@@ -37,22 +37,22 @@ func (s *Server) initMiddleware() error {
 
 // initHealthManager 初始化健康检查管理器
 func (s *Server) initHealthManager() error {
-	// 直接使用配置中的值，默认值已在 go-config 的 Default() 中设置
+	// 配置已通过 safe.MergeWithDefaults 合并默认值
 	healthManager := middleware.NewHealthManager(
-		s.configSafe.Field("Name").String("Gateway"),
-		s.configSafe.Field("Version").String("v1.0.0"),
+		s.config.Name,
+		s.config.Version,
 	)
 
-	// 添加Redis健康检查 - 简洁的链式调用
-	if s.configSafe.IsRedisHealthEnabled() {
-		timeout := s.configSafe.GetRedisHealthTimeout(30 * time.Second)
+	// 添加Redis健康检查
+	if s.config.Health.Redis.Enabled {
+		timeout := time.Duration(s.config.Health.Redis.Timeout) * time.Second
 		redisChecker := middleware.NewRedisChecker(timeout)
 		healthManager.RegisterChecker(redisChecker)
 	}
 
-	// 添加MySQL健康检查 - 简洁的链式调用
-	if s.configSafe.IsMySQLHealthEnabled() {
-		timeout := s.configSafe.GetMySQLHealthTimeout(30 * time.Second)
+	// 添加MySQL健康检查
+	if s.config.Health.MySQL.Enabled {
+		timeout := time.Duration(s.config.Health.MySQL.Timeout) * time.Second
 		mysqlChecker := middleware.NewMySQLChecker(timeout)
 		healthManager.RegisterChecker(mysqlChecker)
 	}

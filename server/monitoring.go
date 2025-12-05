@@ -11,29 +11,27 @@
 
 package server
 
-import (
-	"github.com/kamalyes/go-toolbox/pkg/mathx"
-)
-
-// EnableMonitoring 启用监控功能（使用配置文件）
+// EnableMonitoring 启用监控功能(使用配置文件)
 func (s *Server) EnableMonitoring() error {
-	return mathx.IF(s.configSafe.IsMonitoringEnabled(),
-		s.EnableMonitoringWithConfig(),
-		nil)
+	// 配置已通过 safe.MergeWithDefaults 合并,直接使用
+	if !s.config.Monitoring.Enabled {
+		return nil
+	}
+	return s.EnableMonitoringWithConfig()
 }
 
 // EnableMonitoringWithConfig 使用自定义配置启用监控
 func (s *Server) EnableMonitoringWithConfig() error {
-	if !s.configSafe.IsMonitoringEnabled() {
+	if !s.config.Monitoring.Enabled {
 		return nil
 	}
 
-	// 创建 MetricsManager（已有实现）
+	// 创建 MetricsManager(已有实现)
 	metricsManager := NewMetricsManager(s.config.Monitoring)
 
 	// 注册 Prometheus metrics 端点
-	if s.configSafe.IsMetricsEnabled() {
-		endpoint := s.configSafe.GetMetricsEndpoint("/metrics")
+	if s.config.Monitoring.Metrics.Enabled {
+		endpoint := s.config.Monitoring.Metrics.Endpoint
 		s.RegisterHTTPRoute(endpoint, metricsManager.Handler())
 	}
 

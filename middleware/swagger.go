@@ -23,11 +23,11 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	goconfig "github.com/kamalyes/go-config"
 	goswagger "github.com/kamalyes/go-config/pkg/swagger"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
+	"github.com/kamalyes/go-toolbox/pkg/safe"
 )
 
 // SwaggerMiddleware Swagger文档中间件 (支持单服务和聚合模式)
@@ -46,56 +46,9 @@ type SwaggerMiddleware struct {
 
 // NewSwaggerMiddleware 创建Swagger中间件 (支持单服务和聚合模式)
 // [EN] Create Swagger middleware (supports single service and aggregation modes)
-func NewSwaggerMiddleware(config interface{}) *SwaggerMiddleware {
-	// 使用SafeConfig安全地提取Swagger配置
-	configSafe := goconfig.SafeConfig(config)
-
-	var swaggerConfig *goswagger.Swagger
-
-	// 尝试直接获取Swagger配置
-	if swaggerField := configSafe.Field("Swagger"); swaggerField.IsValid() {
-		// 从配置中构建Swagger配置，使用安全的默认值
-		swaggerConfig = &goswagger.Swagger{
-			Enabled:     swaggerField.Field("Enabled").Bool(false),
-			JSONPath:    swaggerField.Field("JsonPath").StringOr("/swagger/doc.json"),
-			UIPath:      swaggerField.Field("UiPath").StringOr("/swagger"),
-			YamlPath:    swaggerField.Field("YamlPath").StringOr("/swagger/doc.yaml"),
-			SpecPath:    swaggerField.Field("SpecPath").StringOr("./docs/swagger.yaml"),
-			Title:       swaggerField.Field("Title").StringOr("API Documentation"),
-			Description: swaggerField.Field("Description").StringOr("API Documentation powered by Swagger UI"),
-			Version:     swaggerField.Field("Version").StringOr("1.0.0"),
-		}
-
-		// 处理聚合配置
-		if aggregateField := swaggerField.Field("Aggregate"); aggregateField.IsValid() {
-			swaggerConfig.Aggregate = &goswagger.AggregateConfig{
-				Enabled:  aggregateField.Field("Enabled").Bool(false),
-				Mode:     aggregateField.Field("Mode").StringOr("merge"),
-				UILayout: aggregateField.Field("UiLayout").StringOr("tabs"),
-				Services: []*goswagger.ServiceSpec{},
-			}
-
-			// 加载服务列表
-			if servicesField := aggregateField.Field("Services"); servicesField.IsValid() {
-				// 这里需要处理服务列表的解析
-				// 由于SafeConfig不直接支持数组解析，我们先跳过详细的服务配置
-				// 在实际使用中可能需要通过其他方式获取完整的服务列表
-			}
-		}
-	} else if swaggerCfg, ok := config.(*goswagger.Swagger); ok {
-		// 如果传入的已经是Swagger配置，直接使用
-		swaggerConfig = swaggerCfg
-	} else {
-		// 使用默认配置
-		swaggerConfig = goswagger.Default()
-	}
-
-	if swaggerConfig == nil {
-		swaggerConfig = goswagger.Default()
-	}
-
+func NewSwaggerMiddleware(config *goswagger.Swagger) *SwaggerMiddleware {
 	middleware := &SwaggerMiddleware{
-		config:          swaggerConfig,
+		config:          config,
 		serviceSpecs:    make(map[string]map[string]interface{}),
 		httpClient:      &http.Client{Timeout: 30 * time.Second},
 		refreshInterval: 5 * time.Minute, // 默认5分钟刷新一次
@@ -103,16 +56,16 @@ func NewSwaggerMiddleware(config interface{}) *SwaggerMiddleware {
 
 	// 添加调试信息
 	global.LOGGER.Debug("🔧 Swagger配置调试信息:")
-	global.LOGGER.Debug("  - Enabled: %v", swaggerConfig.Enabled)
-	global.LOGGER.Debug("  - Aggregate != nil: %v", swaggerConfig.Aggregate != nil)
-	if swaggerConfig.Aggregate != nil {
-		global.LOGGER.Debug("  - Aggregate.Enabled: %v", swaggerConfig.Aggregate.Enabled)
-		global.LOGGER.Debug("  - Services count: %d", len(swaggerConfig.Aggregate.Services))
+	global.LOGGER.Debug("  - Enabled: %v", config.Enabled)
+	global.LOGGER.Debug("  - Aggregate != nil: %v", config.Aggregate != nil)
+	if config.Aggregate != nil {
+		global.LOGGER.Debug("  - Aggregate.Enabled: %v", config.Aggregate.Enabled)
+		global.LOGGER.Debug("  - Services count: %d", len(config.Aggregate.Services))
 	}
-	global.LOGGER.Debug("  - IsAggregateEnabled(): %v", swaggerConfig.IsAggregateEnabled())
+	global.LOGGER.Debug("  - IsAggregateEnabled(): %v", config.IsAggregateEnabled())
 
 	// 根据是否启用聚合模式进行不同的初始化
-	if swaggerConfig.IsAggregateEnabled() {
+	if config.IsAggregateEnabled() {
 		global.LOGGER.Info("✅ 启用Swagger聚合模式")
 		// 立即加载所有服务的规范
 		if err := middleware.loadAllServiceSpecs(); err != nil {
@@ -124,7 +77,7 @@ func NewSwaggerMiddleware(config interface{}) *SwaggerMiddleware {
 		global.LOGGER.Info("📄 使用单一Swagger模式")
 		// 如果未启用聚合，尝试加载Swagger文件
 		// [EN] If aggregation is not enabled, try to load Swagger file
-		if swaggerConfig.Enabled {
+		if config.Enabled {
 			if err := middleware.loadSwaggerSpec(); err != nil {
 				global.LOGGER.Error("加载Swagger文件失败: %v", err)
 			}
@@ -713,14 +666,18 @@ func (s *SwaggerMiddleware) handleServicesDebug(w http.ResponseWriter, r *http.R
 	}
 
 	// 配置的服务
-	if s.config.Aggregate != nil {
-		for _, service := range s.config.Aggregate.Services {
-			debugInfo["configured_services"] = append(debugInfo["configured_services"].([]map[string]interface{}), map[string]interface{}{
-				"name":      service.Name,
-				"enabled":   service.Enabled,
-				"spec_path": service.SpecPath,
-				"url":       service.URL,
-			})
+	safeAggregate := safe.Safe(s.config.Aggregate)
+	if safeAggregate.Field("Enabled").Bool(false) {
+		servicesVal := safeAggregate.Field("Services").Value()
+		if services, ok := servicesVal.([]*goswagger.ServiceSpec); ok {
+			for _, service := range services {
+				debugInfo["configured_services"] = append(debugInfo["configured_services"].([]map[string]interface{}), map[string]interface{}{
+					"name":      service.Name,
+					"enabled":   service.Enabled,
+					"spec_path": service.SpecPath,
+					"url":       service.URL,
+				})
+			}
 		}
 	}
 
@@ -1431,45 +1388,43 @@ func (s *SwaggerMiddleware) buildAggregateInfo() map[string]interface{} {
 
 // buildContactInfo 构建联系信息
 func (s *SwaggerMiddleware) buildContactInfo() interface{} {
-	if s.config.Contact != nil {
-		contact := make(map[string]interface{})
+	safeContact := safe.Safe(s.config.Contact)
+	contact := make(map[string]interface{})
 
-		// 只添加非空字段
-		if s.config.Contact.Name != "" {
-			contact["name"] = s.config.Contact.Name
-		}
-		if s.config.Contact.Email != "" {
-			contact["email"] = s.config.Contact.Email
-		}
-		if s.config.Contact.URL != "" {
-			contact["url"] = s.config.Contact.URL
-		}
+	// 只添加非空字段
+	if name := safeContact.Field("Name").String(""); name != "" {
+		contact["name"] = name
+	}
+	if email := safeContact.Field("Email").String(""); email != "" {
+		contact["email"] = email
+	}
+	if url := safeContact.Field("URL").String(""); url != "" {
+		contact["url"] = url
+	}
 
-		// 如果有任何字段，返回联系信息对象
-		if len(contact) > 0 {
-			return contact
-		}
+	// 如果有任何字段，返回联系信息对象
+	if len(contact) > 0 {
+		return contact
 	}
 	return nil
 }
 
 // buildLicenseInfo 构建许可证信息
 func (s *SwaggerMiddleware) buildLicenseInfo() interface{} {
-	if s.config.License != nil {
-		license := make(map[string]interface{})
+	safeLicense := safe.Safe(s.config.License)
+	license := make(map[string]interface{})
 
-		// 只添加非空字段
-		if s.config.License.Name != "" {
-			license["name"] = s.config.License.Name
-		}
-		if s.config.License.URL != "" {
-			license["url"] = s.config.License.URL
-		}
+	// 只添加非空字段
+	if name := safeLicense.Field("Name").String(""); name != "" {
+		license["name"] = name
+	}
+	if url := safeLicense.Field("URL").String(""); url != "" {
+		license["url"] = url
+	}
 
-		// 如果有任何字段，返回许可证信息对象
-		if len(license) > 0 {
-			return license
-		}
+	// 如果有任何字段，返回许可证信息对象
+	if len(license) > 0 {
+		return license
 	}
 	return nil
 }

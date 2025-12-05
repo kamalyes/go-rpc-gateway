@@ -17,7 +17,6 @@ import (
 	"sync"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
 	"github.com/kamalyes/go-rpc-gateway/errors"
@@ -28,8 +27,7 @@ import (
 
 // Server Gateway服务器
 type Server struct {
-	config     *gwconfig.Gateway
-	configSafe *goconfig.ConfigSafe // 添加安全配置访问器
+	config *gwconfig.Gateway
 
 	// 服务器组件
 	grpcServer *grpc.Server
@@ -49,9 +47,6 @@ type Server struct {
 
 	// Banner管理器
 	bannerManager *BannerManager
-
-	// 功能管理器
-	featureManager *FeatureManager
 
 	// 连接池管理器
 	poolManager cpool.PoolManager
@@ -85,8 +80,7 @@ func NewServer() (*Server, error) {
 	}
 
 	// 记录环境配置应用情况
-	configSafe := goconfig.SafeConfig(cfg)
-	monitoringEnabled := configSafe.IsMonitoringEnabled()
+	monitoringEnabled := cfg.Monitoring != nil && cfg.Monitoring.Enabled
 
 	global.LOGGER.InfoKV("服务器启动配置",
 		"environment", cfg.Environment,
@@ -97,14 +91,10 @@ func NewServer() (*Server, error) {
 
 	server := &Server{
 		config:        cfg,
-		configSafe:    configSafe, // 初始化安全配置访问器
 		ctx:           ctx,
 		cancel:        cancel,
 		bannerManager: NewBannerManager(cfg).WithContext(ctx),
 	}
-
-	// 初始化功能管理器
-	server.featureManager = NewFeatureManager(server)
 
 	// 初始化全局配置和核心组件
 	if err := server.initCore(); err != nil {
@@ -142,11 +132,6 @@ func (s *Server) GetBannerManager() *BannerManager {
 	return s.bannerManager
 }
 
-// GetFeatureManager 获取功能管理器
-func (s *Server) GetFeatureManager() *FeatureManager {
-	return s.featureManager
-}
-
 // GetPoolManager 获取连接池管理器
 func (s *Server) GetPoolManager() cpool.PoolManager {
 	return s.poolManager
@@ -160,21 +145,6 @@ func (s *Server) GetWebSocketService() *WebSocketService {
 // GetEndpointCollector 获取端点收集器
 func (s *Server) GetEndpointCollector() *EndpointCollector {
 	return s.endpointCollector
-}
-
-// EnableFeature 启用指定功能（使用配置中的默认设置）
-func (s *Server) EnableFeature(feature FeatureType) error {
-	return s.featureManager.Enable(feature)
-}
-
-// EnableFeatureWithConfig 使用自定义配置启用功能
-func (s *Server) EnableFeatureWithConfig(feature FeatureType, config interface{}) error {
-	return s.featureManager.EnableWithConfig(feature, config)
-}
-
-// IsFeatureEnabled 检查功能是否已启用
-func (s *Server) IsFeatureEnabled(feature FeatureType) bool {
-	return s.featureManager.IsEnabled(feature)
 }
 
 // RegisterGRPCService 注册gRPC服务
