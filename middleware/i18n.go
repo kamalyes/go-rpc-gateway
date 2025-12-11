@@ -489,7 +489,7 @@ func NewFileMessageLoader(localesPath string) *FileMessageLoader {
 	}
 }
 
-// LoadMessages 加载指定语言的消息
+// LoadMessages 加载指定语言的消息（支持嵌套JSON，自动扁平化为点号格式）
 // language: 语言代码，如 "zh", "en", "ja" 等
 // 会读取 {localesPath}/{language}.json 文件
 func (f *FileMessageLoader) LoadMessages(language string) (map[string]string, error) {
@@ -506,11 +506,43 @@ func (f *FileMessageLoader) LoadMessages(language string) (map[string]string, er
 		return nil, errors.NewErrorf(errors.ErrCodeLanguageLoadFailed, "failed to read language file %s: %v", filePath, err)
 	}
 
-	// 解析JSON
-	var messages map[string]string
-	if err := json.Unmarshal(data, &messages); err != nil {
+	// 先尝试解析为嵌套结构
+	var nested map[string]interface{}
+	if err := json.Unmarshal(data, &nested); err != nil {
 		return nil, errors.NewErrorf(errors.ErrCodeJSONParseFailed, "failed to parse language file %s: %v", filePath, err)
 	}
 
+	// 扁平化为点号格式
+	messages := flattenJSON(nested, "")
+
 	return messages, nil
+}
+
+// flattenJSON 递归扁平化嵌套JSON为点号格式
+// 例如: {"error": {"internal": "错误"}} -> {"error.internal": "错误"}
+func flattenJSON(data map[string]interface{}, prefix string) map[string]string {
+	result := make(map[string]string)
+
+	for key, value := range data {
+		fullKey := key
+		if prefix != "" {
+			fullKey = prefix + "." + key
+		}
+
+		switch v := value.(type) {
+		case string:
+			// 字符串值直接存储
+			result[fullKey] = v
+		case map[string]interface{}:
+			// 递归处理嵌套对象
+			for k, val := range flattenJSON(v, fullKey) {
+				result[k] = val
+			}
+		default:
+			// 其他类型转换为字符串
+			result[fullKey] = fmt.Sprintf("%v", v)
+		}
+	}
+
+	return result
 }
