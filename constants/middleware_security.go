@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-10 11:40:02
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 11:40:10
+ * @LastEditTime: 2025-12-11 17:56:53
  * @FilePath: \go-rpc-gateway\constants\middleware_security.go
  * @Description: 安全中间件相关常量
  *
@@ -10,6 +10,10 @@
  */
 
 package constants
+
+// ============================================================================
+// 安全中间件默认配置
+// ============================================================================
 
 // 安全头部默认值常量
 const (
@@ -90,3 +94,75 @@ var SecurityXSSPatterns = []string{
 	"onclick=",
 	"onmouseover=",
 }
+
+// 路径保护相关常量
+const (
+	// 认证类型
+	AuthTypeBasic  = "basic"
+	AuthTypeBearer = "bearer"
+	AuthTypeAPIKey = "apikey"
+	AuthTypeCustom = "custom"
+
+	// 认证方案
+	AuthSchemeBasic  = "Basic"
+	AuthSchemeBearer = "Bearer"
+
+	// 认证Realm
+	AuthRealmProtected = "Protected Area"
+	AuthRealmPProf     = "PProf"
+	AuthRealmSwagger   = "Swagger"
+	AuthRealmMetrics   = "Metrics"
+)
+
+// HTTP 方法常量
+const (
+	HTTPMethodOptions = "OPTIONS"
+	HTTPMethodGet     = "GET"
+	HTTPMethodHead    = "HEAD"
+	HTTPMethodPost    = "POST"
+	HTTPMethodPut     = "PUT"
+	HTTPMethodDelete  = "DELETE"
+)
+
+// CSRF Token 相关常量
+const (
+	CSRFTokenFormField  = "_csrf_token"
+	CSRFTokenCookieName = "csrf_token"
+	CSRFTokenLength     = 32
+	CSRFSecret          = "csrf-secret"
+)
+
+// 安全头部值常量
+const (
+	SecurityHeaderNosniff         = "nosniff"
+	SecurityHeaderDeny            = "DENY"
+	SecurityHeaderXSSBlock        = "1; mode=block"
+	SecurityHeaderHSTS            = "max-age=31536000; includeSubDomains"
+	SecurityHeaderReferrerDefault = "strict-origin-when-cross-origin"
+)
+
+// CORS 相关常量
+const (
+	CORSCredentialsTrue = "true"
+)
+
+// 安全中间件错误消息常量
+const (
+	ErrMsgIPNotAllowed   = "Forbidden: IP not allowed"
+	ErrMsgUnauthorized   = "Unauthorized"
+	ErrMsgHTTPSRequired  = "HTTPS Required"
+	ErrMsgAccessDenied   = "Access Denied"
+	ErrMsgInvalidToken   = "Invalid Token"
+	ErrMsgInvalidAuth    = "Invalid Authentication"
+	ErrMsgIPAccessDenied = "IP access denied"
+)
+
+// 安全中间件日志消息常量
+const (
+	LogMsgIPNotInWhitelist     = "路径保护: IP不在白名单"
+	LogMsgAuthFailed           = "路径保护: 认证失败"
+	LogMsgHTTPSRequired        = "路径保护: 要求HTTPS"
+	LogMsgAccessGranted        = "路径保护: 访问通过"
+	LogMsgCSRFValidationFailed = "CSRF token验证失败"
+	LogMsgIPAccessDenied       = "IP访问被拒绝"
+)

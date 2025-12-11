@@ -31,13 +31,20 @@ const (
 	HeaderXRealIP         = "X-Real-IP"
 	HeaderXForwardedFor   = "X-Forwarded-For"
 	HeaderXForwardedProto = "X-Forwarded-Proto"
+	HeaderWWWAuthenticate = "WWW-Authenticate"
+
+	// 用户上下文相关头部
+	HeaderXUserID    = "X-User-ID"
+	HeaderXTenantID  = "X-Tenant-ID"
+	HeaderXSessionID = "X-Session-ID"
 
 	// 设备和应用相关头部
-	HeaderXDeviceID   = "X-Device-Id"
-	HeaderXAppVersion = "X-App-Version"
-	HeaderXPlatform   = "X-Platform"
-	HeaderXTimestamp  = "X-Timestamp"
-	HeaderXSignature  = "X-Signature"
+	HeaderXDeviceID       = "X-Device-Id"
+	HeaderXAppVersion     = "X-App-Version"
+	HeaderXPlatform       = "X-Platform"
+	HeaderXTimestamp      = "X-Timestamp"
+	HeaderXSignature      = "X-Signature"
+	HeaderXResponseFormat = "X-Response-Format"
 
 	// 安全相关头部
 	HeaderXFrameOptions           = "X-Frame-Options"
@@ -47,6 +54,17 @@ const (
 	HeaderContentSecurityPolicy   = "Content-Security-Policy"
 	HeaderReferrerPolicy          = "Referrer-Policy"
 	HeaderPermissionsPolicy       = "Permissions-Policy"
+
+	// CORS 相关头部
+	HeaderAccessControlAllowOrigin      = "Access-Control-Allow-Origin"
+	HeaderAccessControlAllowMethods     = "Access-Control-Allow-Methods"
+	HeaderAccessControlAllowHeaders     = "Access-Control-Allow-Headers"
+	HeaderAccessControlAllowCredentials = "Access-Control-Allow-Credentials"
+	HeaderAccessControlMaxAge           = "Access-Control-Max-Age"
+	HeaderOrigin                        = "Origin"
+
+	// CSRF 相关头部
+	HeaderXCSRFToken = "X-CSRF-Token"
 )
 
 // MIME 类型常量

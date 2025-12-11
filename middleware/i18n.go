@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-10 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-21 11:27:10
+ * @LastEditTime: 2025-12-11 15:13:29
  * @FilePath: \go-rpc-gateway\middleware\i18n.go
  * @Description: 国际化i18n中间件
  *
@@ -21,7 +21,7 @@ import (
 	"strings"
 	"sync"
 
-	goconfigi18n "github.com/kamalyes/go-config/pkg/i18n"
+	goi18n "github.com/kamalyes/go-config/pkg/i18n"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 )
@@ -36,15 +36,15 @@ const (
 
 // I18nManager 国际化管理器
 type I18nManager struct {
-	config   *goconfigi18n.I18N
+	config   *goi18n.I18N
 	messages map[string]map[string]string
 	mutex    sync.RWMutex
 }
 
 // NewI18nManager 创建国际化管理器
-func NewI18nManager(config *goconfigi18n.I18N) (*I18nManager, error) {
+func NewI18nManager(config *goi18n.I18N) (*I18nManager, error) {
 	if config == nil {
-		config = goconfigi18n.Default()
+		config = goi18n.Default()
 	}
 
 	// 如果没有设置 MessageLoader，根据 MessagesPath 自动创建 FileMessageLoader
@@ -217,12 +217,7 @@ func (i *I18nManager) IsLanguageSupported(language string) bool {
 
 // I18n 国际化中间件，使用默认配置
 func I18n() MiddlewareFunc {
-	return I18nWithConfig(goconfigi18n.Default())
-}
-
-// I18nWithConfig 带配置的国际化中间件
-func I18nWithConfig(config *goconfigi18n.I18N) MiddlewareFunc {
-	manager, err := NewI18nManager(config)
+	manager, err := NewI18nManager(goi18n.Default())
 	if err != nil {
 		panic(fmt.Sprintf("failed to create i18n manager: %v", err))
 	}
@@ -256,7 +251,7 @@ func I18nWithManager(manager *I18nManager) MiddlewareFunc {
 }
 
 // detectLanguage 检测用户语言偏好
-func detectLanguage(r *http.Request, config *goconfigi18n.I18N) string {
+func detectLanguage(r *http.Request, config *goi18n.I18N) string {
 	for _, method := range config.DetectionOrder {
 		switch method {
 		case "header":
@@ -279,7 +274,7 @@ func detectLanguage(r *http.Request, config *goconfigi18n.I18N) string {
 }
 
 // detectFromHeader 从HTTP头检测语言
-func detectFromHeader(r *http.Request, config *goconfigi18n.I18N) string {
+func detectFromHeader(r *http.Request, config *goi18n.I18N) string {
 	acceptLanguage := r.Header.Get(config.LanguageHeader)
 	if acceptLanguage == "" {
 		return ""
@@ -301,12 +296,12 @@ func detectFromHeader(r *http.Request, config *goconfigi18n.I18N) string {
 }
 
 // detectFromQuery 从查询参数检测语言
-func detectFromQuery(r *http.Request, config *goconfigi18n.I18N) string {
+func detectFromQuery(r *http.Request, config *goi18n.I18N) string {
 	return r.URL.Query().Get(config.LanguageParam)
 }
 
 // detectFromCookie 从Cookie检测语言
-func detectFromCookie(r *http.Request, config *goconfigi18n.I18N) string {
+func detectFromCookie(r *http.Request, config *goi18n.I18N) string {
 	cookie, err := r.Cookie(config.LanguageParam)
 	if err != nil {
 		return ""

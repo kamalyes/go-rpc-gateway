@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-17 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-17 15:56:59
- * @FilePath: \im-access-control-service\go-rpc-gateway\cpool\oss\storage.go
+ * @LastEditTime: 2025-12-05 23:01:17
+ * @FilePath: \go-rpc-gateway\cpool\oss\storage.go
  * @Description: 对象存储服务统一接口 - 支持S3/MinIO/阿里云OSS
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
@@ -441,24 +441,18 @@ func (s *S3Storage) Close() error {
 
 // NewStorage 根据配置创建存储实例
 func NewStorage(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogger) (StorageHandler, error) {
-	if cfg.OSS == nil {
-		return nil, ErrOSSConfigNotFound
+	if !cfg.OSS.Enabled {
+		return nil, ErrDisabledConfiguration
 	}
 
-	// 优先使用MinIO配置
-	if cfg.OSS.Minio != nil && cfg.OSS.Minio.Endpoint != "" {
+	switch ossconfig.OSSType(cfg.OSS.Type) {
+	case ossconfig.OSSTypeMinio:
 		return NewMinIOStorage(ctx, cfg, log)
-	}
-
-	// 其次使用S3配置
-	if cfg.OSS.S3 != nil && cfg.OSS.S3.Endpoint != "" {
+	case ossconfig.OSSTypeS3:
 		return NewS3Storage(ctx, cfg.OSS.S3, log)
-	}
-
-	// 最后使用BoltDB本地存储
-	if cfg.OSS.BoltDB != nil && cfg.OSS.BoltDB.Path != "" {
+	case ossconfig.OSSTypeBoltDB:
 		return NewBoltDBStorage(ctx, cfg.OSS.BoltDB, log)
+	default:
+		return nil, ErrUnsupportedOSSType
 	}
-
-	return nil, ErrNoOSSConfigured
 }

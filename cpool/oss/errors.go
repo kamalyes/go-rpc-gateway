@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-17 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-17 16:00:00
+ * @LastEditTime: 2025-12-05 23:00:15
  * @FilePath: \go-rpc-gateway\cpool\oss\errors.go
  * @Description: OSS错误定义
  *
@@ -26,6 +26,8 @@ var (
 	ErrBoltDBPathEmpty          = errors.New("boltdb path is empty")
 	ErrBoltDBOpenFailed         = errors.New("failed to open boltdb")
 	ErrBoltDBCreateBucketFailed = errors.New("failed to create metadata bucket")
+	ErrDisabledConfiguration    = errors.New("disabled configuration")
+	ErrUnsupportedOSSType       = errors.New("unsupported oss storage type")
 
 	// Bucket错误
 	ErrBucketNotFound      = errors.New("bucket not found")

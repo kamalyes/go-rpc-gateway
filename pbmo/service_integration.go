@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-26 14:36:04
+ * @LastEditTime: 2025-11-26 15:36:05
  * @FilePath: \go-rpc-gateway\pbmo\service_integration.go
  * @Description: gRPC 服务集成适配器
  * 职责：自动转换拦截、参数校验拦截、错误处理

@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-26 14:34:47
+ * @LastEditTime: 2025-12-11 15:08:15
  * @FilePath: \go-rpc-gateway\pbmo\comprehensive_test.go
  * @Description: 综合场景测试 - 300+ 复杂测试用例，覆盖所有类型
  *
@@ -12,11 +12,12 @@
 package pbmo
 
 import (
-	"github.com/stretchr/testify/assert"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"math"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // ============================================================================

@@ -1,12 +1,12 @@
 /*
  * @Author: kamalyes 501893067@qq.com
- * @Date: 2024-11-07 00:00:00
+ * @Date: 2025-12-11
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-29 12:00:00
+ * @LastEditTime: 2025-12-11 15:15:17
  * @FilePath: \go-rpc-gateway\middleware\logging.go
- * @Description: HTTP 日志中间件（纯日志功能，context 注入请使用 context_trace.go）
+ * @Description: 统一日志中间件 - 支持 HTTP 和 gRPC
  *
- * Copyright (c) 2024 by kamalyes, All Rights Reserved.
+ * Copyright (c) 2025 by kamalyes, All Rights Reserved.
  */
 package middleware
 
@@ -24,290 +24,235 @@ import (
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-toolbox/pkg/netx"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 )
 
-// LoggingMiddleware HTTP 日志中间件
-// 注意：context 注入请使用 ContextTraceMiddleware，此中间件只负责日志记录
-func LoggingMiddleware(config *logging.Logging) HTTPMiddleware {
-	if config == nil {
-		config = logging.Default()
-	}
+// RequestLogger 统一的请求日志记录器
+type RequestLogger struct {
+	config *logging.Logging
+	ctx    context.Context
+}
 
-	if !config.Enabled {
-		return func(next http.Handler) http.Handler {
-			return next
-		}
-	}
-
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			processHTTPRequest(w, r, config, next)
-		})
+// NewRequestLogger 创建请求日志记录器
+func NewRequestLogger(ctx context.Context) *RequestLogger {
+	config := getLoggingConfig()
+	return &RequestLogger{
+		config: config,
+		ctx:    ctx,
 	}
 }
 
-// processHTTPRequest 处理 HTTP 请求的主要逻辑
-func processHTTPRequest(w http.ResponseWriter, r *http.Request, config *logging.Logging, next http.Handler) {
-	start := time.Now()
-	ctx := r.Context()
-
-	// 路径过滤和请求准备
-	skipDetail := isSkipPath(r.URL.Path, config)
-	reqBody := captureRequestBody(r, config, skipDetail)
-
-	// 设置响应包装器
-	wrapped := setupResponseWriter(w, skipDetail, config)
-	defer wrapped.Release()
-
-	// 执行请求
-	next.ServeHTTP(wrapped, r)
-
-	// 记录日志
-	logRequestIfNeeded(ctx, r, wrapped, time.Since(start), config, reqBody, skipDetail)
+// LogFields 日志字段构建器
+type LogFields struct {
+	fields []interface{}
 }
 
-// setupResponseWriter 设置响应写入器
-func setupResponseWriter(w http.ResponseWriter, skipDetail bool, config *logging.Logging) *ResponseWriter {
-	wrapped := NewResponseWriter(w)
-	if !skipDetail && config.EnableResponse {
-		wrapped.EnableBodyCapture()
+// NewLogFields 创建日志字段构建器
+func NewLogFields() *LogFields {
+	return &LogFields{fields: make([]interface{}, 0, 20)}
+}
+
+// Add 添加字段
+func (lf *LogFields) Add(key string, value interface{}) *LogFields {
+	lf.fields = append(lf.fields, key, value)
+	return lf
+}
+
+// AddIf 条件添加字段
+func (lf *LogFields) AddIf(condition bool, key string, value interface{}) *LogFields {
+	if condition {
+		lf.fields = append(lf.fields, key, value)
 	}
-	return wrapped
+	return lf
 }
 
-// logRequestIfNeeded 根据需要记录请求日志
-func logRequestIfNeeded(ctx context.Context, r *http.Request, wrapped *ResponseWriter, duration time.Duration, config *logging.Logging, reqBody []byte, skipDetail bool) {
-	if skipDetail {
-		logSkipPath(ctx, r, wrapped, duration)
+// AddUserContext 添加用户上下文信息
+func (lf *LogFields) AddUserContext(ctx context.Context) *LogFields {
+	if userID := logger.GetUserID(ctx); userID != "" {
+		lf.fields = append(lf.fields, "user_id", userID)
+	}
+	if tenantID := logger.GetTenantID(ctx); tenantID != "" {
+		lf.fields = append(lf.fields, "tenant_id", tenantID)
+	}
+	return lf
+}
+
+// AddSlow 添加慢请求标记
+func (lf *LogFields) AddSlow(duration, threshold time.Duration) *LogFields {
+	if duration > threshold {
+		lf.fields = append(lf.fields, "slow_request", true)
+	}
+	return lf
+}
+
+// Build 构建字段列表
+func (lf *LogFields) Build() []interface{} {
+	return lf.fields
+}
+
+// Log 记录日志
+func (rl *RequestLogger) Log(level string, message string, fields *LogFields) {
+	if global.LOGGER == nil {
 		return
 	}
 
-	if shouldLogRequest(wrapped.StatusCode(), config) {
-		if config.Format == "json" {
-			logRequestJSON(ctx, r, wrapped, duration, config, reqBody)
-		} else {
-			logRequestText(ctx, r, wrapped, duration, config)
+	fieldList := fields.Build()
+
+	switch level {
+	case "info":
+		global.LOGGER.InfoContextKV(rl.ctx, message, fieldList...)
+	case "warn":
+		global.LOGGER.WarnContextKV(rl.ctx, message, fieldList...)
+	case "error":
+		global.LOGGER.ErrorContextKV(rl.ctx, message, fieldList...)
+	}
+}
+
+// DataMasker 数据脱敏器
+type DataMasker struct {
+	config *logging.Logging
+}
+
+// NewDataMasker 创建数据脱敏器
+func NewDataMasker(config *logging.Logging) *DataMasker {
+	return &DataMasker{config: config}
+}
+
+// Mask 脱敏数据
+func (dm *DataMasker) Mask(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	// 截断超长数据
+	maxSize := dm.getMaxBodySize()
+	if len(data) > maxSize {
+		data = data[:maxSize]
+	}
+
+	// JSON 脱敏
+	if masked := dm.maskJSON(data); masked != "" {
+		return masked
+	}
+
+	// 文本脱敏
+	return dm.maskText(data)
+}
+
+// maskJSON 脱敏 JSON 数据
+func (dm *DataMasker) maskJSON(data []byte) string {
+	var jsonData map[string]interface{}
+	if err := json.Unmarshal(data, &jsonData); err != nil {
+		return ""
+	}
+
+	dm.maskJSONFields(jsonData)
+
+	masked, err := json.Marshal(jsonData)
+	if err != nil {
+		return ""
+	}
+	return string(masked)
+}
+
+// maskJSONFields 递归脱敏 JSON 字段
+func (dm *DataMasker) maskJSONFields(data interface{}) {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			if dm.isSensitive(key) {
+				v[key] = dm.getMask()
+			} else {
+				dm.maskJSONFields(value)
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			dm.maskJSONFields(item)
 		}
 	}
 }
 
-// captureRequestBody 捕获请求体
-func captureRequestBody(r *http.Request, config *logging.Logging, skipDetail bool) []byte {
-	if !config.EnableRequest || r.Body == nil || skipDetail {
-		return nil
+// maskText 脱敏文本数据
+func (dm *DataMasker) maskText(data []byte) string {
+	result := string(data)
+	mask := dm.getMask()
+
+	for _, key := range dm.config.SensitiveKeys {
+		pattern := `(?i)"?` + key + `"?\s*[:=]\s*"?[^"&,}\s]+`
+		re := regexp.MustCompile(pattern)
+		result = re.ReplaceAllString(result, key+"="+mask)
 	}
 
-	maxSize := getMaxBodySize(config)
-	limitedBody := io.LimitReader(r.Body, int64(maxSize+1))
-	reqBody, _ := io.ReadAll(limitedBody)
-	r.Body = io.NopCloser(bytes.NewBuffer(reqBody))
-
-	if len(reqBody) > maxSize {
-		reqBody = reqBody[:maxSize]
-	}
-	return reqBody
+	return result
 }
 
-// isSkipPath 检查是否为跳过路径
-func isSkipPath(path string, config *logging.Logging) bool {
-	for _, skip := range config.SkipPaths {
-		if path == skip {
+// isSensitive 检查是否为敏感字段
+func (dm *DataMasker) isSensitive(key string) bool {
+	lowerKey := strings.ToLower(key)
+	for _, sensitive := range dm.config.SensitiveKeys {
+		if strings.Contains(lowerKey, sensitive) {
 			return true
 		}
 	}
 	return false
 }
 
+// getMask 获取掩码
+func (dm *DataMasker) getMask() string {
+	if dm.config.SensitiveMask != "" {
+		return dm.config.SensitiveMask
+	}
+	return "***"
+}
+
 // getMaxBodySize 获取最大 body 大小
-func getMaxBodySize(config *logging.Logging) int {
-	if config.MaxBodySize > 0 {
-		return config.MaxBodySize
+func (dm *DataMasker) getMaxBodySize() int {
+	if dm.config.MaxBodySize > 0 {
+		return dm.config.MaxBodySize
 	}
-	return 2048 // 默认值
+	return constants.LoggingDefaultMaxBodySize
 }
 
-// logSkipPath 记录跳过的路径（仅记录错误）
-func logSkipPath(ctx context.Context, r *http.Request, rw *ResponseWriter, duration time.Duration) {
-	if rw.StatusCode() >= 400 {
-		global.LOGGER.WarnContextKV(ctx, "[Gateway] HTTP Request (Skip Path)",
-			"path", r.URL.Path,
-			"status", rw.StatusCode(),
-			"duration_ms", duration.Milliseconds(),
-		)
+// getLoggingConfig 获取日志配置
+func getLoggingConfig() *logging.Logging {
+	if global.GATEWAY != nil &&
+		global.GATEWAY.Middleware != nil &&
+		global.GATEWAY.Middleware.Logging != nil {
+		return global.GATEWAY.Middleware.Logging
 	}
+	return logging.Default()
 }
 
-// shouldLogRequest 判断是否应该记录该请求日志
-func shouldLogRequest(statusCode int, config *logging.Logging) bool {
-	// 始终记录错误（4xx, 5xx）
-	if statusCode >= 400 {
-		return true
-	}
-
-	// 如果配置了采样率，仅记录部分成功请求
-	// 注意：这需要在 logging.Logging 配置中添加 SampleRate 字段
-	// 这里假设所有请求都记录，后续可根据需要调整
-	return true
+// isLoggingEnabled 检查日志是否启用
+func isLoggingEnabled() bool {
+	config := getLoggingConfig()
+	return config.Enabled
 }
 
-// logRequestText 记录文本格式日志
-func logRequestText(ctx context.Context, r *http.Request, rw *ResponseWriter, duration time.Duration, config *logging.Logging) {
-	// 使用 ContextKV 记录日志，trace 信息从 context 中自动提取
-	global.LOGGER.InfoContextKV(ctx, "[Gateway] HTTP Request",
-		"method", r.Method,
-		"path", r.URL.Path,
-		"status", rw.StatusCode(),
-		"bytes", rw.BytesWritten(),
-		"duration_ms", duration.Milliseconds(),
-		"remote_addr", getClientIP(r),
-		"user_agent", r.Header.Get(constants.HeaderUserAgent),
-	)
+// shouldCaptureRequest 是否应该捕获请求体
+func shouldCaptureRequest() bool {
+	config := getLoggingConfig()
+	return config.EnableRequest
 }
 
-// logRequestJSON JSON 格式日志
-func logRequestJSON(ctx context.Context, r *http.Request, rw *ResponseWriter, duration time.Duration, config *logging.Logging, reqBody []byte) {
-	fields := buildBaseLogFields(r, rw, duration, config)
-	fields = appendRequestBodyFields(fields, reqBody, r, config)
-	fields = appendResponseBodyFields(fields, rw, config)
-	fields = appendUserContextFields(fields, ctx)
-
-	global.LOGGER.InfoContextKV(ctx, "[Gateway] HTTP Request", fields...)
-}
-
-// buildBaseLogFields 构建基础日志字段
-func buildBaseLogFields(r *http.Request, rw *ResponseWriter, duration time.Duration, config *logging.Logging) []interface{} {
-	query := ""
-	if config.EnableRequest && r.URL.RawQuery != "" {
-		query = r.URL.RawQuery
-	}
-
-	return []interface{}{
-		"timestamp", time.Now().Format(time.RFC3339),
-		"method", r.Method,
-		"path", r.URL.Path,
-		"query", query,
-		"status_code", rw.StatusCode(),
-		"bytes_written", rw.BytesWritten(),
-		"duration_ms", duration.Milliseconds(),
-		"remote_addr", getClientIP(r),
-		"user_agent", r.UserAgent(),
-	}
-}
-
-// appendRequestBodyFields 添加请求体字段
-func appendRequestBodyFields(fields []interface{}, reqBody []byte, r *http.Request, config *logging.Logging) []interface{} {
-	if config.EnableRequest && len(reqBody) > 0 {
-		return appendBodyFields(fields, "request", reqBody, r.Header.Get("Content-Type"), config)
-	}
-	return fields
-}
-
-// appendResponseBodyFields 添加响应体字段
-func appendResponseBodyFields(fields []interface{}, rw *ResponseWriter, config *logging.Logging) []interface{} {
-	if respBody := rw.GetBody(); len(respBody) > 0 {
-		return appendBodyFields(fields, "response", respBody, rw.Header().Get("Content-Type"), config)
-	} else if config.EnableResponse {
-		return append(fields, "response_empty", true)
-	}
-	return fields
-}
-
-// appendUserContextFields 添加用户上下文字段
-func appendUserContextFields(fields []interface{}, ctx context.Context) []interface{} {
-	if userID := logger.GetUserID(ctx); userID != "" {
-		fields = append(fields, "user_id", userID)
-	}
-	if tenantID := logger.GetTenantID(ctx); tenantID != "" {
-		fields = append(fields, "tenant_id", tenantID)
-	}
-	return fields
-}
-
-// RecoveryMiddleware 恢复中间件
-func RecoveryMiddleware() HTTPMiddleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			defer func() {
-				if err := recover(); err != nil {
-					handlePanicRecovery(w, r, err)
-				}
-			}()
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// handlePanicRecovery 处理 panic 恢复
-func handlePanicRecovery(w http.ResponseWriter, r *http.Request, err interface{}) {
-	ctx := r.Context()
-
-	// 记录 panic 信息
-	logPanicError(ctx, r, err)
-
-	// 设置错误响应
-	setPanicErrorResponse(w, ctx)
-}
-
-// logPanicError 记录 panic 错误日志
-func logPanicError(ctx context.Context, r *http.Request, err interface{}) {
-	if global.LOGGER == nil {
-		return
-	}
-
-	fields := buildPanicLogFields(r, err)
-	fields = appendUserContextFields(fields, ctx)
-	global.LOGGER.ErrorContextKV(ctx, "PANIC Recovered", fields...)
-}
-
-// buildPanicLogFields 构建 panic 日志字段
-func buildPanicLogFields(r *http.Request, err interface{}) []interface{} {
-	return []interface{}{
-		"error", err,
-		"method", r.Method,
-		"path", r.URL.String(),
-		"remote_addr", getClientIP(r),
-		"user_agent", r.UserAgent(),
-	}
-}
-
-// setPanicErrorResponse 设置 panic 错误响应
-func setPanicErrorResponse(w http.ResponseWriter, ctx context.Context) {
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
-	setTraceHeaders(w, ctx)
-	w.WriteHeader(http.StatusInternalServerError)
-	w.Write([]byte(constants.JSONInternalError))
-}
-
-// setTraceHeaders 设置追踪头信息
-func setTraceHeaders(w http.ResponseWriter, ctx context.Context) {
-	if traceID := logger.GetTraceID(ctx); traceID != "" {
-		w.Header().Set(constants.HeaderXTraceID, traceID)
-	}
-	if requestID := logger.GetRequestID(ctx); requestID != "" {
-		w.Header().Set(constants.HeaderXRequestID, requestID)
-	}
-}
-
-// appendBodyFields 添加 body 字段
-func appendBodyFields(fields []interface{}, name string, body []byte, contentType string, config *logging.Logging) []interface{} {
-	if isLoggableContentType(contentType, config) {
-		fields = append(fields, name, maskSensitiveData(body, config))
-		if len(body) > getMaxBodySize(config) {
-			fields = append(fields, name+"_truncated", true)
-		}
-	} else {
-		fields = append(fields, name, "<binary>")
-	}
-	return fields
+// shouldCaptureResponse 是否应该捕获响应体
+func shouldCaptureResponse() bool {
+	config := getLoggingConfig()
+	return config.EnableResponse
 }
 
 // isLoggableContentType 检查 Content-Type 是否可记录
-func isLoggableContentType(contentType string, config *logging.Logging) bool {
+func isLoggableContentType(contentType string) bool {
 	if contentType == "" {
 		return true
 	}
+
+	config := getLoggingConfig()
 	contentType = strings.ToLower(contentType)
+
 	for _, prefix := range config.LoggableContentTypes {
 		if strings.HasPrefix(contentType, prefix) {
 			return true
@@ -316,91 +261,225 @@ func isLoggableContentType(contentType string, config *logging.Logging) bool {
 	return false
 }
 
-// maskSensitiveData 脱敏敏感数据
-func maskSensitiveData(data []byte, config *logging.Logging) string {
-	if len(data) == 0 {
-		return ""
+// isSkipPath 检查是否为跳过路径
+func isSkipPath(path string) bool {
+	config := getLoggingConfig()
+	for _, skip := range config.SkipPaths {
+		if path == skip {
+			return true
+		}
 	}
-
-	body := truncateDataIfNeeded(data, config)
-
-	// 尝试 JSON 脱敏
-	if jsonResult := tryMaskJSONData(body, config); jsonResult != "" {
-		return jsonResult
-	}
-
-	// 非 JSON: 正则脱敏
-	return maskNonJSONData(body, config)
+	return false
 }
 
-// truncateDataIfNeeded 如果数据超过最大尺寸则截断
-func truncateDataIfNeeded(data []byte, config *logging.Logging) []byte {
-	maxSize := getMaxBodySize(config)
+// ============================================================================
+// HTTP 日志中间件
+// ============================================================================
+
+// LoggingMiddleware HTTP 日志中间件
+func LoggingMiddleware(config *logging.Logging) HTTPMiddleware {
+	if !config.Enabled {
+		return func(next http.Handler) http.Handler {
+			return next
+		}
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			ctx := r.Context()
+
+			// 跳过路径检查
+			if isSkipPath(r.URL.Path) {
+				wrapped := NewResponseWriter(w)
+				next.ServeHTTP(wrapped, r)
+				if wrapped.StatusCode() >= 400 {
+					logHTTPError(ctx, r, wrapped, time.Since(start))
+				}
+				wrapped.Release()
+				return
+			}
+
+			// 捕获请求体
+			var reqBody []byte
+			if shouldCaptureRequest() && r.Body != nil {
+				reqBody = captureBody(r.Body, config.MaxBodySize)
+				r.Body = io.NopCloser(bytes.NewBuffer(reqBody))
+			}
+
+			// 包装响应
+			wrapped := NewResponseWriter(w)
+			if shouldCaptureResponse() {
+				wrapped.EnableBodyCapture()
+			}
+			defer wrapped.Release()
+
+			// 执行请求
+			next.ServeHTTP(wrapped, r)
+
+			// 记录日志
+			logHTTPRequest(ctx, r, wrapped, time.Since(start), config, reqBody)
+		})
+	}
+}
+
+// logHTTPRequest 记录 HTTP 请求
+func logHTTPRequest(ctx context.Context, r *http.Request, rw *ResponseWriter, duration time.Duration, config *logging.Logging, reqBody []byte) {
+	logger := NewRequestLogger(ctx)
+	masker := NewDataMasker(config)
+
+	fields := NewLogFields().
+		Add(constants.LogFieldMethod, r.Method).
+		Add(constants.LogFieldPath, r.URL.Path).
+		Add(constants.LogFieldStatus, rw.StatusCode()).
+		Add(constants.LogFieldBytes, rw.BytesWritten()).
+		Add(constants.LogFieldDuration, duration.Milliseconds()).
+		Add(constants.LogFieldIP, netx.GetClientIP(r)).
+		Add(constants.LogFieldUserAgent, r.Header.Get(constants.HeaderUserAgent)).
+		AddSlow(duration, time.Duration(config.SlowHTTPThreshold)*time.Millisecond).
+		AddUserContext(ctx)
+
+	// 请求参数
+	if config.EnableRequest && r.URL.RawQuery != "" {
+		fields.Add(constants.LogFieldQuery, r.URL.RawQuery)
+	}
+
+	// 请求体
+	if len(reqBody) > 0 && isLoggableContentType(r.Header.Get(constants.HeaderContentType)) {
+		fields.Add(constants.LogFieldRequest, masker.Mask(reqBody))
+	}
+
+	// 响应体
+	if respBody := rw.GetBody(); len(respBody) > 0 && isLoggableContentType(rw.Header().Get(constants.HeaderContentType)) {
+		fields.Add(constants.LogFieldResponse, masker.Mask(respBody))
+	}
+
+	level := constants.LogLevelInfo
+	if rw.StatusCode() >= 500 {
+		level = constants.LogLevelError
+	} else if rw.StatusCode() >= 400 {
+		level = constants.LogLevelWarn
+	}
+
+	logger.Log(level, constants.LogMsgHTTPRequest, fields)
+}
+
+// logHTTPError 记录跳过路径的错误
+func logHTTPError(ctx context.Context, r *http.Request, rw *ResponseWriter, duration time.Duration) {
+	logger := NewRequestLogger(ctx)
+	fields := NewLogFields().
+		Add(constants.LogFieldPath, r.URL.Path).
+		Add(constants.LogFieldStatus, rw.StatusCode()).
+		Add(constants.LogFieldDuration, duration.Milliseconds())
+
+	logger.Log(constants.LogLevelWarn, constants.LogMsgHTTPRequestSkip, fields)
+}
+
+// captureBody 捕获请求体
+func captureBody(body io.ReadCloser, maxSize int) []byte {
+	if maxSize <= 0 {
+		maxSize = constants.LoggingDefaultMaxBodySize
+	}
+
+	limitedBody := io.LimitReader(body, int64(maxSize+1))
+	data, _ := io.ReadAll(limitedBody)
+
 	if len(data) > maxSize {
 		return data[:maxSize]
 	}
 	return data
 }
 
-// tryMaskJSONData 尝试按 JSON 格式脱敏，如果成功返回脱敏后的字符串，否则返回空字符串
-func tryMaskJSONData(body []byte, config *logging.Logging) string {
-	var jsonData map[string]interface{}
-	if err := json.Unmarshal(body, &jsonData); err != nil {
-		return ""
+// ============================================================================
+// gRPC 日志拦截器
+// ============================================================================
+
+// UnaryServerLoggingInterceptor gRPC 一元调用日志拦截器
+func UnaryServerLoggingInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		start := time.Now()
+		resp, err := handler(ctx, req)
+		logGRPCUnary(ctx, info.FullMethod, req, resp, err, time.Since(start))
+		return resp, err
+	}
+}
+
+// StreamServerLoggingInterceptor gRPC 流式调用日志拦截器
+func StreamServerLoggingInterceptor() grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		start := time.Now()
+		err := handler(srv, ss)
+		logGRPCStream(ss.Context(), info, err, time.Since(start))
+		return err
+	}
+}
+
+// logGRPCUnary 记录 gRPC 一元调用
+func logGRPCUnary(ctx context.Context, method string, req, resp interface{}, err error, duration time.Duration) {
+	if global.LOGGER == nil {
+		return
 	}
 
-	maskSensitiveFields(jsonData, config)
-	masked, err := json.Marshal(jsonData)
+	config := getLoggingConfig()
+	logger := NewRequestLogger(ctx)
+	masker := NewDataMasker(config)
+
+	fields := NewLogFields().
+		Add(constants.LogFieldMethod, method).
+		Add(constants.LogFieldDuration, duration.Milliseconds()).
+		AddSlow(duration, time.Duration(config.SlowGRPCThreshold)*time.Millisecond).
+		AddUserContext(ctx)
+
 	if err != nil {
-		return ""
-	}
-	return string(masked)
-}
-
-// maskNonJSONData 对非 JSON 数据进行正则脱敏
-func maskNonJSONData(body []byte, config *logging.Logging) string {
-	result := string(body)
-	mask := getSensitiveMask(config)
-	for _, key := range config.SensitiveKeys {
-		re := regexp.MustCompile(`(?i)"?` + key + `"?\s*[:=]\s*"?[^"&,}\s]+`)
-		result = re.ReplaceAllString(result, key+"="+mask)
-	}
-	return result
-}
-
-// getSensitiveMask 获取敏感数据掩码
-func getSensitiveMask(config *logging.Logging) string {
-	if config.SensitiveMask != "" {
-		return config.SensitiveMask
-	}
-	return "***REDACTED***"
-}
-
-// maskSensitiveFields 递归脱敏 JSON 对象
-func maskSensitiveFields(data interface{}, config *logging.Logging) {
-	switch v := data.(type) {
-	case map[string]interface{}:
-		for key, value := range v {
-			if isSensitiveKey(key, config) {
-				v[key] = getSensitiveMask(config)
-			} else {
-				maskSensitiveFields(value, config)
-			}
+		st, _ := status.FromError(err)
+		fields.Add(constants.LogFieldStatus, st.Code().String()).Add(constants.LogFieldError, st.Message())
+		if shouldCaptureRequest() && req != nil {
+			fields.Add(constants.LogFieldRequest, masker.Mask(marshalProto(req)))
 		}
-	case []interface{}:
-		for _, item := range v {
-			maskSensitiveFields(item, config)
+		logger.Log(constants.LogLevelError, constants.LogMsgGRPCRequestError, fields)
+	} else {
+		fields.Add(constants.LogFieldStatus, "OK")
+		if shouldCaptureRequest() && req != nil {
+			fields.Add(constants.LogFieldRequest, masker.Mask(marshalProto(req)))
 		}
+		if shouldCaptureResponse() && resp != nil {
+			fields.Add(constants.LogFieldResponse, masker.Mask(marshalProto(resp)))
+		}
+		logger.Log(constants.LogLevelInfo, constants.LogMsgGRPCRequest, fields)
 	}
 }
 
-// isSensitiveKey 检查是否为敏感字段
-func isSensitiveKey(key string, config *logging.Logging) bool {
-	lowerKey := strings.ToLower(key)
-	for _, sensitive := range config.SensitiveKeys {
-		if strings.Contains(lowerKey, sensitive) {
-			return true
-		}
+// logGRPCStream 记录 gRPC 流式调用
+func logGRPCStream(ctx context.Context, info *grpc.StreamServerInfo, err error, duration time.Duration) {
+	if global.LOGGER == nil {
+		return
 	}
-	return false
+
+	config := getLoggingConfig()
+	logger := NewRequestLogger(ctx)
+	fields := NewLogFields().
+		Add(constants.LogFieldMethod, info.FullMethod).
+		Add(constants.LogFieldDuration, duration.Milliseconds()).
+		Add(constants.LogFieldClientStream, info.IsClientStream).
+		Add(constants.LogFieldServerStream, info.IsServerStream).
+		AddSlow(duration, time.Duration(config.SlowStreamThreshold)*time.Millisecond).
+		AddUserContext(ctx)
+
+	if err != nil {
+		st, _ := status.FromError(err)
+		fields.Add(constants.LogFieldStatus, st.Code().String()).Add(constants.LogFieldError, st.Message())
+		logger.Log(constants.LogLevelError, constants.LogMsgGRPCStreamError, fields)
+	} else {
+		fields.Add(constants.LogFieldStatus, "OK")
+		logger.Log(constants.LogLevelInfo, constants.LogMsgGRPCStream, fields)
+	}
+}
+
+// marshalProto 序列化 protobuf 消息
+func marshalProto(data interface{}) []byte {
+	if data == nil {
+		return nil
+	}
+	jsonBytes, _ := json.Marshal(data)
+	return jsonBytes
 }

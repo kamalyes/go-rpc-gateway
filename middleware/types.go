@@ -13,9 +13,6 @@ package middleware
 
 import (
 	"net/http"
-
-	"github.com/kamalyes/go-config/pkg/requestid"
-	"github.com/kamalyes/go-rpc-gateway/constants"
 )
 
 // MiddlewareFunc 中间件函数类型
@@ -29,10 +26,4 @@ func ChainFunc(middlewares ...MiddlewareFunc) MiddlewareFunc {
 		}
 		return final
 	}
-}
-
-// DefaultRequestIDConfig 默认请求ID配置
-func DefaultRequestIDConfig() *requestid.RequestID {
-	return requestid.Default().
-		WithHeaderName(constants.HeaderXRequestID)
 }

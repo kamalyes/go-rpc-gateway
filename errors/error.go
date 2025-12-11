@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 06:43:40
+ * @LastEditTime: 2025-11-13 06:55:40
  * @FilePath: \go-rpc-gateway\errors\error.go
  * @Description: 统一的错误定义和管理
  *
@@ -16,6 +16,8 @@ import (
 	"net/http"
 
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // errorMessages 错误消息映射
@@ -417,6 +419,66 @@ func WrapWithContext(err error, code ErrorCode) *AppError {
 	}
 	// 只使用错误码，原始错误作为Details
 	return NewError(code, err.Error())
+}
+
+// ToGRPCError 将 AppError 转换为 gRPC status.Error
+// 使用 commonapis.StatusCode 转换为标准 gRPC codes
+func (e *AppError) ToGRPCError() error {
+	if e == nil {
+		return nil
+	}
+
+	// 获取 gRPC 状态码
+	statusCode := e.GetStatusCode()
+
+	// 转换为 gRPC codes
+	var code codes.Code
+	switch statusCode {
+	case commonapis.StatusCode_OK:
+		code = codes.OK
+	case commonapis.StatusCode_Canceled:
+		code = codes.Canceled
+	case commonapis.StatusCode_Unknown:
+		code = codes.Unknown
+	case commonapis.StatusCode_InvalidArgument:
+		code = codes.InvalidArgument
+	case commonapis.StatusCode_DeadlineExceeded:
+		code = codes.DeadlineExceeded
+	case commonapis.StatusCode_NotFound:
+		code = codes.NotFound
+	case commonapis.StatusCode_AlreadyExists:
+		code = codes.AlreadyExists
+	case commonapis.StatusCode_PermissionDenied:
+		code = codes.PermissionDenied
+	case commonapis.StatusCode_ResourceExhausted:
+		code = codes.ResourceExhausted
+	case commonapis.StatusCode_FailedPrecondition:
+		code = codes.FailedPrecondition
+	case commonapis.StatusCode_Aborted:
+		code = codes.Aborted
+	case commonapis.StatusCode_OutOfRange:
+		code = codes.OutOfRange
+	case commonapis.StatusCode_Unimplemented:
+		code = codes.Unimplemented
+	case commonapis.StatusCode_Internal:
+		code = codes.Internal
+	case commonapis.StatusCode_Unavailable:
+		code = codes.Unavailable
+	case commonapis.StatusCode_DataLoss:
+		code = codes.DataLoss
+	case commonapis.StatusCode_Unauthenticated:
+		code = codes.Unauthenticated
+	default:
+		code = codes.Unknown
+	}
+
+	// 构建错误消息
+	message := e.Message
+	if e.Details != "" {
+		message = fmt.Sprintf("%s: %s", e.Message, e.Details)
+	}
+
+	return status.Error(code, message)
 }
 
 // IsErrorCode 检查错误代码是否匹配

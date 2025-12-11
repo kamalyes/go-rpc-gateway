@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2023-07-28 00:50:58
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 14:30:49
+ * @LastEditTime: 2025-11-12 15:30:49
  * @FilePath: \go-rpc-gateway\global\model.go
  * @Description: 增强的数据库模型基础结构，支持企业级应用需求
  *

@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-20 13:26:06
+ * @LastEditTime: 2025-12-05 23:33:12
  * @FilePath: \go-rpc-gateway\global\global.go
  * @Description: 全局变量和配置管理 - 基于go-config的重构版本
  *
@@ -21,7 +21,6 @@ import (
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
-	"github.com/kamalyes/go-toolbox/pkg/safe"
 	gowsc "github.com/kamalyes/go-wsc"
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
@@ -164,36 +163,6 @@ func GetGatewayConfig() *gwconfig.Gateway {
 // GetConfigManager 获取配置管理器
 func GetConfigManager() *goconfig.IntegratedConfigManager {
 	return CONFIG_MANAGER
-}
-
-// ============================================================================
-// WSC 消息归档配置访问函数
-// ============================================================================
-
-// GetWSCArchiveDays 获取消息归档天数阈值（默认3天）
-// 从配置 WSC.Jobs.Tasks["message-archive"].Params["archive_days"] 读取
-func GetWSCArchiveDays() int {
-	return safe.Safe(GATEWAY).
-		Field("WSC").
-		Field("Jobs").
-		Field("Tasks").
-		Field("message-archive").
-		Field("Params").
-		Field("archive_days").
-		Int(3)
-}
-
-// GetWSCArchiveRetentionDays 获取归档保留天数（默认60天）
-// 从配置 WSC.Jobs.Tasks["message-archive"].Params["retention_days"] 读取
-func GetWSCArchiveRetentionDays() int {
-	return safe.Safe(GATEWAY).
-		Field("WSC").
-		Field("Jobs").
-		Field("Tasks").
-		Field("message-archive").
-		Field("Params").
-		Field("retention_days").
-		Int(60)
 }
 
 // IsInitialized 检查是否已初始化

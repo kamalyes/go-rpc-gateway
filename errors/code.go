@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 14:29:37
+ * @LastEditTime: 2025-12-11 15:08:33
  * @FilePath: \go-rpc-gateway\errors\code.go
  * @Description: 统一的错误代码定义和管理
  *
@@ -75,12 +75,12 @@ const (
 	ErrCodeSwaggerRenderFailed ErrorCode = 8003
 
 	// JWT和认证扩展错误 (2100-2199)
-	ErrCodeTokenMalformed       ErrorCode = 2101
-	ErrCodeTokenNotValidYet     ErrorCode = 2102
+	ErrCodeTokenMalformed        ErrorCode = 2101
+	ErrCodeTokenNotValidYet      ErrorCode = 2102
 	ErrCodeAccountLoginElsewhere ErrorCode = 2103
-	ErrCodeRedisParseError      ErrorCode = 2104
-	ErrCodeDBQueryError         ErrorCode = 2105
-	ErrCodeClaimsParseFailed    ErrorCode = 2106
+	ErrCodeRedisParseError       ErrorCode = 2104
+	ErrCodeDBQueryError          ErrorCode = 2105
+	ErrCodeClaimsParseFailed     ErrorCode = 2106
 
 	// 数据转换和验证错误 (3100-3199)
 	ErrCodePBMessageNil         ErrorCode = 3101

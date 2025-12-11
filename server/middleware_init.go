@@ -12,16 +12,15 @@
 package server
 
 import (
-	"time"
-
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
+	"time"
 )
 
 // initMiddleware 初始化中间件管理器
 func (s *Server) initMiddleware() error {
 	// 使用统一的配置系统创建中间件管理器
-	manager, err := middleware.NewManager()
+	manager, err := middleware.NewManager(s.config)
 	if err != nil {
 		return errors.WrapWithContext(err, errors.ErrCodeMiddlewareInitFailed)
 	}

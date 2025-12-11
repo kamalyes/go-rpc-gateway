@@ -14,12 +14,13 @@ package global
 import (
 	"context"
 	"fmt"
+	"sort"
+	"sync"
+
 	"github.com/bwmarrin/snowflake"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
-	"sort"
-	"sync"
 )
 
 // Initializer 初始化器接口 - 统一初始化流程

@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-15 01:00:00
+ * @LastEditTime: 2025-12-11 16:25:52
  * @FilePath: \go-rpc-gateway\middleware\ratelimit.go
  * @Description: 高性能限流中间件，支持多种策略和多级别限流（使用atomic保证原子性）
  *
@@ -25,6 +25,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/response"
+	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"github.com/kamalyes/go-toolbox/pkg/safe"
 	"github.com/redis/go-redis/v9"
 )
@@ -37,7 +38,8 @@ type RateLimiter interface {
 
 // TokenBucketLimiter 令牌桶限流器（使用atomic保证高性能）
 type TokenBucketLimiter struct {
-	limiters sync.Map // key: string, value: *atomicTokenBucket
+	limiters   sync.Map // key: string, value: *atomicTokenBucket
+	globalRule *ratelimit.LimitRule
 }
 
 // atomicTokenBucket 原子令牌桶（无锁实现）
@@ -49,12 +51,23 @@ type atomicTokenBucket struct {
 }
 
 // NewTokenBucketLimiter 创建令牌桶限流器
-func NewTokenBucketLimiter() *TokenBucketLimiter {
-	return &TokenBucketLimiter{}
+func NewTokenBucketLimiter(cfg *ratelimit.RateLimit) *TokenBucketLimiter {
+	var globalRule *ratelimit.LimitRule
+	if cfg != nil && cfg.GlobalLimit != nil {
+		globalRule = cfg.GlobalLimit
+	}
+	return &TokenBucketLimiter{
+		globalRule: globalRule,
+	}
 }
 
 // Allow 检查是否允许请求（无锁原子操作）
 func (t *TokenBucketLimiter) Allow(ctx context.Context, key string, rule *ratelimit.LimitRule) (bool, error) {
+	// 如果没有提供规则，使用全局配置
+	if rule == nil {
+		rule = t.globalRule
+	}
+
 	// 使用safe包裹配置读取
 	safeRule := safe.Safe(rule)
 	rps := safeRule.Field("RequestsPerSecond").Int(100)
@@ -66,35 +79,35 @@ func (t *TokenBucketLimiter) Allow(ctx context.Context, key string, rule *rateli
 		refillRate:     int64(rps) * 1e9,
 		lastRefillNano: time.Now().UnixNano(),
 	})
-	
+
 	bucket := bucketInterface.(*atomicTokenBucket)
-	
+
 	const billion = 1e9
 	now := time.Now().UnixNano()
-	
+
 	for {
 		// 原子读取当前状态
 		oldTokens := atomic.LoadInt64(&bucket.tokensInt64)
 		oldLastRefill := atomic.LoadInt64(&bucket.lastRefillNano)
-		
+
 		// 计算应该补充的令牌
 		elapsed := now - oldLastRefill
 		if elapsed < 0 {
 			elapsed = 0 // 防止时钟回拨
 		}
-		
+
 		// 计算新令牌数（整数运算）
 		addTokens := (elapsed * bucket.refillRate) / billion
 		newTokens := oldTokens + addTokens
 		if newTokens > bucket.maxTokens*billion {
 			newTokens = bucket.maxTokens * billion
 		}
-		
+
 		// 检查是否有足够令牌
 		if newTokens < billion {
 			return false, nil // 令牌不足
 		}
-		
+
 		// CAS更新令牌数和时间戳
 		if atomic.CompareAndSwapInt64(&bucket.tokensInt64, oldTokens, newTokens-billion) {
 			atomic.StoreInt64(&bucket.lastRefillNano, now)
@@ -131,7 +144,7 @@ func (s *SlidingWindowLimiter) Allow(ctx context.Context, key string, rule *rate
 	// 使用safe包裹配置读取
 	safeConfig := safe.Safe(s.config)
 	keyPrefix := safeConfig.Field("Storage").Field("KeyPrefix").String("rate_limit:")
-	
+
 	safeRule := safe.Safe(rule)
 	windowSize := safeRule.Field("WindowSize").Duration(time.Minute)
 	rps := safeRule.Field("RequestsPerSecond").Int(100)
@@ -142,22 +155,22 @@ func (s *SlidingWindowLimiter) Allow(ctx context.Context, key string, rule *rate
 
 	// 使用 Pipeline 批量操作减少网络往返
 	pipe := global.REDIS.Pipeline()
-	
+
 	// 删除窗口外的请求
 	pipe.ZRemRangeByScore(ctx, fullKey, "0", fmt.Sprintf("%d", windowStart.UnixNano()))
-	
+
 	// 添加当前请求
 	pipe.ZAdd(ctx, fullKey, redis.Z{
 		Score:  float64(now.UnixNano()),
 		Member: now.UnixNano(),
 	})
-	
+
 	// 统计窗口内的请求数
 	pipe.ZCard(ctx, fullKey)
-	
+
 	// 设置过期时间
 	pipe.Expire(ctx, fullKey, windowSize)
-	
+
 	// 执行管道
 	cmds, err := pipe.Exec(ctx)
 	if err != nil {
@@ -216,17 +229,17 @@ func (f *FixedWindowLimiter) Allow(ctx context.Context, key string, rule *rateli
 
 	now := time.Now()
 	resetTime := now.Add(windowSize)
-	
+
 	counterInterface, _ := f.counters.LoadOrStore(key, &atomicCounter{
 		count:         0,
 		resetTimeNano: resetTime.UnixNano(),
 	})
-	
+
 	counter := counterInterface.(*atomicCounter)
-	
+
 	// 原子读取重置时间
 	resetTimeNano := atomic.LoadInt64(&counter.resetTimeNano)
-	
+
 	// 检查是否需要重置
 	if now.UnixNano() > resetTimeNano {
 		// 尝试重置（CAS保证只有一个goroutine重置）
@@ -235,10 +248,10 @@ func (f *FixedWindowLimiter) Allow(ctx context.Context, key string, rule *rateli
 			atomic.StoreInt64(&counter.count, 0)
 		}
 	}
-	
+
 	// 原子递增计数
 	newCount := atomic.AddInt64(&counter.count, 1)
-	
+
 	return newCount <= int64(rps), nil
 }
 
@@ -252,7 +265,7 @@ func (f *FixedWindowLimiter) Reset(ctx context.Context, key string) error {
 func (f *FixedWindowLimiter) cleanup() {
 	safeConfig := safe.Safe(f.config)
 	cleanInterval := safeConfig.Field("Storage").Field("CleanInterval").Duration(5 * time.Minute)
-	
+
 	ticker := time.NewTicker(cleanInterval)
 	defer ticker.Stop()
 
@@ -299,17 +312,17 @@ func NewEnhancedRateLimitMiddleware(config *ratelimit.RateLimit) *EnhancedRateLi
 	// 根据策略选择限流器
 	switch config.Strategy {
 	case ratelimit.StrategyTokenBucket:
-		limiter = NewTokenBucketLimiter()
+		limiter = NewTokenBucketLimiter(config)
 	case ratelimit.StrategySlidingWindow:
 		if global.REDIS != nil {
 			limiter = NewSlidingWindowLimiter(config)
 		} else {
-			limiter = NewTokenBucketLimiter() // 降级到令牌桶
+			limiter = NewTokenBucketLimiter(config) // 降级到令牌桶
 		}
 	case ratelimit.StrategyFixedWindow:
 		limiter = NewFixedWindowLimiter(config)
 	default:
-		limiter = NewTokenBucketLimiter()
+		limiter = NewTokenBucketLimiter(config)
 	}
 
 	return &EnhancedRateLimitMiddleware{
@@ -322,46 +335,18 @@ func NewEnhancedRateLimitMiddleware(config *ratelimit.RateLimit) *EnhancedRateLi
 func (e *EnhancedRateLimitMiddleware) Middleware() HTTPMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 使用safe读取配置
-			safeConfig := safe.Safe(e.config)
-			if !safeConfig.Field("Enabled").Bool(true) {
+			if !e.config.Enabled {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			// 获取限流规则
-			rule, key := e.getApplicableRule(r)
+			rule, key := e.getRuleAndKey(r, e.config.GlobalLimit, e.config.DefaultScope)
 			if rule == nil {
-				// 没有匹配的规则，使用全局限流
-				globalLimit := safeConfig.Field("GlobalLimit").Value()
-				if globalLimit != nil {
-					if limitRule, ok := globalLimit.(*ratelimit.LimitRule); ok {
-						rule = limitRule
-						defaultScope := safeConfig.Field("DefaultScope").Value()
-						if scope, ok := defaultScope.(ratelimit.Scope); ok {
-							key = e.generateKey(r, scope)
-						} else {
-							key = e.generateKey(r, ratelimit.ScopeGlobal)
-						}
-					} else {
-						next.ServeHTTP(w, r)
-						return
-					}
-				} else {
-					next.ServeHTTP(w, r)
-					return
-				}
-			}
-
-			// 检查是否允许请求
-			allowed, err := e.limiter.Allow(r.Context(), key, rule)
-			if err != nil {
-				response.WriteErrorResponse(w, errors.ErrInternalServerError.WithDetails(err.Error()))
+				next.ServeHTTP(w, r)
 				return
 			}
 
-			if !allowed {
-				response.WriteErrorResponse(w, errors.ErrRateLimitExceeded)
+			if !e.allowRequest(w, r, key, rule) {
 				return
 			}
 
@@ -370,69 +355,133 @@ func (e *EnhancedRateLimitMiddleware) Middleware() HTTPMiddleware {
 	}
 }
 
+// getRuleAndKey 获取限流规则和key
+func (e *EnhancedRateLimitMiddleware) getRuleAndKey(r *http.Request, globalLimit *ratelimit.LimitRule, defaultScope ratelimit.Scope) (*ratelimit.LimitRule, string) {
+	// 先尝试获取特定规则（路由/IP/用户规则）
+	rule, key := e.getApplicableRule(r)
+	if rule != nil {
+		return rule, key
+	}
+
+	// 没有特定规则，使用全局限流规则
+	if globalLimit == nil {
+		return nil, ""
+	}
+
+	// 根据默认作用域生成限流key
+	key = e.generateKey(r, defaultScope)
+	return globalLimit, key
+}
+
+// allowRequest 检查是否允许请求
+func (e *EnhancedRateLimitMiddleware) allowRequest(w http.ResponseWriter, r *http.Request, key string, rule *ratelimit.LimitRule) bool {
+	allowed, err := e.limiter.Allow(r.Context(), key, rule)
+	if err != nil {
+		response.WriteErrorResponse(w, errors.ErrInternalServerError.WithDetails(err.Error()))
+		return false
+	}
+
+	if !allowed {
+		response.WriteErrorResponse(w, errors.ErrRateLimitExceeded)
+		return false
+	}
+
+	return true
+}
+
 // getApplicableRule 获取适用的限流规则（使用safe读取配置）
 func (e *EnhancedRateLimitMiddleware) getApplicableRule(r *http.Request) (*ratelimit.LimitRule, string) {
-	safeConfig := safe.Safe(e.config)
-	
 	// 1. 检查路由级别规则
-	routesVal := safeConfig.Field("Routes").Value()
-	if routes, ok := routesVal.([]ratelimit.RouteLimit); ok {
-		for _, routeLimit := range routes {
-			if e.matchRoute(routeLimit.Path, r.URL.Path) && e.matchMethod(routeLimit.Methods, r.Method) {
-				// 检查白名单
-				clientIP := getClientIP(r)
-				if e.inList(clientIP, routeLimit.Whitelist) {
-					return nil, "" // 白名单放行
-				}
-				
-				// 检查黑名单
-				if e.inList(clientIP, routeLimit.Blacklist) {
-					// 使用最严格的规则
-					return &ratelimit.LimitRule{
-						RequestsPerSecond: 1,
-						BurstSize:         1,
-						WindowSize:        time.Minute,
-						BlockDuration:     time.Hour,
-					}, fmt.Sprintf("blacklist:%s", clientIP)
-				}
-
-				// 生成路由key
-				if routeLimit.PerUser {
-					userID := e.getUserID(r)
-					return routeLimit.Limit, fmt.Sprintf("route:%s:user:%s", routeLimit.Path, userID)
-				}
-				if routeLimit.PerIP {
-					return routeLimit.Limit, fmt.Sprintf("route:%s:ip:%s", routeLimit.Path, clientIP)
-				}
-				return routeLimit.Limit, fmt.Sprintf("route:%s", routeLimit.Path)
-			}
-		}
+	if rule, key := e.checkRouteRules(r); rule != nil || key != "" {
+		return rule, key
 	}
 
 	// 2. 检查IP规则
-	clientIP := getClientIP(r)
-	ipRulesVal := safeConfig.Field("IPRules").Value()
-	if ipRules, ok := ipRulesVal.([]ratelimit.IPRule); ok {
-		for _, ipRule := range ipRules {
-			if e.matchIP(ipRule.IP, clientIP) {
-				if ipRule.Type == "whitelist" {
-					return nil, "" // 白名单放行
-				}
-				return ipRule.Limit, fmt.Sprintf("ip:%s", clientIP)
-			}
-		}
+	if rule, key := e.checkIPRules(r); rule != nil || key != "" {
+		return rule, key
 	}
 
 	// 3. 检查用户规则
+	if rule, key := e.checkUserRules(r); rule != nil || key != "" {
+		return rule, key
+	}
+
+	return nil, ""
+}
+
+// checkRouteRules 检查路由级别规则
+func (e *EnhancedRateLimitMiddleware) checkRouteRules(r *http.Request) (*ratelimit.LimitRule, string) {
+	if len(e.config.Routes) == 0 {
+		return nil, ""
+	}
+
+	clientIP := netx.GetClientIP(r)
+
+	for _, routeLimit := range e.config.Routes {
+		if !e.matchRoute(routeLimit.Path, r.URL.Path) || !e.matchMethod(routeLimit.Methods, r.Method) {
+			continue
+		}
+
+		// 检查白名单
+		if e.inList(clientIP, routeLimit.Whitelist) {
+			return nil, "" // 白名单放行
+		}
+
+		// 检查黑名单
+		if e.inList(clientIP, routeLimit.Blacklist) {
+			return &ratelimit.LimitRule{
+				RequestsPerSecond: 1,
+				BurstSize:         1,
+				WindowSize:        time.Minute,
+				BlockDuration:     time.Hour,
+			}, fmt.Sprintf("blacklist:%s", clientIP)
+		}
+
+		// 生成路由key
+		if routeLimit.PerUser {
+			userID := e.getUserID(r)
+			return routeLimit.Limit, fmt.Sprintf("route:%s:user:%s", routeLimit.Path, userID)
+		}
+		if routeLimit.PerIP {
+			return routeLimit.Limit, fmt.Sprintf("route:%s:ip:%s", routeLimit.Path, clientIP)
+		}
+		return routeLimit.Limit, fmt.Sprintf("route:%s", routeLimit.Path)
+	}
+
+	return nil, ""
+}
+
+// checkIPRules 检查IP规则
+func (e *EnhancedRateLimitMiddleware) checkIPRules(r *http.Request) (*ratelimit.LimitRule, string) {
+	if len(e.config.IPRules) == 0 {
+		return nil, ""
+	}
+
+	clientIP := netx.GetClientIP(r)
+	for _, ipRule := range e.config.IPRules {
+		if !e.matchIP(ipRule.IP, clientIP) {
+			continue
+		}
+
+		if ipRule.Type == "whitelist" {
+			return nil, "" // 白名单放行
+		}
+		return ipRule.Limit, fmt.Sprintf("ip:%s", clientIP)
+	}
+
+	return nil, ""
+}
+
+// checkUserRules 检查用户规则
+func (e *EnhancedRateLimitMiddleware) checkUserRules(r *http.Request) (*ratelimit.LimitRule, string) {
 	userID := e.getUserID(r)
-	if userID != "" {
-		userRulesVal := safeConfig.Field("UserRules").Value()
-		if userRules, ok := userRulesVal.([]ratelimit.UserRule); ok {
-			for _, userRule := range userRules {
-				if e.matchUser(userRule, userID, r) {
-					return userRule.Limit, fmt.Sprintf("user:%s", userID)
-				}
-			}
+	if userID == "" || len(e.config.UserRules) == 0 {
+		return nil, ""
+	}
+
+	for _, userRule := range e.config.UserRules {
+		if e.matchUser(userRule, userID, r) {
+			return userRule.Limit, fmt.Sprintf("user:%s", userID)
 		}
 	}
 
@@ -441,11 +490,11 @@ func (e *EnhancedRateLimitMiddleware) getApplicableRule(r *http.Request) (*ratel
 
 // generateKey 生成限流key
 func (e *EnhancedRateLimitMiddleware) generateKey(r *http.Request, scope ratelimit.Scope) string {
-	switch scope {
+	switch e.config.DefaultScope {
 	case ratelimit.ScopeGlobal:
 		return "global"
 	case ratelimit.ScopePerIP:
-		return fmt.Sprintf("ip:%s", getClientIP(r))
+		return fmt.Sprintf("ip:%s", netx.GetClientIP(r))
 	case ratelimit.ScopePerUser:
 		return fmt.Sprintf("user:%s", e.getUserID(r))
 	case ratelimit.ScopePerRoute:
@@ -489,8 +538,6 @@ func (e *EnhancedRateLimitMiddleware) matchUser(rule ratelimit.UserRule, userID 
 			return false
 		}
 	}
-	
-	// TODO: 匹配用户类型和角色（需要从上下文获取）
 	return true
 }
 
@@ -507,49 +554,21 @@ func (e *EnhancedRateLimitMiddleware) inList(value string, list []string) bool {
 // getUserID 获取用户ID（从上下文或请求头）
 func (e *EnhancedRateLimitMiddleware) getUserID(r *http.Request) string {
 	// 优先从上下文获取
-	if userID := r.Context().Value("user_id"); userID != nil {
+	if userID := r.Context().Value(constants.ContextKeyUserID); userID != nil {
 		if uid, ok := userID.(string); ok {
 			return uid
 		}
 	}
-	
+
 	// 从请求头获取
-	if userID := r.Header.Get("X-User-ID"); userID != "" {
+	if userID := r.Header.Get(constants.HeaderXUserID); userID != "" {
 		return userID
 	}
-	
+
 	return ""
 }
 
-// RateLimitMiddleware 限流中间件（向后兼容）
+// RateLimitMiddleware 限流中间件
 func RateLimitMiddleware(config *ratelimit.RateLimit) HTTPMiddleware {
 	return NewEnhancedRateLimitMiddleware(config).Middleware()
-}
-
-// RateLimitMiddlewareWithConfig 带配置的限流中间件（向后兼容）
-func RateLimitMiddlewareWithConfig(config *ratelimit.RateLimit) HTTPMiddleware {
-	return NewEnhancedRateLimitMiddleware(config).Middleware()
-}
-
-// getClientIP 获取客户端真实IP
-func getClientIP(r *http.Request) string {
-	// 检查X-Forwarded-For头
-	if xff := r.Header.Get(constants.HeaderXForwardedFor); xff != "" {
-		// 取第一个IP
-		if ips := strings.Split(xff, ","); len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
-		}
-	}
-
-	// 检查X-Real-IP头
-	if xri := r.Header.Get(constants.HeaderXRealIP); xri != "" {
-		return xri
-	}
-
-	// 使用RemoteAddr
-	if ip := strings.Split(r.RemoteAddr, ":"); len(ip) > 0 {
-		return ip[0]
-	}
-
-	return r.RemoteAddr
 }

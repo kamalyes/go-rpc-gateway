@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 01:11:03
+ * @LastEditTime: 2025-12-11 15:58:58
  * @FilePath: \go-rpc-gateway\middleware\signature.go
  * @Description:
  *
@@ -83,7 +83,7 @@ func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) e
 
 	// 验证签名
 	if expectedSign != reqCommon.Signature {
-		return fmt.Errorf("signature mismatch")
+		return fmt.Errorf(constants.SignatureErrorMismatch)
 	}
 
 	return nil
@@ -120,12 +120,12 @@ func (v *HMACValidator) GenerateSignature(reqCommon *RequestCommon, secretKey st
 func (v *HMACValidator) validateTimestamp(timestampStr string, expireDuration time.Duration) error {
 	timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
 	if err != nil {
-		return fmt.Errorf("invalid timestamp format: %w", err)
+		return fmt.Errorf("%s: %w", constants.SignatureErrorTimestampInvalid, err)
 	}
 
 	now := time.Now().Unix()
 	if now-timestamp > int64(expireDuration.Seconds()) {
-		return fmt.Errorf("timestamp expired")
+		return fmt.Errorf(constants.SignatureErrorTimestampExpired)
 	}
 
 	return nil
@@ -182,10 +182,9 @@ func SignatureMiddleware(config *signature.Signature, validator SignatureValidat
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// 验证签名
 			if err := validator.Validate(r, config); err != nil {
-				response.WriteErrorResponseWithCode(w, http.StatusUnauthorized, "SIGNATURE_INVALID", err.Error())
+				response.WriteErrorResponseWithCode(w, http.StatusUnauthorized, constants.SignatureErrorCodeInvalid, err.Error())
 				return
 			}
-
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -207,44 +206,20 @@ func TimestampMiddleware(config *signature.Signature) HTTPMiddleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			timestampStr := getValueFromRequest(r, config.TimestampHeader)
 			if timestampStr == "" {
-				response.WriteErrorResponseWithCode(w, http.StatusBadRequest, "TIMESTAMP_MISSING", "Timestamp is required")
+				response.WriteErrorResponseWithCode(w, http.StatusBadRequest, constants.SignatureErrorCodeTimestampMissing, constants.SignatureErrorTimestampMissing)
 				return
 			}
-
 			timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
 			if err != nil {
-				response.WriteErrorResponseWithCode(w, http.StatusBadRequest, "TIMESTAMP_INVALID", "Invalid timestamp format")
+				response.WriteErrorResponseWithCode(w, http.StatusBadRequest, constants.SignatureErrorCodeTimestampInvalid, constants.SignatureErrorTimestampInvalid)
 				return
 			}
-
 			now := time.Now().Unix()
 			if now-timestamp > int64(config.TimeoutWindow.Seconds()) {
-				response.WriteErrorResponseWithCode(w, http.StatusUnauthorized, "TIMESTAMP_EXPIRED", "Timestamp expired")
+				response.WriteErrorResponseWithCode(w, http.StatusUnauthorized, constants.SignatureErrorCodeTimestampExpired, constants.SignatureErrorTimestampExpired)
 				return
 			}
-
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// SignatureMiddlewareWithConfig 带配置的签名中间件
-func SignatureMiddlewareWithConfig(conf signature.Signature) HTTPMiddleware {
-	config := signature.Default().
-		WithSecretKey(conf.SecretKey).
-		WithTimeoutWindow(conf.TimeoutWindow).
-		WithSignatureHeader(conf.SignatureHeader).
-		WithTimestampHeader(conf.TimestampHeader).
-		WithAlgorithm(conf.Algorithm).
-		WithSkipQuery(conf.SkipQuery).
-		WithSkipBody(conf.SkipBody)
-	
-	// 根据配置启用或禁用
-	if conf.Enabled {
-		config = config.Enable()
-	} else {
-		config = config.Disable()
-	}
-
-	return SignatureMiddleware(config, &HMACValidator{})
 }

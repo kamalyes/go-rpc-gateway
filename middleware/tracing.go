@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-10 11:40:02
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 13:25:55
+ * @LastEditTime: 2025-12-05 22:15:32
  * @FilePath: \go-rpc-gateway\middleware\tracing.go
  * @Description: 链路追踪中间件 - 集成OpenTelemetry
  *
@@ -12,6 +12,8 @@ package middleware
 
 import (
 	"context"
+	"net/http"
+
 	"github.com/kamalyes/go-config/pkg/tracing"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"go.opentelemetry.io/otel"
@@ -23,7 +25,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
-	"net/http"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // TracingManager 链路追踪管理器
@@ -38,8 +40,6 @@ func NewTracingManager(cfg *tracing.Tracing) (*TracingManager, error) {
 	if !cfg.Enabled {
 		return &TracingManager{config: cfg}, nil
 	}
-
-	// go-config 的 Default() 已经设置了所有默认值，无需再次设置
 
 	// 创建资源
 	res, err := createResource(cfg)
@@ -86,9 +86,6 @@ func NewTracingManager(cfg *tracing.Tracing) (*TracingManager, error) {
 
 // GetTracer 获取 tracer
 func (m *TracingManager) GetTracer() oteltrace.Tracer {
-	if m == nil {
-		return nil
-	}
 	return m.tracer
 }
 
@@ -150,11 +147,6 @@ func createSampler(cfg *tracing.Tracing) sdktrace.Sampler {
 
 // Tracing 链路追踪中间件
 func Tracing(manager *TracingManager) MiddlewareFunc {
-	return TracingWithConfig(manager)
-}
-
-// TracingWithConfig 带配置的链路追踪中间件
-func TracingWithConfig(manager *TracingManager) MiddlewareFunc {
 	// 如果未启用或manager为空，返回透明中间件
 	if manager == nil || manager.config == nil || !manager.config.Enabled {
 		return func(next http.Handler) http.Handler {
@@ -261,7 +253,7 @@ func LogInfo(ctx context.Context, message string, fields ...attribute.KeyValue) 
 			attribute.String("level", "info"),
 			attribute.String("message", message),
 		}, fields...)
-		span.AddEvent("log", oteltrace.WithAttributes(attrs...))
+		span.AddEvent(constants.TracingEventLog, oteltrace.WithAttributes(attrs...))
 	}
 }
 
@@ -274,7 +266,20 @@ func LogError(ctx context.Context, err error, message string, fields ...attribut
 			attribute.String("message", message),
 			attribute.String("error", err.Error()),
 		}, fields...)
-		span.AddEvent("error", oteltrace.WithAttributes(attrs...))
+		span.AddEvent(constants.TracingEventError, oteltrace.WithAttributes(attrs...))
 		span.RecordError(err)
 	}
+}
+
+// GetProvider 获取 TracerProvider
+func (tm *TracingManager) GetProvider() oteltrace.TracerProvider {
+	if tm == nil || tm.provider == nil {
+		return noop.NewTracerProvider()
+	}
+	return tm.provider
+}
+
+// IsEnabled 检查追踪是否启用
+func (tm *TracingManager) IsEnabled() bool {
+	return tm != nil && tm.config != nil && tm.config.Enabled
 }

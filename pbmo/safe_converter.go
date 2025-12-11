@@ -1,8 +1,8 @@
 /*
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-13 00:00:00
- * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 14:30:00
+ * @LastEditors: kamalyes 501893067@qq.comcom
+ * @LastEditTime: 2025-12-11 15:08:15
  * @FilePath: \go-rpc-gateway\pbmo\safe_converter.go
  * @Description: 安全转换器 - 集成 go-toolbox/safe 模块
  * 职责：安全的字段访问和转换，避免 nil panic

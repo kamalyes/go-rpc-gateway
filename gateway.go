@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-05 19:55:11
+ * @LastEditTime: 2025-12-11 15:15:39
  * @FilePath: \go-rpc-gateway\gateway.go
  * @Description: Gateway主入口，基于go-config
  *
@@ -30,8 +30,6 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/cpool"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
-	"github.com/kamalyes/go-rpc-gateway/middleware"
-	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/kamalyes/go-rpc-gateway/server"
 	"github.com/kamalyes/go-toolbox/pkg/safe"
 	"github.com/minio/minio-go/v7"
@@ -363,15 +361,9 @@ func (b *GatewayBuilder) initializeComponents() error {
 	return chain.InitializeAll(ctx, global.GATEWAY)
 }
 
-// 注意：initializeLogger, initializeSnowflakeNode, initializePoolManager 和 bindPoolResourcesToGlobal
-// 已被统一的 InitializerChain 替代，具体实现请参见 global/initializer.go
-
 // RegisterService 注册gRPC服务
 func (g *Gateway) RegisterService(registerFunc ServiceRegisterFunc) {
-	grpcAddr := "unknown"
-	if g.gatewayConfig != nil && g.gatewayConfig.GRPC != nil && g.gatewayConfig.GRPC.Server != nil {
-		grpcAddr = g.gatewayConfig.GRPC.Server.GetEndpoint()
-	}
+	grpcAddr := g.gatewayConfig.GRPC.Server.GetEndpoint()
 	global.LOGGER.InfoContext(g.Context(), "开始注册gRPC服务")
 	g.Server.RegisterGRPCService(registerFunc)
 	g.registeredGRPCServices = append(g.registeredGRPCServices, grpcAddr)
@@ -382,13 +374,10 @@ func (g *Gateway) RegisterService(registerFunc ServiceRegisterFunc) {
 // 使用示例:
 //
 //	g.RegisterGatewayHandler(func(ctx context.Context, mux *runtime.ServeMux) error {
-//	    return agentsettingsApis.RegisterAgentSettingsServiceHandlerServer(ctx, mux, svc)
+//	    return apis.RegisterAgentSettingsServiceHandlerServer(ctx, mux, svc)
 //	})
 func (g *Gateway) RegisterGatewayHandler(registerFunc ServerHandlerRegisterFunc) error {
-	httpAddr := "unknown"
-	if g.gatewayConfig != nil && g.gatewayConfig.HTTPServer != nil {
-		httpAddr = g.gatewayConfig.HTTPServer.GetEndpoint()
-	}
+	httpAddr := g.gatewayConfig.HTTPServer.GetEndpoint()
 	global.LOGGER.InfoContext(g.Context(), "开始注册gRPC-Gateway HTTP处理器")
 	gwMux := g.GetGatewayMux()
 	if err := registerFunc(g.Context(), gwMux); err != nil {
@@ -443,66 +432,6 @@ func (g *Gateway) RebuildHTTPGateway() error {
 	return g.Server.RebuildHTTPGateway()
 }
 
-// ===============================================================================
-// 响应处理相关方法 - 基于错误码的标准化响应
-// ===============================================================================
-
-// EnableResponseHandler 启用响应处理中间件
-func (g *Gateway) EnableResponseHandler(format response.ResponseFormat) error {
-	config := middleware.DefaultResponseHandlerConfig()
-	config.Format = format
-
-	// 设置全局响应格式
-	g.SetGlobalResponseFormat(format)
-
-	// 由于当前架构的限制,我们通过全局错误处理器来实现响应处理功能
-	middleware.SetGlobalErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
-		format := middleware.GetResponseFormatFromRequest(r)
-		middleware.HandleError(w, r, err, format)
-	})
-
-	global.LOGGER.InfoContext(g.Context(), "✅ 响应处理中间件已启用: format=%s", format)
-	global.LOGGER.InfoContext(g.Context(), "响应处理将通过全局错误处理器和便捷方法提供支持")
-
-	return nil
-}
-
-// SetGlobalResponseFormat 设置全局响应格式
-func (g *Gateway) SetGlobalResponseFormat(format response.ResponseFormat) {
-	global.LOGGER.InfoContext(g.Context(), "设置全局响应格式: format=%s", format)
-	// 可以将格式存储在全局配置中
-}
-
-// SetGlobalErrorHandler 设置全局错误处理器
-func (g *Gateway) SetGlobalErrorHandler(handler middleware.ErrorHandlerFunc) {
-	middleware.SetGlobalErrorHandler(handler)
-	global.LOGGER.InfoContext(g.Context(), "设置全局错误处理器")
-}
-
-// HandleErrorResponse 统一错误响应处理
-func (g *Gateway) HandleErrorResponse(w http.ResponseWriter, r *http.Request, err error) {
-	format := middleware.GetResponseFormatFromRequest(r)
-	middleware.HandleError(w, r, err, format)
-}
-
-// WriteSuccessResponse 写入成功响应
-func (g *Gateway) WriteSuccessResponse(w http.ResponseWriter, r *http.Request, data interface{}, message ...string) {
-	format := middleware.GetResponseFormatFromRequest(r)
-	response.WriteStandardResponse(w, format, http.StatusOK, data, message...)
-}
-
-// WriteErrorResponse 写入错误响应
-func (g *Gateway) WriteErrorResponse(w http.ResponseWriter, r *http.Request, code errors.ErrorCode, details ...string) {
-	format := middleware.GetResponseFormatFromRequest(r)
-	response.WriteStandardErrorWithCode(w, format, code, details...)
-}
-
-// WriteListResponse 写入列表响应
-func (g *Gateway) WriteListResponse(w http.ResponseWriter, r *http.Request, list interface{}, pagination *response.PaginationMeta, message ...string) {
-	format := middleware.GetResponseFormatFromRequest(r)
-	response.WriteStandardList(w, format, list, pagination, message...)
-}
-
 // GetConfig 获取网关配置
 func (g *Gateway) GetConfig() *gwconfig.Gateway {
 	return g.Server.GetConfig()
@@ -546,19 +475,11 @@ func (g *Gateway) StartWithBanner() error {
 	startupReporter.PrintStartupStatus()
 
 	// 默认启用Swagger文档服务
-	if g.gatewayConfig != nil && g.gatewayConfig.Swagger != nil && g.gatewayConfig.Swagger.Enabled {
-		// 直接传递Swagger配置指针
-		if err := g.EnableSwaggerWithConfig(g.gatewayConfig.Swagger); err != nil {
+	if g.gatewayConfig.Swagger.Enabled {
+		if err := g.EnableSwagger(); err != nil {
 			global.LOGGER.WarnContext(g.Context(), "⚠️  启用Swagger失败: %v", err)
 		} else {
 			global.LOGGER.InfoContext(g.Context(), "✅ Swagger已成功启用: %s", g.gatewayConfig.Swagger.UIPath)
-		}
-	} else {
-		// 如果配置中没有Swagger配置，使用默认配置
-		if err := g.EnableSwagger(); err != nil {
-			global.LOGGER.WarnContext(g.Context(), "⚠️  使用默认配置启用Swagger失败: %v", err)
-		} else {
-			global.LOGGER.InfoContext(g.Context(), "✅ 使用默认配置启用Swagger成功")
 		}
 	}
 
@@ -832,12 +753,12 @@ func QuickStartWithConfigFile(configFilePath string) error {
 	return gw.WaitForShutdown()
 }
 
-// QuickStartWithConfigFilePerfix 使用指定配置文件快速启动
-func QuickStartWithConfigFilePerfix(configFilePath string, perfix string) error {
+// QuickStartWithConfigFilePrefix 使用指定配置文件快速启动
+func QuickStartWithConfigFilePrefix(configFilePath string, prefix string) error {
 	gw, err := NewGateway().
 		WithContext(context.Background()).
 		WithConfigPath(configFilePath).
-		WithPrefix(perfix).
+		WithPrefix(prefix).
 		WithEnvironment(goconfig.GetEnvironment()).
 		WithHotReload(nil).
 		BuildAndStart()

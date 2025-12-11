@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-26 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-26 12:10:44
+ * @LastEditTime: 2025-11-26 12:10:55
  * @FilePath: \go-rpc-gateway\server\endpoint_utils.go
  * @Description: API端点信息聚合工具 - 纯工具方法，无业务侵入
  *

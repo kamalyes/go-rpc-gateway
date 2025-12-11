@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-26 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-26 12:14:00
+ * @LastEditTime: 2025-11-26 12:15:00
  * @FilePath: \go-rpc-gateway\server\swagger_embed.go
  * @Description: Swagger 文件嵌入和访问工具
  *

@@ -13,12 +13,39 @@ package constants
 
 import "time"
 
-// 限流算法类型常量
+// ============================================================================
+// 限流中间件配置常量
+// ============================================================================
+
+// 限流中间件默认配置
 const (
+	RateLimitDefaultRPS       = 100 // 默认每秒请求数
+	RateLimitDefaultBurstSize = 200 // 默认突发容量
+)
+
+// 限流策略常量（别名）
+const (
+	RateLimitStrategyTokenBucket    = "token_bucket"
+	RateLimitStrategyLeakyBucket    = "leaky_bucket"
+	RateLimitStrategyFixedWindow    = "fixed_window"
+	RateLimitStrategySlidingLog     = "sliding_log"
 	RateLimitAlgorithmTokenBucket   = "token_bucket"
 	RateLimitAlgorithmSlidingWindow = "sliding_window"
 	RateLimitAlgorithmFixedWindow   = "fixed_window"
 	RateLimitAlgorithmLeakyBucket   = "leaky_bucket"
+)
+
+// 限流级别常量
+const (
+	RateLimitLevelGlobal = "global"
+	RateLimitLevelIP     = "ip"
+	RateLimitLevelUser   = "user"
+	RateLimitLevelPath   = "path"
+)
+
+// 限流计数器精度
+const (
+	RateLimitBillion = 1e9 // 用于整数运算的精度因子
 )
 
 // 限流键生成函数类型
@@ -81,10 +108,3 @@ var RateLimitDefaultWhitelistIPs = []string{
 	"::1",
 	"localhost",
 }
-
-// 默认限流规则优先级
-const (
-	RateLimitPriorityHigh   = 1
-	RateLimitPriorityMedium = 5
-	RateLimitPriorityLow    = 10
-)

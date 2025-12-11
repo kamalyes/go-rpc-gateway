@@ -2,8 +2,8 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-17 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-17 15:56:59
- * @FilePath: \im-access-control-service\go-rpc-gateway\cpool\oss\boltdb.go
+ * @LastEditTime: 2025-12-05 23:05:02
+ * @FilePath: \go-rpc-gateway\cpool\oss\boltdb.go
  * @Description: BoltDB对象存储实现 - 本地文件存储
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.

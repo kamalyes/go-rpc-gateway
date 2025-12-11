@@ -13,6 +13,10 @@ package constants
 
 import "time"
 
+// ============================================================================
+// 中间件通用配置常量
+// ============================================================================
+
 // 中间件通用配置
 const (
 	// 默认中间件启用状态
@@ -30,6 +34,10 @@ const (
 	// 默认重试间隔
 	MiddlewareDefaultRetryInterval = time.Second
 )
+
+// ============================================================================
+// 中间件类型和执行顺序
+// ============================================================================
 
 // 中间件类型常量
 const (
@@ -72,6 +80,10 @@ const (
 	MiddlewareOrderHealth  = 350
 )
 
+// ============================================================================
+// 上下文键常量
+// ============================================================================
+
 // 请求上下文键常量
 const (
 	ContextKeyRequestID  = "request_id"
@@ -85,6 +97,10 @@ const (
 	ContextKeyRemoteAddr = "remote_addr"
 	ContextKeyUserAgent  = "user_agent"
 )
+
+// ============================================================================
+// 中间件错误代码和消息
+// ============================================================================
 
 // 错误代码常量
 const (
@@ -103,6 +119,10 @@ const (
 	ErrMsgMiddlewareTimeout  = "Middleware execution timeout"
 	ErrMsgMiddlewareDisabled = "Middleware is disabled"
 )
+
+// ============================================================================
+// 中间件默认跳过规则
+// ============================================================================
 
 // 默认跳过的路径
 var MiddlewareDefaultSkipPaths = []string{
@@ -125,13 +145,4 @@ var MiddlewareDefaultSkipUserAgents = []string{
 // 默认跳过的方法
 var MiddlewareDefaultSkipMethods = []string{
 	"OPTIONS",
-}
-
-// 中间件配置验证规则
-var MiddlewareValidationRules = map[string]interface{}{
-	"timeout":     "required,min=1s,max=300s",
-	"retry_count": "required,min=0,max=10",
-	"enabled":     "required,boolean",
-	"skip_paths":  "slice",
-	"order":       "required,min=1,max=1000",
 }

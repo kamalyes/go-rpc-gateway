@@ -24,7 +24,7 @@ var contextLogger gologger.ILogger
 
 // Gorm 初始化数据库并产生数据库全局变量
 func Gorm(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
-	if cfg == nil {
+	if !cfg.Database.Enabled {
 		return nil
 	}
 
@@ -32,7 +32,7 @@ func Gorm(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gor
 	contextLogger = log
 
 	// 根据配置的数据库类型选择对应的初始化方法
-	if cfg.Database != nil && cfg.Database.Type != "" {
+	if cfg.Database.Type != "" {
 		switch cfg.Database.Type {
 		case database.DBTypeMySQL:
 			return GormMySQL(ctx, cfg, log)

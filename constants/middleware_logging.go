@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-10 11:40:02
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-10 11:40:10
+ * @LastEditTime: 2025-12-11 15:15:40
  * @FilePath: \go-rpc-gateway\constants\middleware_logging.go
  * @Description: 日志中间件相关常量
  *
@@ -11,11 +11,28 @@
 
 package constants
 
+// ============================================================================
+// 日志中间件配置常量
+// ============================================================================
+
+// 日志中间件默认配置
+const (
+	LoggingDefaultMaxBodySize = 2048 // 默认 body 最大大小（字节）
+)
+
+// ============================================================================
+// 日志格式和输出配置
+// ============================================================================
+
 // 日志格式常量
 const (
 	LoggingFormatText = "text"
 	LoggingFormatJSON = "json"
 )
+
+// ============================================================================
+// 日志中间件默认配置
+// ============================================================================
 
 // 日志默认配置常量
 const (
@@ -32,6 +49,10 @@ const (
 	LoggingDefaultEnabled = true
 )
 
+// ============================================================================
+// 日志中间件默认规则
+// ============================================================================
+
 // 默认包含的头部信息
 var LoggingDefaultIncludeHeaders = []string{
 	HeaderUserAgent,
@@ -45,17 +66,3 @@ var LoggingDefaultSkipPaths = []string{
 	DefaultMetricsPath,
 	DefaultDebugPath,
 }
-
-// 日志输出类型常量
-const (
-	LoggingOutputFile   = "file"
-	LoggingOutputStdout = "stdout"
-	LoggingOutputSyslog = "syslog"
-)
-
-// 日志轮转默认配置
-const (
-	LoggingDefaultMaxSize    = 100 // MB
-	LoggingDefaultMaxBackups = 30  // 个数
-	LoggingDefaultMaxAge     = 7   // 天
-)

@@ -108,6 +108,7 @@ const (
 const (
 	TracingEventRequestStart = "request.start"
 	TracingEventRequestEnd   = "request.end"
+	TracingEventLog          = "log"
 	TracingEventError        = "error"
 	TracingEventException    = "exception"
 )

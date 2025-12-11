@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-08 00:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-05 19:48:06
+ * @LastEditTime: 2025-12-11 16:09:15
  * @FilePath: \go-rpc-gateway\server\banner.go
  * @Description: Gateway启动横幅和信息展示
  *
@@ -20,7 +20,6 @@ import (
 	"github.com/kamalyes/go-config/pkg/banner"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-rpc-gateway/global"
-	"github.com/kamalyes/go-rpc-gateway/middleware"
 )
 
 // BannerManager 横幅管理器
@@ -134,9 +133,6 @@ func (b *BannerManager) printServerConfig() {
 	global.LOGGER.InfoContext(b.ctx, "   🌐 HTTP服务器: "+baseURL)
 
 	host := b.config.HTTPServer.Host
-	if host == "0.0.0.0" || host == "" {
-		host = "localhost"
-	}
 	global.LOGGER.InfoContext(b.ctx, "   📡 gRPC服务器: "+fmt.Sprintf("%s:%d", host, b.config.GRPC.Server.Port))
 
 	if b.config.Health.Enabled {
@@ -247,7 +243,7 @@ func (b *BannerManager) printEndpoints() {
 
 // PrintPProfInfo 打印PProf信息
 // go-config 的 Default() 已经设置了所有默认值，无需再次设置
-func (b *BannerManager) PrintPProfInfo(ctx context.Context, pprofConfig *middleware.PProfGatewayConfig) {
+func (b *BannerManager) PrintPProfInfo(ctx context.Context) {
 	if !b.config.Middleware.PProf.Enabled {
 		return
 	}
@@ -259,22 +255,6 @@ func (b *BannerManager) PrintPProfInfo(ctx context.Context, pprofConfig *middlew
 	global.LOGGER.InfoContext(b.ctx, "   🏠 仪表板: "+baseURL+"/")
 	pprofPrefix := b.config.Middleware.PProf.PathPrefix
 	global.LOGGER.InfoContext(b.ctx, "   🔍 PProf索引: "+baseURL+pprofPrefix+"/")
-
-	global.LOGGER.InfoContext(b.ctx, "   🧪 性能测试场景:")
-	scenarios := []struct {
-		path string
-		desc string
-	}{
-		{"/gc/small-objects", "小对象GC测试"},
-		{"/gc/large-objects", "大对象GC测试"},
-		{"/memory/allocate", "内存分配测试"},
-		{"/cpu/intensive", "CPU密集测试"},
-		{"/goroutine/spawn", "协程创建测试"},
-	}
-
-	for _, scenario := range scenarios {
-		global.LOGGER.InfoContext(b.ctx, "     • "+scenario.desc+": "+baseURL+pprofPrefix+scenario.path)
-	}
 }
 
 // printSystemInfo 打印系统信息
@@ -296,15 +276,30 @@ func (b *BannerManager) PrintMiddlewareStatus() {
 		enabled bool
 		desc    string
 	}{
-		{"Swagger", b.config.Swagger.Enabled, "Swagger文档"},
+		// 核心中间件
 		{"Recovery", b.config.Middleware.Recovery.Enabled, "异常恢复"},
 		{"RequestID", b.config.Middleware.RequestID.Enabled, "请求ID生成"},
 		{"I18n", b.config.Middleware.I18N.Enabled, "国际化支持"},
+		{"ContextTrace", b.config.Middleware.RequestID.Enabled, "上下文追踪"},
+
+		// 安全中间件
 		{"CORS", b.config.CORS.AllowedAllOrigins || len(b.config.CORS.AllowedOrigins) > 0, "跨域处理"},
-		{"RateLimit", b.config.RateLimit.Enabled, "限流控制"},
-		{"AccessLog", b.config.Middleware.Logging.Enabled, "访问日志"},
-		{"Auth", b.config.Security.JWT.Secret != "", "身份认证"},
 		{"Security", b.config.Security.Enabled, "安全头设置"},
+		{"JWT", b.config.Security.JWT.Secret != "", "身份认证"},
+		{"Signature", b.config.Middleware.Signature.Enabled, "签名验证"},
+
+		// 流量控制
+		{"RateLimit", b.config.RateLimit.Enabled, "限流控制"},
+		{"CircuitBreaker", b.config.Middleware.CircuitBreaker.Enabled, "熔断保护"},
+
+		// 日志和监控
+		{"Logging", b.config.Middleware.Logging.Enabled, "访问日志"},
+		{"Metrics", b.config.Middleware.Metrics.Enabled, "性能指标"},
+		{"Tracing", b.config.Middleware.Tracing.Enabled, "链路追踪"},
+
+		// 开发工具
+		{"Swagger", b.config.Swagger.Enabled, "API文档"},
+		{"PProf", b.config.Middleware.PProf.Enabled, "性能分析"},
 	}
 
 	for _, mw := range middlewares {

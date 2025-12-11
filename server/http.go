@@ -15,12 +15,6 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
-	"strings"
-	"time"
-
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -28,6 +22,11 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/protobuf/encoding/protojson"
+	"io"
+	"net"
+	"net/http"
+	"strings"
+	"time"
 )
 
 // buildServeMuxOptions 构建ServeMux选项，支持从配置文件读取JSON序列化配置
@@ -151,11 +150,7 @@ func (s *Server) initHTTPGateway() error {
 
 	if s.middlewareManager != nil {
 		var middlewares []middleware.MiddlewareFunc
-		if s.config.Debug {
-			middlewares = s.middlewareManager.GetDevelopmentMiddlewares()
-		} else {
-			middlewares = s.middlewareManager.GetDefaultMiddlewares()
-		}
+		middlewares = s.middlewareManager.GetMiddlewares()
 		handler = middleware.ApplyMiddlewares(handler, middlewares...)
 	}
 

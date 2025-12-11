@@ -2,9 +2,9 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-07 16:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-12 13:43:33
+ * @LastEditTime: 2025-12-07 22:05:32
  * @FilePath: \go-rpc-gateway\middleware\recovery.go
- * @Description: Recovery恢复中间件，使用go-logger
+ * @Description: HTTP Recovery 中间件 - 处理 panic 恢复（增强版）
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
  */
@@ -12,87 +12,135 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"runtime"
 
 	"github.com/kamalyes/go-config/pkg/recovery"
+	"github.com/kamalyes/go-logger"
+	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
+	"github.com/kamalyes/go-toolbox/pkg/netx"
 )
 
-// Recovery 恢复中间件，使用默认配置
-func Recovery() MiddlewareFunc {
-	return RecoveryWithConfig(recovery.Default())
-}
-
-// RecoveryWithConfig Recovery中间件配置版本
-func RecoveryWithConfig(config *recovery.Recovery) MiddlewareFunc {
-	// 如果配置为 nil，使用默认配置
-	if config == nil {
-		config = recovery.Default()
-	}
-
+// RecoveryMiddleware 恢复中间件 - 处理 panic 恢复
+func RecoveryMiddleware(cfg *recovery.Recovery) HTTPMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if err := recover(); err != nil {
-					// 获取堆栈信息
-					var stackTrace string
-					if config.EnableStack {
-						buf := make([]byte, config.StackSize)
-						n := runtime.Stack(buf, false)
-						stackTrace = string(buf[:n])
-					}
-
-					// 记录日志
-					logger := global.LOGGER.WithField("error", err).
-						WithField("path", r.URL.Path).
-						WithField("method", r.Method).
-						WithField("remote_addr", r.RemoteAddr)
-					if config.EnableStack {
-						logger = logger.WithField("stack_trace", stackTrace)
-					}
-					logger.ErrorMsg("请求恐慌恢复")
-
-					// 自定义恢复处理
-					if config.RecoveryHandler != nil {
-						config.RecoveryHandler(w, r, err)
-						return
-					}
-
-					// 默认处理
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusInternalServerError)
-
-					message := config.ErrorMessage
-					if message == "" {
-						message = "服务器内部错误"
-					}
-
-					result := &commonapis.Result{
-						Code:   int32(http.StatusInternalServerError),
-						Error:  message,
-						Status: commonapis.StatusCode_Internal,
-					}
-
-					if config.EnableDebug {
-						// 对于调试信息，我们可以将其添加到错误消息中
-						debugInfo := fmt.Sprintf("%v", err)
-						if config.EnableStack {
-							debugInfo += fmt.Sprintf(" | Stack: %s", stackTrace)
-						}
-						result.Error = fmt.Sprintf("%s | Debug: %s", message, debugInfo)
-					}
-
-					if err := json.NewEncoder(w).Encode(result); err != nil && global.LOGGER != nil {
-						global.LOGGER.WithError(err).ErrorMsg("写入panic响应失败")
-					}
+					handlePanicRecovery(w, r, err, cfg)
 				}
 			}()
 
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+// handlePanicRecovery 处理 panic 恢复（增强版）
+func handlePanicRecovery(w http.ResponseWriter, r *http.Request, err interface{}, config *recovery.Recovery) {
+	ctx := r.Context()
+
+	// 获取堆栈信息
+	var stackTrace string
+	if config.EnableStack {
+		buf := make([]byte, config.StackSize)
+		n := runtime.Stack(buf, false)
+		stackTrace = string(buf[:n])
+	}
+
+	// 记录 panic 信息（使用新的 context-aware API）
+	logPanicError(ctx, r, err, stackTrace, config)
+
+	// 自定义恢复处理
+	if config.RecoveryHandler != nil {
+		config.RecoveryHandler(w, r, err)
+		return
+	}
+
+	// 默认处理：设置响应
+	setPanicErrorResponse(w, ctx, err, stackTrace, config)
+}
+
+// logPanicError 记录 panic 错误日志
+func logPanicError(ctx context.Context, r *http.Request, err interface{}, stackTrace string, config *recovery.Recovery) {
+	fields := []interface{}{
+		constants.LogFieldError, err,
+		constants.LogFieldMethod, r.Method,
+		constants.LogFieldPath, r.URL.String(),
+		constants.LogFieldRemoteAddr, netx.GetClientIP(r),
+		constants.LogFieldUserAgent, r.UserAgent(),
+	}
+
+	// 添加堆栈信息
+	if config.EnableStack && stackTrace != "" {
+		fields = append(fields, constants.LogFieldStackTrace, stackTrace)
+	}
+
+	// 添加用户上下文信息
+	if userID := logger.GetUserID(ctx); userID != "" {
+		fields = append(fields, constants.LogFieldUserID, userID)
+	}
+	if tenantID := logger.GetTenantID(ctx); tenantID != "" {
+		fields = append(fields, constants.LogFieldTenantID, tenantID)
+	}
+
+	// 添加 trace 信息
+	if traceID := logger.GetTraceID(ctx); traceID != "" {
+		fields = append(fields, constants.LogFieldTraceID, traceID)
+	}
+	if requestID := logger.GetRequestID(ctx); requestID != "" {
+		fields = append(fields, constants.LogFieldRequestID, requestID)
+	}
+
+	global.LOGGER.ErrorContextKV(ctx, constants.LogMsgPanicRecovered, fields...)
+}
+
+// setPanicErrorResponse 设置 panic 错误响应
+func setPanicErrorResponse(w http.ResponseWriter, ctx context.Context, err interface{}, stackTrace string, config *recovery.Recovery) {
+	// 设置响应头
+	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
+	setTraceHeaders(w, ctx)
+	w.WriteHeader(http.StatusInternalServerError)
+
+	// 构建错误消息
+	message := config.ErrorMessage
+	if message == "" {
+		message = constants.MsgInternalError
+	}
+
+	// 构建响应对象
+	result := &commonapis.Result{
+		Code:   int32(http.StatusInternalServerError),
+		Error:  message,
+		Status: commonapis.StatusCode_Internal,
+	}
+
+	// 调试模式：添加详细错误信息
+	if config.EnableDebug {
+		debugInfo := fmt.Sprintf("%v", err)
+		if config.EnableStack && stackTrace != "" {
+			debugInfo += fmt.Sprintf(" | Stack: %s", stackTrace)
+		}
+		result.Error = fmt.Sprintf("%s | Debug: %s", message, debugInfo)
+	}
+
+	// 写入响应
+	if err := json.NewEncoder(w).Encode(result); err != nil && global.LOGGER != nil {
+		global.LOGGER.ErrorContext(ctx, constants.LogMsgWriteResponseError, constants.LogFieldError, err)
+	}
+}
+
+// setTraceHeaders 设置追踪头信息
+func setTraceHeaders(w http.ResponseWriter, ctx context.Context) {
+	if traceID := logger.GetTraceID(ctx); traceID != "" {
+		w.Header().Set(constants.HeaderXTraceID, traceID)
+	}
+	if requestID := logger.GetRequestID(ctx); requestID != "" {
+		w.Header().Set(constants.HeaderXRequestID, requestID)
 	}
 }
