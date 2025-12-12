@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-11 15:15:39
+ * @LastEditTime: 2025-12-13 20:07:47
  * @FilePath: \go-rpc-gateway\gateway.go
  * @Description: Gateway主入口，基于go-config
  *
@@ -222,7 +222,7 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 	}
 
 	// 初始化全局状态
-	if err := b.initializeGlobalState(manager, config); err != nil {
+	if err := b.initializeGlobalState(manager, &config); err != nil {
 		return nil, errors.WrapWithContext(err, errors.ErrCodeInitializationError)
 	}
 
@@ -281,13 +281,13 @@ func (b *GatewayBuilder) MustBuildAndStart(ctx ...context.Context) *Gateway {
 }
 
 // initializeGlobalState 初始化全局状态
-func (b *GatewayBuilder) initializeGlobalState(manager *goconfig.IntegratedConfigManager, config *gwconfig.Gateway) error {
+func (b *GatewayBuilder) initializeGlobalState(manager *goconfig.IntegratedConfigManager, config **gwconfig.Gateway) error {
 	// 使用 safe.MergeWithDefaults 合并默认配置
-	config = safe.MergeWithDefaults(config, gwconfig.Default())
+	*config = safe.MergeWithDefaults(*config, gwconfig.Default())
 
 	// 设置全局变量
 	global.CONFIG_MANAGER = manager
-	global.GATEWAY = config
+	global.GATEWAY = *config
 
 	// 初始化全局上下文
 	global.CTX, global.CANCEL = context.WithCancel(context.Background())
@@ -497,8 +497,10 @@ func (g *Gateway) StartWithBanner() error {
 	global.LOGGER.InfoContext(g.Context(), "✅ 服务器启动成功!")
 	global.LOGGER.InfoContext(g.Context(), "")
 
-	// 显示启动banner和启动摘要
+	// 🎯 启动成功后打印完整的 Banner 和配置信息
 	g.PrintStartupInfo()
+
+	// 显示启动摘要
 	startupReporter.PrintStartupSummary()
 
 	return nil

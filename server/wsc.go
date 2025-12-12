@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-16 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-05 19:55:10
+ * @LastEditTime: 2025-12-12 16:29:02
  * @FilePath: \go-rpc-gateway\server\wsc.go
  * @Description: WebSocket 集成层 - go-wsc 的薄封装
  * 职责：
@@ -520,14 +520,14 @@ func (ws *WebSocketService) normalizeMessageFields(client *wsc.Client, msg *wsc.
 func (ws *WebSocketService) forwardMessage(msg *wsc.HubMessage) {
 	if msg.Receiver != "" {
 		// 点对点消息
-		if err := ws.hub.SendToUser(ws.ctx, msg.Receiver, msg); err != nil {
+		if result := ws.hub.SendToUserWithRetry(ws.ctx, msg.Receiver, msg); result.FinalError != nil {
 			global.LOGGER.WarnKV("消息发送失败",
 				"message_id", msg.ID,
 				"sender", msg.Sender,
 				"receiver", msg.Receiver,
-				"error", err,
+				"error", result.FinalError,
 			)
-			ws.executeErrorCallbacks(ws.ctx, err, "error")
+			ws.executeErrorCallbacks(ws.ctx, result.FinalError, "error")
 		}
 	} else {
 		// 广播消息（没有指定接收者）
@@ -564,7 +564,7 @@ func (ws *WebSocketService) handleHeartbeatMessage(client *wsc.Client) {
 	pongMsg := &wsc.HubMessage{
 		ID:          fmt.Sprintf("pong_%s_%d", client.UserID, time.Now().UnixNano()),
 		MessageType: wsc.MessageTypePong,
-		Sender:      "system",
+		Sender:      wsc.UserTypeSystem.String(),
 		Receiver:    client.UserID,
 		CreateAt:    time.Now(),
 		Priority:    wsc.PriorityNormal,
@@ -572,19 +572,19 @@ func (ws *WebSocketService) handleHeartbeatMessage(client *wsc.Client) {
 	}
 
 	// 添加错误处理和日志
-	if err := ws.hub.SendToUser(ws.ctx, client.UserID, pongMsg); err != nil {
+	if result := ws.hub.SendToUserWithRetry(ws.ctx, client.UserID, pongMsg); result.FinalError != nil {
 		global.LOGGER.WarnKV("心跳 pong 响应发送失败",
 			"client_id", client.ID,
 			"user_id", client.UserID,
-			"error", err,
+			"error", result.FinalError,
 		)
-	} else {
-		global.LOGGER.DebugKV("心跳 pong 响应发送成功",
-			"client_id", client.ID,
-			"user_id", client.UserID,
-			"pong_msg_id", pongMsg.ID,
-		)
+		return
 	}
+	global.LOGGER.DebugKV("心跳 pong 响应发送成功",
+		"client_id", client.ID,
+		"user_id", client.UserID,
+		"pong_msg_id", pongMsg.ID,
+	)
 }
 
 // handleBinaryMessage 处理二进制消息
@@ -610,14 +610,14 @@ func (ws *WebSocketService) handleBinaryMessage(client *wsc.Client, data []byte)
 
 	// 🔥 关键修复：将二进制消息转发到 Hub
 	if msg.Receiver != "" {
-		if err := ws.hub.SendToUser(ws.ctx, msg.Receiver, msg); err != nil {
+		if result := ws.hub.SendToUserWithRetry(ws.ctx, msg.Receiver, msg); result.FinalError != nil {
 			global.LOGGER.WarnKV("二进制消息发送失败",
 				"message_id", msg.ID,
 				"sender", msg.Sender,
 				"receiver", msg.Receiver,
-				"error", err,
+				"error", result.FinalError,
 			)
-			ws.executeErrorCallbacks(ws.ctx, err, "error")
+			ws.executeErrorCallbacks(ws.ctx, result.FinalError, "error")
 		}
 	}
 }

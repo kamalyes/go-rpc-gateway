@@ -82,4 +82,13 @@ const (
 	MimeImagePNG               = "image/png"
 	MimeImageGIF               = "image/gif"
 	MimeImageWebP              = "image/webp"
+	MimeApplicationJSONCharset = "application/json; charset=utf-8"
+	MimeTextHTMLCharset        = "text/html; charset=utf-8"
+)
+
+// CORS 相关常量
+const (
+	CORSAllowAll       = "*"
+	CORSDefaultMethods = "GET, POST, PUT, DELETE, OPTIONS"
+	CORSDefaultHeaders = "Content-Type, Authorization"
 )

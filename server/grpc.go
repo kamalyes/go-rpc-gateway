@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-15 15:09:37
+ * @LastEditTime: 2025-12-13 11:52:56
  * @FilePath: \go-rpc-gateway\server\grpc.go
  * @Description: gRPC服务器初始化和启动模块
  *
@@ -29,6 +29,12 @@ import (
 func (s *Server) initGRPCServer() error {
 	// 配置已通过 safe.MergeWithDefaults 合并默认值
 	grpcServer := s.config.GRPC.Server
+
+	// 检查是否启用 gRPC 服务
+	if !grpcServer.Enable {
+		global.LOGGER.InfoMsg("gRPC服务未启用,跳过初始化")
+		return nil
+	}
 
 	opts := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(grpcServer.MaxRecvMsgSize),
@@ -107,6 +113,12 @@ func (s *Server) initGRPCServer() error {
 // startGRPCServer 启动gRPC服务器
 func (s *Server) startGRPCServer() error {
 	grpcServer := s.config.GRPC.Server
+
+	// 检查是否启用 gRPC 服务
+	if !grpcServer.Enable {
+		global.LOGGER.InfoMsg("gRPC服务未启用,跳过启动")
+		return nil
+	}
 
 	// 获取网络和地址配置
 	address := fmt.Sprintf("%s:%d", grpcServer.Host, grpcServer.Port)
