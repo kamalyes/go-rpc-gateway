@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-10 22:15:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-13 15:21:36
+ * @LastEditTime: 2025-12-15 11:15:50
  * @FilePath: \go-rpc-gateway\middleware\swagger.go
  * @Description: Swagger文档中间件 - 提供API文档在线查看
  *
@@ -1344,13 +1344,9 @@ func (s *SwaggerMiddleware) mergeDefinitions(specMap map[string]interface{}, ser
 		return
 	}
 
-	for defName, definition := range definitions {
+	for finalDefName, definition := range definitions {
 		// 使用mathx.ConvertMapKeysToString确保定义的键为字符串
 		convertedDef := mathx.ConvertMapKeysToString(definition)
-
-		// 判断是否需要添加服务名前缀
-		// common 开头和 api 开头的定义是共享的，不添加前缀
-		finalDefName := s.getFinalDefinitionName(defName, serviceName)
 
 		if existingDef, exists := allDefinitions[finalDefName]; exists {
 			s.checkDefinitionConsistency(finalDefName, existingDef, convertedDef, serviceName)
@@ -1358,29 +1354,7 @@ func (s *SwaggerMiddleware) mergeDefinitions(specMap map[string]interface{}, ser
 		}
 
 		allDefinitions[finalDefName] = convertedDef
-		if finalDefName != defName {
-			global.LOGGER.Debug("添加定义: %s (原名: %s, 来自: %s)", finalDefName, defName, serviceName)
-		} else {
-			global.LOGGER.Debug("添加共享定义: %s (来自: %s)", finalDefName, serviceName)
-		}
 	}
-}
-
-// getFinalDefinitionName 获取最终的定义名称（判断是否需要添加服务名前缀）
-func (s *SwaggerMiddleware) getFinalDefinitionName(defName, serviceName string) string {
-	// 从配置中获取共享定义前缀列表
-	sharedPrefixes := s.config.GetSharedDefinitionPrefixes()
-
-	// 使用 stringx.StartWithAny 检查是否匹配任何共享前缀
-	if stringx.StartWithAny(defName, sharedPrefixes) {
-		global.LOGGER.Debug("定义 %s 匹配共享前缀，不添加服务名前缀", defName)
-		return defName
-	}
-
-	// 其他定义添加服务名前缀，避免冲突
-	finalName := serviceName + "_" + defName
-	global.LOGGER.Debug("定义 %s 未匹配共享前缀，添加服务名前缀: %s (服务: %s)", defName, finalName, serviceName)
-	return finalName
 }
 
 // checkDefinitionConsistency 检查定义一致性
@@ -1700,15 +1674,9 @@ func (s *SwaggerMiddleware) fixReferencesInObject(obj interface{}) error {
 
 // fixReferencesInMap 修复map中的引用
 func (s *SwaggerMiddleware) fixReferencesInMap(m map[string]interface{}) error {
-	for key, value := range m {
-		if key == constants.SwaggerFieldRef {
-			if err := s.processRefField(m, value); err != nil {
-				return err
-			}
-		} else {
-			if err := s.fixReferencesInObject(value); err != nil {
-				return err
-			}
+	for _, value := range m {
+		if err := s.fixReferencesInObject(value); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1722,52 +1690,4 @@ func (s *SwaggerMiddleware) fixReferencesInSlice(slice []interface{}) error {
 		}
 	}
 	return nil
-}
-
-// processRefField 处理$ref字段
-func (s *SwaggerMiddleware) processRefField(m map[string]interface{}, value interface{}) error {
-	refStr, ok := value.(string)
-	if !ok {
-		return nil
-	}
-
-	newRef := s.fixReference(refStr)
-	if newRef != refStr {
-		m[constants.SwaggerFieldRef] = newRef
-		global.LOGGER.Debug("修复引用: %s -> %s", refStr, newRef)
-	}
-	return nil
-}
-
-// fixReference 修复单个引用路径
-func (s *SwaggerMiddleware) fixReference(ref string) string {
-	// 修复定义引用，需要找到对应的定义
-	if strings.HasPrefix(ref, constants.SwaggerPathDefinitions) {
-		defName := strings.TrimPrefix(ref, constants.SwaggerPathDefinitions)
-		definitions := s.aggregatedSpec[constants.SwaggerFieldDefs].(map[string]interface{})
-
-		// 从配置中获取共享定义前缀列表
-		sharedPrefixes := s.config.GetSharedDefinitionPrefixes()
-
-		// 使用 stringx.StartWithAny 优先查找共享定义
-		if stringx.StartWithAny(defName, sharedPrefixes) {
-			if _, exists := definitions[defName]; exists {
-				return ref // 共享定义直接使用原引用
-			}
-		}
-
-		// 查找带服务名前缀的定义
-		for serviceName := range s.serviceSpecs {
-			prefixedDefName := serviceName + "_" + defName
-			if _, exists := definitions[prefixedDefName]; exists {
-				// 找到匹配的定义，更新引用
-				return constants.SwaggerPathDefinitions + prefixedDefName
-			}
-		}
-
-		// 如果没有找到定义，记录警告
-		global.LOGGER.Warn("引用的类型 %s 未找到定义，保持原引用", defName)
-	}
-
-	return ref
 }

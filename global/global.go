@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-05 23:33:12
+ * @LastEditTime: 2025-12-15 13:10:50
  * @FilePath: \go-rpc-gateway\global\global.go
  * @Description: 全局变量和配置管理 - 基于go-config的重构版本
  *
@@ -59,9 +59,6 @@ func EnsureLoggerInitialized() error {
 	// 将新创建的 logger 赋值给全局变量
 	LOGGER = newLogger
 	LOG = newLogger // 兼容别名
-
-	ctx := context.Background()
-	LOGGER.InfoContext(ctx, "Logger initialized successfully with go-logger")
 	return nil
 }
 

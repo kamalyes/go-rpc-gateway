@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2023-07-28 00:50:58
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 07:50:57
+ * @LastEditTime: 2025-12-15 11:37:08
  * @FilePath: \go-rpc-gateway\cpool\redis\redis.go
  * @Description: Redis连接客户端，兼容Gateway结构
  *
@@ -12,6 +12,7 @@ package redis
 
 import (
 	"context"
+
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-logger"
 	"github.com/redis/go-redis/v9"
@@ -19,10 +20,8 @@ import (
 
 // Redis 初始化redis客户端
 func Redis(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogger) *redis.Client {
-	if cfg == nil {
-		if log != nil {
-			log.WarnContext(ctx, "Gateway configuration not found")
-		}
+	// 检查缓存是否启用
+	if !cfg.Cache.Enabled {
 		return nil
 	}
 

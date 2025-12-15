@@ -165,6 +165,9 @@ func (i *LoggerInitializer) Priority() int      { return 1 } // 最高优先级
 func (i *LoggerInitializer) HealthCheck() error { return nil }
 
 func (i *LoggerInitializer) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
+	// 检查是否已经初始化,避免重复初始化
+	isFirstInit := LOGGER == nil
+
 	// 确保日志器被初始化
 	if err := EnsureLoggerInitialized(); err != nil {
 		return err
@@ -188,6 +191,11 @@ func (i *LoggerInitializer) Initialize(ctx context.Context, cfg *gwconfig.Gatewa
 	}
 
 	LOG = LOGGER // 兼容别名
+
+	// 只在首次初始化时输出
+	if isFirstInit {
+		LOGGER.InfoContext(ctx, "ℹ️ [INFO] Logger initialized successfully with go-logger")
+	}
 	return nil
 }
 
