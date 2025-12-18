@@ -45,6 +45,12 @@ type HealthCheckResult struct {
 	Version   string                  `json:"version"`   // 版本
 	Timestamp int64                   `json:"timestamp"` // 时间戳
 	Uptime    time.Duration           `json:"uptime"`    // 运行时间
+	BuildTime string                  `json:"buildTime"` // 构建时间
+	BuildUser string                  `json:"buildUser"` // 构建用户
+	GoVersion string                  `json:"goVersion"` // Go版本
+	GitCommit string                  `json:"gitCommit"` // Git提交哈希
+	GitBranch string                  `json:"gitBranch"` // Git分支
+	GitTag    string                  `json:"gitTag"`    // Git标签
 	Checks    map[string]HealthStatus `json:"checks"`    // 各组件检查结果
 }
 
@@ -263,19 +269,15 @@ func (m *MySQLChecker) Check(ctx context.Context) HealthStatus {
 
 // HealthManager 健康检查管理器
 type HealthManager struct {
-	checkers       []HealthChecker
-	serviceName    string
-	serviceVersion string
-	startTime      time.Time
+	checkers  []HealthChecker
+	startTime time.Time
 }
 
 // NewHealthManager 创建健康检查管理器
-func NewHealthManager(serviceName, serviceVersion string) *HealthManager {
+func NewHealthManager() *HealthManager {
 	return &HealthManager{
-		checkers:       make([]HealthChecker, 0),
-		serviceName:    serviceName,
-		serviceVersion: serviceVersion,
-		startTime:      time.Now(),
+		checkers:  make([]HealthChecker, 0),
+		startTime: time.Now(),
 	}
 }
 
@@ -286,11 +288,19 @@ func (h *HealthManager) RegisterChecker(checker HealthChecker) {
 
 // Check 执行健康检查
 func (h *HealthManager) Check(ctx context.Context, detailed bool) HealthCheckResult {
+	// 使用全局配置
+	cfg := global.GATEWAY
 	result := HealthCheckResult{
-		Service:   h.serviceName,
-		Version:   h.serviceVersion,
+		Service:   cfg.Name,
+		Version:   cfg.Version,
 		Timestamp: time.Now().Unix(),
 		Uptime:    time.Since(h.startTime),
+		BuildTime: cfg.BuildTime,
+		BuildUser: cfg.BuildUser,
+		GoVersion: cfg.GoVersion,
+		GitCommit: cfg.GitCommit,
+		GitBranch: cfg.GitBranch,
+		GitTag:    cfg.GitTag,
 		Checks:    make(map[string]HealthStatus),
 	}
 

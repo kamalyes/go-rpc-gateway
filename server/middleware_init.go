@@ -12,9 +12,10 @@
 package server
 
 import (
+	"time"
+
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
-	"time"
 )
 
 // initMiddleware 初始化中间件管理器
@@ -37,10 +38,7 @@ func (s *Server) initMiddleware() error {
 // initHealthManager 初始化健康检查管理器
 func (s *Server) initHealthManager() error {
 	// 配置已通过 safe.MergeWithDefaults 合并默认值
-	healthManager := middleware.NewHealthManager(
-		s.config.Name,
-		s.config.Version,
-	)
+	healthManager := middleware.NewHealthManager()
 
 	// 添加Redis健康检查
 	if s.config.Health.Redis.Enabled {

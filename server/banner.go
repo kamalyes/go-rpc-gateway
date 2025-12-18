@@ -120,9 +120,25 @@ func (b *BannerManager) PrintShutdownComplete() {
 func (b *BannerManager) printBasicInfo() {
 	global.LOGGER.InfoContext(b.ctx, "📋 基础信息:")
 	global.LOGGER.InfoContext(b.ctx, "   🏷️  名称: "+b.config.Banner.Title)
-	global.LOGGER.InfoContext(b.ctx, "   📦 版本: v1.0.0")
+	global.LOGGER.InfoContext(b.ctx, "   📦 版本: "+b.config.Version)
 	global.LOGGER.InfoContext(b.ctx, "   🌍 环境: "+b.config.Environment)
-	global.LOGGER.InfoContext(b.ctx, "   🔧 调试模式: "+fmt.Sprintf("%v", b.config.Debug))
+	global.LOGGER.InfoContext(b.ctx, "   � 调试模式: "+fmt.Sprintf("%v", b.config.Debug))
+	global.LOGGER.InfoContext(b.ctx, "")
+
+	// 构建信息
+	global.LOGGER.InfoContext(b.ctx, "🔨 构建信息:")
+	global.LOGGER.InfoContext(b.ctx, "   🕒 构建时间: "+b.config.BuildTime)
+	global.LOGGER.InfoContext(b.ctx, "   👤 构建用户: "+b.config.BuildUser)
+	global.LOGGER.InfoContext(b.ctx, "   🐹 Go版本: "+b.config.GoVersion)
+	global.LOGGER.InfoContext(b.ctx, "")
+
+	// Git信息
+	global.LOGGER.InfoContext(b.ctx, "🔖 Git信息:")
+	global.LOGGER.InfoContext(b.ctx, "   📝 Commit: "+b.config.GitCommit)
+	global.LOGGER.InfoContext(b.ctx, "   🌿 Branch: "+b.config.GitBranch)
+	global.LOGGER.InfoContext(b.ctx, "   🏷️  Tag: "+b.config.GitTag)
+	global.LOGGER.InfoContext(b.ctx, "")
+
 	global.LOGGER.InfoContext(b.ctx, "   🏗️  框架: go-rpc-gateway (基于 go-config & go-logger & go-sqlbuilder & go-toolbox)")
 }
 
