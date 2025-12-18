@@ -112,10 +112,15 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	statsRepo := wsc.NewRedisHubStatsRepository(redisClient, "wsc:stats:", 24*time.Hour)
 	hub.SetHubStatsRepository(statsRepo)
 
+	// 负载管理仓库 (key前缀: wsc:workload:, TTL: 24小时)
+	workloadRepo := wsc.NewRedisWorkloadRepository(redisClient, "wsc:workload:", 24*time.Hour)
+	hub.SetWorkloadRepository(workloadRepo)
+
 	global.LOGGER.InfoKV("✅ WebSocket Hub Redis 仓库已初始化",
 		"redis_connected", true,
 		"online_status_ttl_seconds", ttl.Seconds(),
-		"stats_ttl_hours", 24)
+		"stats_ttl_hours", 24,
+		"workload_ttl_hours", 24)
 
 	// 2. 获取 MySQL/GORM 数据库并初始化 MySQL 仓库
 	db := global.GetDB()
