@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-16 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-12 16:29:02
+ * @LastEditTime: 2025-12-12 15:29:05
  * @FilePath: \go-rpc-gateway\server\wsc.go
  * @Description: WebSocket 集成层 - go-wsc 的薄封装
  * 职责：
@@ -35,22 +35,6 @@ import (
 )
 
 // ============================================================================
-// 类型定义
-// ============================================================================
-
-// ClientConnectCallback 客户端连接回调
-type ClientConnectCallback func(ctx context.Context, client *wsc.Client) error
-
-// ClientDisconnectCallback 客户端断开连接回调
-type ClientDisconnectCallback func(ctx context.Context, client *wsc.Client, reason string) error
-
-// MessageReceivedCallback 消息接收回调
-type MessageReceivedCallback func(ctx context.Context, client *wsc.Client, msg *wsc.HubMessage) error
-
-// ErrorCallback 错误处理回调
-type ErrorCallback func(ctx context.Context, err error, severity string) error
-
-// ============================================================================
 // WebSocketService 结构体
 // ============================================================================
 
@@ -64,12 +48,6 @@ type WebSocketService struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	running    atomic.Bool
-
-	// 回调列表
-	connectCallbacks    []ClientConnectCallback
-	disconnectCallbacks []ClientDisconnectCallback
-	messageCallbacks    []MessageReceivedCallback
-	errorCallbacks      []ErrorCallback
 }
 
 // ============================================================================
@@ -103,24 +81,18 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 		os.Exit(1)
 	}
 
-	// 在线状态仓库 (key前缀: wsc:online:, TTL: 心跳间隔的3倍)
-	ttl := time.Duration(cfg.HeartbeatInterval) * 3 * time.Second
-	onlineStatusRepo := wsc.NewRedisOnlineStatusRepository(redisClient, "wsc:online:", ttl)
+	// 在线状态仓库 (TTL固定为心跳间隔的3倍)
+	cfg.RedisRepository.OnlineStatus.TTL = time.Duration(cfg.HeartbeatInterval) * time.Second * 3
+	onlineStatusRepo := wsc.NewRedisOnlineStatusRepository(redisClient, cfg.RedisRepository.OnlineStatus)
 	hub.SetOnlineStatusRepository(onlineStatusRepo)
 
-	// 统计仓库 (key前缀: wsc:stats:, TTL: 24小时)
-	statsRepo := wsc.NewRedisHubStatsRepository(redisClient, "wsc:stats:", 24*time.Hour)
+	// 统计仓库
+	statsRepo := wsc.NewRedisHubStatsRepository(redisClient, cfg.RedisRepository.Stats)
 	hub.SetHubStatsRepository(statsRepo)
 
-	// 负载管理仓库 (key前缀: wsc:workload:, TTL: 24小时)
-	workloadRepo := wsc.NewRedisWorkloadRepository(redisClient, "wsc:workload:", 24*time.Hour)
+	// 负载管理仓库
+	workloadRepo := wsc.NewRedisWorkloadRepository(redisClient, cfg.RedisRepository.Workload)
 	hub.SetWorkloadRepository(workloadRepo)
-
-	global.LOGGER.InfoKV("✅ WebSocket Hub Redis 仓库已初始化",
-		"redis_connected", true,
-		"online_status_ttl_seconds", ttl.Seconds(),
-		"stats_ttl_hours", 24,
-		"workload_ttl_hours", 24)
 
 	// 2. 获取 MySQL/GORM 数据库并初始化 MySQL 仓库
 	db := global.GetDB()
@@ -132,6 +104,24 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	// 消息记录仓库 (MySQL GORM)
 	messageRecordRepo := wsc.NewMessageRecordRepository(db)
 	hub.SetMessageRecordRepository(messageRecordRepo)
+
+	// 🔥 离线消息处理器
+	offlineHandler := wsc.NewHybridOfflineMessageHandler(redisClient, db, cfg.RedisRepository.OfflineMessage)
+	hub.SetOfflineMessageRepo(offlineHandler)
+
+	global.LOGGER.InfoKV("✅ WebSocket Hub Redis 仓库已初始化",
+		"redis_connected", true,
+		"online_status_key_prefix", cfg.RedisRepository.OnlineStatus.KeyPrefix,
+		"online_status_ttl_seconds", cfg.RedisRepository.OnlineStatus.TTL.Seconds(),
+		"stats_key_prefix", cfg.RedisRepository.Stats.KeyPrefix,
+		"stats_ttl_hours", cfg.RedisRepository.Stats.TTL.Hours(),
+		"workload_key_prefix", cfg.RedisRepository.Workload.KeyPrefix,
+		"workload_ttl_hours", cfg.RedisRepository.Workload.TTL.Hours(),
+		"offline_message_key_prefix", cfg.RedisRepository.OfflineMessage.KeyPrefix,
+		"offline_queue_ttl_days", cfg.RedisRepository.OfflineMessage.QueueTTL.Hours()/24,
+		"offline_auto_store", cfg.RedisRepository.OfflineMessage.AutoStore,
+		"offline_auto_push", cfg.RedisRepository.OfflineMessage.AutoPush,
+		"offline_max_messages", cfg.RedisRepository.OfflineMessage.MaxCount)
 
 	global.LOGGER.InfoKV("✅ WebSocket Hub MySQL 仓库已初始化",
 		"database_connected", true)
@@ -403,12 +393,6 @@ func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *htt
 			"user_type", string(client.UserType),
 		)
 
-		// 执行连接回调
-		if err := ws.executeConnectCallbacks(ws.ctx, client); err != nil {
-			ws.executeErrorCallbacks(ws.ctx, err, "error")
-			return
-		}
-
 		// 处理消息循环
 		ws.handleMessageLoop(client)
 	}()
@@ -419,15 +403,13 @@ func (ws *WebSocketService) handleMessageLoop(client *wsc.Client) {
 	for {
 		select {
 		case <-ws.ctx.Done():
-			_ = ws.executeDisconnectCallbacks(ws.ctx, client, "context_done")
 			return
 		default:
 		}
 		// 读取消息
 		messageType, data, err := client.Conn.ReadMessage()
 		if err != nil {
-			// WebSocket 连接错误，执行断开连接回调
-			_ = ws.executeDisconnectCallbacks(ws.ctx, client, "read_error")
+			// WebSocket 连接错误
 			return
 		}
 
@@ -441,7 +423,6 @@ func (ws *WebSocketService) handleMessageLoop(client *wsc.Client) {
 		case 2: // BinaryMessage
 			ws.handleBinaryMessage(client, data)
 		case 8: // CloseMessage
-			_ = ws.executeDisconnectCallbacks(ws.ctx, client, "close_message")
 			return
 		case 9: // PingMessage
 			// 响应 Pong
@@ -456,18 +437,27 @@ func (ws *WebSocketService) handleMessageLoop(client *wsc.Client) {
 
 // handleTextMessage 处理文本消息
 func (ws *WebSocketService) handleTextMessage(client *wsc.Client, data []byte) {
+	ctx := ws.ctx
+
 	// 解析并规范化消息
 	msg := ws.parseAndNormalizeMessage(client, data)
+
+	// 调用消息接收回调
+	if err := ws.hub.InvokeMessageReceivedCallback(ctx, client, &msg); err != nil {
+		global.LOGGER.WarnKV("消息接收回调执行失败",
+			"client_id", client.ID,
+			"user_id", client.UserID,
+			"message_id", msg.ID,
+			"error", err,
+		)
+		// 通知错误回调
+		_ = ws.hub.InvokeErrorCallback(ctx, err, "warning")
+	}
 
 	// 处理心跳消息
 	if msg.MessageType == wsc.MessageTypeHeartbeat {
 		ws.handleHeartbeatMessage(client)
 		return
-	}
-
-	// 执行消息接收回调
-	if err := ws.executeMessageReceivedCallbacks(ws.ctx, client, &msg); err != nil {
-		ws.executeErrorCallbacks(ws.ctx, err, "warning")
 	}
 
 	// 转发消息
@@ -532,7 +522,6 @@ func (ws *WebSocketService) forwardMessage(msg *wsc.HubMessage) {
 				"receiver", msg.Receiver,
 				"error", result.FinalError,
 			)
-			ws.executeErrorCallbacks(ws.ctx, result.FinalError, "error")
 		}
 	} else {
 		// 广播消息（没有指定接收者）
@@ -594,6 +583,8 @@ func (ws *WebSocketService) handleHeartbeatMessage(client *wsc.Client) {
 
 // handleBinaryMessage 处理二进制消息
 func (ws *WebSocketService) handleBinaryMessage(client *wsc.Client, data []byte) {
+	ctx := ws.ctx
+
 	msg := &wsc.HubMessage{
 		ID:          fmt.Sprintf("binary_%s_%d", client.UserID, time.Now().UnixNano()),
 		Sender:      client.UserID,
@@ -608,21 +599,27 @@ func (ws *WebSocketService) handleBinaryMessage(client *wsc.Client, data []byte)
 		},
 	}
 
-	// 执行消息接收回调
-	if err := ws.executeMessageReceivedCallbacks(ws.ctx, client, msg); err != nil {
-		ws.executeErrorCallbacks(ws.ctx, err, "warning")
+	// 调用消息接收回调
+	if err := ws.hub.InvokeMessageReceivedCallback(ctx, client, msg); err != nil {
+		global.LOGGER.WarnKV("二进制消息接收回调执行失败",
+			"client_id", client.ID,
+			"user_id", client.UserID,
+			"message_id", msg.ID,
+			"error", err,
+		)
+		// 通知错误回调
+		_ = ws.hub.InvokeErrorCallback(ctx, err, "warning")
 	}
 
 	// 🔥 关键修复：将二进制消息转发到 Hub
 	if msg.Receiver != "" {
-		if result := ws.hub.SendToUserWithRetry(ws.ctx, msg.Receiver, msg); result.FinalError != nil {
+		if result := ws.hub.SendToUserWithRetry(ctx, msg.Receiver, msg); result.FinalError != nil {
 			global.LOGGER.WarnKV("二进制消息发送失败",
 				"message_id", msg.ID,
 				"sender", msg.Sender,
 				"receiver", msg.Receiver,
 				"error", result.FinalError,
 			)
-			ws.executeErrorCallbacks(ws.ctx, result.FinalError, "error")
 		}
 	}
 }
@@ -675,28 +672,78 @@ func (ws *WebSocketService) GetConfig() *wscconfig.WSC {
 	return ws.config
 }
 
+// SendToUserWithRetry 带重试的发送消息并返回结果
+// 返回详细的发送结果，适用于需要同步处理结果的场景（如ACK、批量统计）
+func (ws *WebSocketService) SendToUserWithRetry(ctx context.Context, userID string, msg *wsc.HubMessage) *wsc.SendResult {
+	return ws.hub.SendToUserWithRetry(ctx, userID, msg)
+}
+
 // ============================================================================
-// 回调注册方法
+// 应用层回调方法 - 直接暴露 go-wsc Hub 的回调
 // ============================================================================
 
 // OnClientConnect 注册客户端连接回调
-func (ws *WebSocketService) OnClientConnect(cb ClientConnectCallback) {
-	ws.connectCallbacks = append(ws.connectCallbacks, cb)
+// 在客户端成功建立连接时调用
+//
+// 参数:
+//   - callback: 客户端连接回调函数，接收 ctx, client 参数
+//
+// 示例:
+//
+//	ws.OnClientConnect(func(ctx context.Context, client *wsc.Client) error {
+//	    log.Printf("客户端连接: %s", client.ID)
+//	    return nil
+//	})
+func (ws *WebSocketService) OnClientConnect(callback wsc.ClientConnectCallback) {
+	ws.hub.OnClientConnect(callback)
 }
 
 // OnClientDisconnect 注册客户端断开连接回调
-func (ws *WebSocketService) OnClientDisconnect(cb ClientDisconnectCallback) {
-	ws.disconnectCallbacks = append(ws.disconnectCallbacks, cb)
+// 在客户端断开连接时调用
+//
+// 参数:
+//   - callback: 客户端断开回调函数，接收 ctx, client, reason 参数
+//
+// 示例:
+//
+//	ws.OnClientDisconnect(func(ctx context.Context, client *wsc.Client, reason string) error {
+//	    log.Printf("客户端断开: %s, 原因: %s", client.ID, reason)
+//	    return nil
+//	})
+func (ws *WebSocketService) OnClientDisconnect(callback wsc.ClientDisconnectCallback) {
+	ws.hub.OnClientDisconnect(callback)
 }
 
 // OnMessageReceived 注册消息接收回调
-func (ws *WebSocketService) OnMessageReceived(cb MessageReceivedCallback) {
-	ws.messageCallbacks = append(ws.messageCallbacks, cb)
+// 在接收到客户端消息时调用
+//
+// 参数:
+//   - callback: 消息接收回调函数，接收 ctx, client, msg 参数
+//
+// 示例:
+//
+//	ws.OnMessageReceived(func(ctx context.Context, client *wsc.Client, msg *wsc.HubMessage) error {
+//	    log.Printf("收到消息: %s", msg.ID)
+//	    return nil
+//	})
+func (ws *WebSocketService) OnMessageReceived(callback wsc.MessageReceivedCallback) {
+	ws.hub.OnMessageReceived(callback)
 }
 
 // OnError 注册错误处理回调
-func (ws *WebSocketService) OnError(cb ErrorCallback) {
-	ws.errorCallbacks = append(ws.errorCallbacks, cb)
+// 在发生错误时调用
+//
+// 参数:
+//   - callback: 错误处理回调函数，接收 ctx, err, severity 参数
+//
+// 示例:
+//
+//	ws.OnError(func(ctx context.Context, err error, severity string) error {
+//	    log.Printf("错误: %v, 严重程度: %s", err, severity)
+//	    return nil
+//	})
+func (ws *WebSocketService) OnError(callback wsc.ErrorCallback) {
+	ws.hub.OnError(callback)
 }
 
 // ============================================================================
@@ -715,21 +762,57 @@ func (ws *WebSocketService) OnError(cb ErrorCallback) {
 //	    log.Printf("客户端 %s 心跳超时", clientID)
 //	    更新数据库、清理缓存等
 //	})
-func (ws *WebSocketService) OnHeartbeatTimeout(callback func(clientID, userID string, lastHeartbeat time.Time)) {
+func (ws *WebSocketService) OnHeartbeatTimeout(callback wsc.HeartbeatTimeoutCallback) {
 	ws.hub.OnHeartbeatTimeout(callback)
 }
 
-// SetHeartbeatConfig 设置心跳配置
+// OnOfflineMessagePush 注册离线消息推送回调函数
+// 当离线消息推送完成时会调用此回调，由上游决定是否删除消息
 //
 // 参数:
-//   - interval: 心跳检查间隔，建议30秒
-//   - timeout: 心跳超时时间，建议90秒（interval的3倍）
+//   - callback: 离线消息推送回调函数，接收 userID, pushedMessageIDs, failedMessageIDs 参数
 //
 // 示例:
 //
-//	ws.SetHeartbeatConfig(30*time.Second, 90*time.Second)
-func (ws *WebSocketService) SetHeartbeatConfig(interval, timeout time.Duration) {
-	ws.hub.SetHeartbeatConfig(interval, timeout)
+//	ws.OnOfflineMessagePush(func(userID string, pushedMessageIDs, failedMessageIDs []string) {
+//	    log.Printf("用户 %s 推送完成，成功: %d, 失败: %d", userID, len(pushedMessageIDs), len(failedMessageIDs))
+//	})
+func (ws *WebSocketService) OnOfflineMessagePush(callback wsc.OfflineMessagePushCallback) {
+	ws.hub.OnOfflineMessagePush(callback)
+}
+
+// OnMessageSend 注册消息发送完成回调函数
+// 当消息发送完成（无论成功还是失败）时会调用此回调
+//
+// 参数:
+//   - callback: 消息发送回调函数，接收 msg 和 result 参数
+//
+// 示例:
+//
+//	ws.OnMessageSend(func(msg *wsc.HubMessage, result *wsc.SendResult) {
+//	    if result.FinalError != nil {
+//	        log.Printf("消息发送失败: %s, 错误: %v", msg.ID, result.FinalError)
+//	    } else {
+//	        log.Printf("消息发送成功: %s, 重试次数: %d", msg.ID, result.TotalRetries)
+//	    }
+//	})
+func (ws *WebSocketService) OnMessageSend(callback wsc.MessageSendCallback) {
+	ws.hub.OnMessageSend(callback)
+}
+
+// OnQueueFull 注册队列满回调函数
+// 当消息队列满时会调用此回调
+//
+// 参数:
+//   - callback: 队列满回调函数，接收 msg, recipient, queueType, err 参数
+//
+// 示例:
+//
+//	ws.OnQueueFull(func(msg *wsc.HubMessage, recipient, queueType string, err *errorx.BaseError) {
+//	    log.Printf("队列满: 接收者=%s, 类型=%s", recipient, queueType)
+//	})
+func (ws *WebSocketService) OnQueueFull(callback wsc.QueueFullCallback) {
+	ws.hub.OnQueueFull(callback)
 }
 
 // UpdateHeartbeat 更新客户端心跳时间
@@ -742,48 +825,4 @@ func (ws *WebSocketService) SetHeartbeatConfig(interval, timeout time.Duration) 
 //	ws.UpdateHeartbeat(client.ID)
 func (ws *WebSocketService) UpdateHeartbeat(clientID string) {
 	ws.hub.UpdateHeartbeat(clientID)
-}
-
-// ============================================================================
-// 回调执行方法（内部使用）
-// ============================================================================
-
-// executeConnectCallbacks 执行连接回调
-func (ws *WebSocketService) executeConnectCallbacks(ctx context.Context, client *wsc.Client) error {
-	for _, cb := range ws.connectCallbacks {
-		if err := cb(ctx, client); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// executeDisconnectCallbacks 执行断开连接回调
-func (ws *WebSocketService) executeDisconnectCallbacks(ctx context.Context, client *wsc.Client, reason string) error {
-	for _, cb := range ws.disconnectCallbacks {
-		if err := cb(ctx, client, reason); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// executeMessageReceivedCallbacks 执行消息接收回调
-func (ws *WebSocketService) executeMessageReceivedCallbacks(ctx context.Context, client *wsc.Client, msg *wsc.HubMessage) error {
-	for _, cb := range ws.messageCallbacks {
-		if err := cb(ctx, client, msg); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// executeErrorCallbacks 执行错误处理回调
-func (ws *WebSocketService) executeErrorCallbacks(ctx context.Context, err error, severity string) error {
-	for _, cb := range ws.errorCallbacks {
-		if cbErr := cb(ctx, err, severity); cbErr != nil {
-			return cbErr
-		}
-	}
-	return nil
 }

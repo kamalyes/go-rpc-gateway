@@ -13,10 +13,10 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-config v0.12.14-0.20251218055629-c88fa319b459
-	github.com/kamalyes/go-logger v0.4.5
-	github.com/kamalyes/go-toolbox v0.11.86
-	github.com/kamalyes/go-wsc v0.5.7-0.20251218110912-00d9f68c69c0
+	github.com/kamalyes/go-config v0.12.14-0.20251219082246-a83b076b88a4
+	github.com/kamalyes/go-logger v0.4.6-0.20251219143816-dd726da9e2a6
+	github.com/kamalyes/go-toolbox v0.11.87-0.20251216094930-f2529b5d7c79
+	github.com/kamalyes/go-wsc v0.5.7-0.20251219143542-3b907279c04f
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/stretchr/testify v1.11.1
@@ -131,13 +131,13 @@ require (
 )
 
 // 本地开发替换
-// replace github.com/kamalyes/go-wsc => ../go-wsc
+replace github.com/kamalyes/go-wsc => ../go-wsc
 
 // replace github.com/kamalyes/go-cachex => ../go-cachex
 
 // replace github.com/kamalyes/go-sqlbuilder => ../go-sqlbuilder
 
-// replace github.com/kamalyes/go-config => ../go-config
+replace github.com/kamalyes/go-config => ../go-config
 
 // replace github.com/kamalyes/go-logger => ../go-logger
 
