@@ -76,26 +76,49 @@ func (c *InitializerChain) InitializeAll(ctx context.Context, cfg *gwconfig.Gate
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// 使用 Console Group 展示初始化流程
+	var cg *logger.ConsoleGroup
+	if LOGGER != nil {
+		cg = LOGGER.NewConsoleGroup()
+		cg.Group("🔧 系统组件初始化")
+		initTimer := cg.Time("总初始化耗时")
+		defer initTimer.End()
+	}
+
 	for _, init := range c.initializers {
 		name := init.Name()
 
-		if LOGGER != nil {
-			LOGGER.InfoContext(ctx, "🔧 初始化 %s...", name)
+		if cg != nil {
+			cg.Info("→ 正在初始化: %s", name)
 		} else {
 			fmt.Printf("🔧 初始化 %s...\n", name)
 		}
 
 		if err := init.Initialize(ctx, cfg); err != nil {
+			if cg != nil {
+				cg.GroupEnd()
+			}
 			return fmt.Errorf("初始化 %s 失败: %w", name, err)
 		}
 
 		c.initialized[name] = true
 
-		if LOGGER != nil {
-			LOGGER.InfoContext(ctx, "✅ %s 初始化完成", name)
+		if cg != nil {
+			cg.Info("✅ %s 初始化完成", name)
 		} else {
 			fmt.Printf("✅ %s 初始化完成\n", name)
 		}
+	}
+
+	if cg != nil {
+		// 展示初始化摘要
+		summary := map[string]interface{}{
+			"已初始化组件": len(c.initialized),
+			"总组件数": len(c.initializers),
+			"初始化状态": "✅ 全部成功",
+		}
+		cg.Table(summary)
+		cg.GroupEnd()
 	}
 
 	return nil

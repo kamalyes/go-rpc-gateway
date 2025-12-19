@@ -13,9 +13,11 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/global"
 )
 
@@ -48,142 +50,183 @@ func (r *StartupReporter) PrintStartupStatus() {
 		return
 	}
 
-	global.LOGGER.InfoContext(r.ctx, "🔄 ===== 服务启动状态检查 =====")
+	// 使用 Console 分组展示启动状态
+	cg := global.LOGGER.NewConsoleGroup()
+	cg.Group("🚀 Gateway 服务启动状态检查")
 
 	// 打印基础信息
-	r.printBasicStatus()
+	r.printBasicStatus(cg)
 
 	// 打印功能模块状态
-	r.printFeatureStatus()
+	r.printFeatureStatus(cg)
 
 	// 打印中间件状态
-	r.printMiddlewareStatus()
+	r.printMiddlewareStatus(cg)
 
 	// 打印监控和分析功能状态
-	r.printMonitoringStatus()
+	r.printMonitoringStatus(cg)
 
-	global.LOGGER.InfoContext(r.ctx, "✅ ===== 启动状态检查完成 =====")
+	// 打印启动摘要
+	r.printStartupSummaryInternal(cg)
+
+	cg.Info("✅ 启动状态检查完成")
+	cg.GroupEnd()
 }
 
 // printBasicStatus 打印基础状态
-func (r *StartupReporter) printBasicStatus() {
-	global.LOGGER.InfoContext(r.ctx, "📋 基础服务状态:")
-
-	// HTTP 服务器
-	global.LOGGER.InfoContext(r.ctx, "   🌐 HTTP服务: %s:%d",
-		r.config.HTTPServer.Host,
-		r.config.HTTPServer.Port)
-
-	// gRPC 服务器
-	global.LOGGER.InfoContext(r.ctx, "   📡 gRPC服务: %s:%d",
-		r.config.GRPC.Server.Host,
-		r.config.GRPC.Server.Port)
-
-	// 环境模式
-	global.LOGGER.InfoContext(r.ctx, "   🌍 运行环境: %s (调试模式: %v)",
-		r.config.Environment,
-		r.config.Debug)
+func (r *StartupReporter) printBasicStatus(cg *logger.ConsoleGroup) {
+	cg.Group("📋 基础服务状态")
+	
+	basicInfo := [][]string{
+		{"服务类型", "地址", "端口", "状态"},
+		{"HTTP", r.config.HTTPServer.Host, fmt.Sprintf("%d", r.config.HTTPServer.Port), "✅ 运行中"},
+		{"gRPC", r.config.GRPC.Server.Host, fmt.Sprintf("%d", r.config.GRPC.Server.Port), "✅ 运行中"},
+	}
+	cg.Table(basicInfo)
+	
+	envInfo := map[string]interface{}{
+		"运行环境": r.config.Environment,
+		"调试模式": r.config.Debug,
+	}
+	cg.Table(envInfo)
+	
+	cg.GroupEnd()
 }
 
 // printFeatureStatus 打印功能状态
-func (r *StartupReporter) printFeatureStatus() {
-	global.LOGGER.InfoContext(r.ctx, "🔧 功能模块状态:")
-
-	// 健康检查
-	if r.config.Health.Enabled {
-		global.LOGGER.InfoContext(r.ctx, "   ✅ 健康检查: 已启用 (%s)", r.config.Health.Path)
-	} else {
-		global.LOGGER.InfoContext(r.ctx, "   ❌ 健康检查: 已禁用")
+func (r *StartupReporter) printFeatureStatus(cg *logger.ConsoleGroup) {
+	cg.Group("🔧 功能模块状态")
+	
+	features := []map[string]interface{}{
+		{
+			"功能名称": "健康检查",
+			"状态":   r.getStatusIcon(r.config.Health.Enabled),
+			"路径":   r.config.Health.Path,
+		},
+		{
+			"功能名称": "Swagger文档",
+			"状态":   r.getStatusIcon(r.config.Swagger.Enabled),
+			"路径":   r.config.Swagger.UIPath,
+		},
+		{
+			"功能名称": "WebSocket",
+			"状态":   r.getStatusIcon(r.config.WSC.Enabled),
+			"路径":   r.config.WSC.Path,
+		},
 	}
-
-	// Swagger 文档
-	if r.config.Swagger.Enabled {
-		global.LOGGER.InfoContext(r.ctx, "   ✅ Swagger文档: 已启用 (%s)", r.config.Swagger.UIPath)
-	} else {
-		global.LOGGER.InfoContext(r.ctx, "   ❌ Swagger文档: 已禁用")
-	}
-
-	// WebSocket 支持
-	if r.config.WSC.Enabled {
-		global.LOGGER.InfoContext(r.ctx, "   ✅ WebSocket: 已启用 (%s)", r.config.WSC.Path)
-	} else {
-		global.LOGGER.InfoContext(r.ctx, "   ❌ WebSocket: 已禁用")
-	}
+	cg.Table(features)
+	
+	cg.GroupEnd()
 }
 
 // printMiddlewareStatus 打印中间件状态
-func (r *StartupReporter) printMiddlewareStatus() {
-	global.LOGGER.InfoContext(r.ctx, "🔌 中间件状态:")
-
-	// CORS 跨域
+func (r *StartupReporter) printMiddlewareStatus(cg *logger.ConsoleGroup) {
+	cg.Group("🔌 中间件状态")
+	
 	corsEnabled := r.config.CORS.AllowedAllOrigins || len(r.config.CORS.AllowedOrigins) > 0
-	r.printMiddlewareItem("CORS跨域", corsEnabled)
-
-	// 限流控制
-	r.printMiddlewareItem("限流控制", r.config.RateLimit.Enabled)
-
-	// 请求ID生成
-	r.printMiddlewareItem("请求ID生成", r.config.Middleware.RequestID.Enabled)
-
-	// 异常恢复
-	r.printMiddlewareItem("异常恢复", r.config.Middleware.Recovery.Enabled)
-
-	// 访问日志
-	r.printMiddlewareItem("访问日志", r.config.Middleware.Logging.Enabled)
-
-	// 身份认证
 	authEnabled := r.config.Security.JWT.Secret != ""
-	r.printMiddlewareItem("身份认证(JWT)", authEnabled)
-
-	// 安全头设置
-	r.printMiddlewareItem("安全头设置", r.config.Security.Enabled)
+	
+	middlewares := []map[string]interface{}{
+		{"中间件": "CORS跨域", "状态": r.getStatusIcon(corsEnabled)},
+		{"中间件": "限流控制", "状态": r.getStatusIcon(r.config.RateLimit.Enabled)},
+		{"中间件": "请求ID生成", "状态": r.getStatusIcon(r.config.Middleware.RequestID.Enabled)},
+		{"中间件": "异常恢复", "状态": r.getStatusIcon(r.config.Middleware.Recovery.Enabled)},
+		{"中间件": "访问日志", "状态": r.getStatusIcon(r.config.Middleware.Logging.Enabled)},
+		{"中间件": "身份认证(JWT)", "状态": r.getStatusIcon(authEnabled)},
+		{"中间件": "安全头设置", "状态": r.getStatusIcon(r.config.Security.Enabled)},
+	}
+	cg.Table(middlewares)
+	
+	cg.GroupEnd()
 }
 
 // printMonitoringStatus 打印监控和分析功能状态
-func (r *StartupReporter) printMonitoringStatus() {
-	global.LOGGER.InfoContext(r.ctx, "📊 监控与分析状态:")
-
-	// Prometheus Metrics
+func (r *StartupReporter) printMonitoringStatus(cg *logger.ConsoleGroup) {
+	cg.Group("📊 监控与分析状态")
+	
+	monitoring := []map[string]interface{}{}
+	
 	if r.config.Monitoring.Prometheus.Enabled {
-		global.LOGGER.InfoContext(r.ctx, "   ✅ Prometheus指标: 已启用 (http://localhost:%d%s)",
-			r.config.Monitoring.Prometheus.Port,
-			r.config.Monitoring.Prometheus.Path)
-	} else {
-		global.LOGGER.InfoContext(r.ctx, "   ❌ Prometheus指标: 已禁用")
+		monitoring = append(monitoring, map[string]interface{}{
+			"类型": "Prometheus指标",
+			"状态": "✅ 已启用",
+			"访问": fmt.Sprintf("http://localhost:%d%s", r.config.Monitoring.Prometheus.Port, r.config.Monitoring.Prometheus.Path),
+		})
 	}
-
-	// PProf 性能分析
+	
 	if r.config.Middleware.PProf.Enabled {
-		global.LOGGER.InfoContext(r.ctx, "   ✅ PProf性能分析: 已启用 (http://localhost:%d%s/)",
-			r.config.Middleware.PProf.Port,
-			r.config.Middleware.PProf.PathPrefix)
-
-		// 检查认证状态
-		authStatus := "已禁用 ⚠️"
+		authStatus := "⚠️  未启用认证"
 		if r.config.Middleware.PProf.Authentication.Enabled {
-			authStatus = "已启用 🔐"
+			authStatus = "🔐 已启用认证"
 		}
-		global.LOGGER.InfoContext(r.ctx, "     🔐 PProf认证: %s", authStatus)
-	} else {
-		global.LOGGER.InfoContext(r.ctx, "   ❌ PProf性能分析: 已禁用")
+		monitoring = append(monitoring, map[string]interface{}{
+			"类型": "PProf性能分析",
+			"状态": "✅ 已启用",
+			"访问": fmt.Sprintf("http://localhost:%d%s/", r.config.Middleware.PProf.Port, r.config.Middleware.PProf.PathPrefix),
+			"认证": authStatus,
+		})
 	}
-
-	// Jaeger 链路追踪
+	
 	if r.config.Monitoring.Jaeger.Enabled {
-		global.LOGGER.InfoContext(r.ctx, "   ✅ 链路追踪: 已启用 (%s)",
-			r.config.Monitoring.Jaeger.ServiceName)
-	} else {
-		global.LOGGER.InfoContext(r.ctx, "   ❌ 链路追踪: 已禁用")
+		monitoring = append(monitoring, map[string]interface{}{
+			"类型":   "Jaeger链路追踪",
+			"状态":   "✅ 已启用",
+			"服务名称": r.config.Monitoring.Jaeger.ServiceName,
+		})
 	}
+	
+	if len(monitoring) > 0 {
+		cg.Table(monitoring)
+	} else {
+		cg.Info("所有监控功能均未启用")
+	}
+	
+	cg.GroupEnd()
 }
 
-// printMiddlewareItem 打印中间件项状态
-func (r *StartupReporter) printMiddlewareItem(name string, enabled bool) {
-	status := "❌ 已禁用"
-	if enabled {
-		status = "✅ 已启用"
+// printStartupSummaryInternal 打印启动摘要（内部方法，用于 Console 分组）
+func (r *StartupReporter) printStartupSummaryInternal(cg *logger.ConsoleGroup) {
+	if r.config == nil {
+		return
 	}
-	global.LOGGER.InfoContext(r.ctx, "   %s %s", status, name)
+
+	enabledCount := 0
+	totalCount := 0
+
+	// 统计功能状态
+	features := []bool{
+		r.config.Health.Enabled,
+		r.config.Swagger.Enabled,
+		r.config.Monitoring.Prometheus.Enabled,
+		r.config.Middleware.PProf.Enabled,
+		r.config.Monitoring.Jaeger.Enabled,
+		r.config.WSC.Enabled,
+		r.config.CORS.AllowedAllOrigins || len(r.config.CORS.AllowedOrigins) > 0,
+		r.config.RateLimit.Enabled,
+	}
+
+	for _, enabled := range features {
+		totalCount++
+		if enabled {
+			enabledCount++
+		}
+	}
+
+	summary := map[string]interface{}{
+		"已启用功能": enabledCount,
+		"总功能数":   totalCount,
+		"启用率":    fmt.Sprintf("%.1f%%", float64(enabledCount)/float64(totalCount)*100),
+		"启动时间":   time.Now().Format("2006-01-02 15:04:05"),
+	}
+	cg.Table(summary)
+}
+
+// getStatusIcon 获取状态图标
+func (r *StartupReporter) getStatusIcon(enabled bool) string {
+	if enabled {
+		return "✅ 已启用"
+	}
+	return "❌ 已禁用"
 }
 
 // PrintStartupTimestamp 打印启动时间戳

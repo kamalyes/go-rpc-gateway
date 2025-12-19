@@ -109,22 +109,42 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	offlineHandler := wsc.NewHybridOfflineMessageHandler(redisClient, db, cfg.RedisRepository.OfflineMessage)
 	hub.SetOfflineMessageRepo(offlineHandler)
 
-	global.LOGGER.InfoKV("✅ WebSocket Hub Redis 仓库已初始化",
-		"redis_connected", true,
-		"online_status_key_prefix", cfg.RedisRepository.OnlineStatus.KeyPrefix,
-		"online_status_ttl_seconds", cfg.RedisRepository.OnlineStatus.TTL.Seconds(),
-		"stats_key_prefix", cfg.RedisRepository.Stats.KeyPrefix,
-		"stats_ttl_hours", cfg.RedisRepository.Stats.TTL.Hours(),
-		"workload_key_prefix", cfg.RedisRepository.Workload.KeyPrefix,
-		"workload_ttl_hours", cfg.RedisRepository.Workload.TTL.Hours(),
-		"offline_message_key_prefix", cfg.RedisRepository.OfflineMessage.KeyPrefix,
-		"offline_queue_ttl_days", cfg.RedisRepository.OfflineMessage.QueueTTL.Hours()/24,
-		"offline_auto_store", cfg.RedisRepository.OfflineMessage.AutoStore,
-		"offline_auto_push", cfg.RedisRepository.OfflineMessage.AutoPush,
-		"offline_max_messages", cfg.RedisRepository.OfflineMessage.MaxCount)
-
-	global.LOGGER.InfoKV("✅ WebSocket Hub MySQL 仓库已初始化",
-		"database_connected", true)
+	// 使用 Console 展示仓库初始化信息
+	cg := global.LOGGER.NewConsoleGroup()
+	cg.Group("✅ WebSocket Hub 仓库初始化")
+	
+	// Redis 仓库配置
+	redisConfig := []map[string]interface{}{
+		{
+			"仓库类型": "在线状态",
+			"Key前缀": cfg.RedisRepository.OnlineStatus.KeyPrefix,
+			"TTL(秒)": cfg.RedisRepository.OnlineStatus.TTL.Seconds(),
+		},
+		{
+			"仓库类型": "统计数据",
+			"Key前缀": cfg.RedisRepository.Stats.KeyPrefix,
+			"TTL(小时)": cfg.RedisRepository.Stats.TTL.Hours(),
+		},
+		{
+			"仓库类型": "工作负载",
+			"Key前缀": cfg.RedisRepository.Workload.KeyPrefix,
+			"TTL(小时)": cfg.RedisRepository.Workload.TTL.Hours(),
+		},
+	}
+	cg.Table(redisConfig)
+	
+	// 离线消息配置
+	offlineConfig := map[string]interface{}{
+		"Key前缀": cfg.RedisRepository.OfflineMessage.KeyPrefix,
+		"队列TTL(天)": cfg.RedisRepository.OfflineMessage.QueueTTL.Hours()/24,
+		"自动存储": cfg.RedisRepository.OfflineMessage.AutoStore,
+		"自动推送": cfg.RedisRepository.OfflineMessage.AutoPush,
+		"最大消息数": cfg.RedisRepository.OfflineMessage.MaxCount,
+	}
+	cg.Table(offlineConfig)
+	
+	cg.Info("✅ MySQL 消息记录仓库已初始化")
+	cg.GroupEnd()
 
 	ctx, cancel = context.WithCancel(context.Background())
 
@@ -141,12 +161,19 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	// 全局注册 Hub 实例
 	global.WSCHUB = hub
 
-	global.LOGGER.InfoKV("✅ WebSocket 服务已初始化",
-		"node_ip", cfg.NodeIP,
-		"node_port", cfg.NodePort,
-		"heartbeat_interval_sec", cfg.HeartbeatInterval,
-		"message_buffer_size", cfg.MessageBufferSize,
-		"enable_ack", cfg.EnableAck)
+	// 使用 Console 展示服务配置
+	cgInit := global.LOGGER.NewConsoleGroup()
+	cgInit.Group("✅ WebSocket 服务已初始化")
+	
+	serviceConfig := map[string]interface{}{
+		"节点IP": cfg.NodeIP,
+		"节点端口": cfg.NodePort,
+		"心跳间隔(秒)": cfg.HeartbeatInterval,
+		"消息缓冲区大小": cfg.MessageBufferSize,
+		"启用ACK": cfg.EnableAck,
+	}
+	cgInit.Table(serviceConfig)
+	cgInit.GroupEnd()
 
 	return service, nil
 }
@@ -193,10 +220,19 @@ func (ws *WebSocketService) Start() error {
 	}()
 
 	ws.running.Store(true)
-	global.LOGGER.InfoKV("✅ WebSocket 服务已启动",
-		"address", ws.httpServer.Addr,
-		"network", ws.config.Network,
-		"path", ws.config.Path)
+	
+	// 使用 Console 展示启动信息
+	cgStart := global.LOGGER.NewConsoleGroup()
+	cgStart.Group("✅ WebSocket 服务已启动")
+	
+	startupInfo := map[string]interface{}{
+		"监听地址": ws.httpServer.Addr,
+		"网络类型": ws.config.Network,
+		"WebSocket路径": ws.config.Path,
+		"服务状态": "运行中",
+	}
+	cgStart.Table(startupInfo)
+	cgStart.GroupEnd()
 
 	return nil
 }

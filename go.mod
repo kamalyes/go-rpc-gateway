@@ -14,9 +14,9 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-config v0.12.14-0.20251219082246-a83b076b88a4
-	github.com/kamalyes/go-logger v0.4.6-0.20251219143816-dd726da9e2a6
+	github.com/kamalyes/go-logger v0.4.6-0.20251219155802-bb8dca9ad6e6
 	github.com/kamalyes/go-toolbox v0.11.87-0.20251216094930-f2529b5d7c79
-	github.com/kamalyes/go-wsc v0.5.7-0.20251219143542-3b907279c04f
+	github.com/kamalyes/go-wsc v0.5.7-0.20251220025628-8d6601d53ad0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/stretchr/testify v1.11.1
