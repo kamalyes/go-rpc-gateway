@@ -14,9 +14,9 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-config v0.12.14-0.20251219082246-a83b076b88a4
-	github.com/kamalyes/go-logger v0.4.6-0.20251219155802-bb8dca9ad6e6
-	github.com/kamalyes/go-toolbox v0.11.87-0.20251216094930-f2529b5d7c79
-	github.com/kamalyes/go-wsc v0.5.7-0.20251220025628-8d6601d53ad0
+	github.com/kamalyes/go-logger v0.4.6-0.20251220131326-ff4bf447209b
+	github.com/kamalyes/go-toolbox v0.11.87-0.20251220131055-a848b26b8f42
+	github.com/kamalyes/go-wsc v0.5.7-0.20251220131929-faf4d8bde7de
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/stretchr/testify v1.11.1
@@ -59,6 +59,7 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
+	github.com/kamalyes/go-sqlbuilder v0.3.6-0.20251216095122-d53c45afd826 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/spf13/viper v1.21.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
@@ -131,13 +132,13 @@ require (
 )
 
 // 本地开发替换
-replace github.com/kamalyes/go-wsc => ../go-wsc
+// replace github.com/kamalyes/go-wsc => ../go-wsc
 
 // replace github.com/kamalyes/go-cachex => ../go-cachex
 
 // replace github.com/kamalyes/go-sqlbuilder => ../go-sqlbuilder
 
-replace github.com/kamalyes/go-config => ../go-config
+// replace github.com/kamalyes/go-config => ../go-config
 
 // replace github.com/kamalyes/go-logger => ../go-logger
 

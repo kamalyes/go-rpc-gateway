@@ -30,6 +30,7 @@ import (
 	wscconfig "github.com/kamalyes/go-config/pkg/wsc"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-toolbox/pkg/metadata"
 	"github.com/kamalyes/go-wsc"
 	"github.com/redis/go-redis/v9"
 )
@@ -105,6 +106,10 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	messageRecordRepo := wsc.NewMessageRecordRepository(db)
 	hub.SetMessageRecordRepository(messageRecordRepo)
 
+	// 连接记录仓库 (MySQL GORM)
+	connectionRecordRepo := wsc.NewConnectionRecordRepository(db)
+	hub.SetConnectionRecordRepository(connectionRecordRepo)
+
 	// 🔥 离线消息处理器
 	offlineHandler := wsc.NewHybridOfflineMessageHandler(redisClient, db, cfg.RedisRepository.OfflineMessage)
 	hub.SetOfflineMessageRepo(offlineHandler)
@@ -112,38 +117,40 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	// 使用 Console 展示仓库初始化信息
 	cg := global.LOGGER.NewConsoleGroup()
 	cg.Group("✅ WebSocket Hub 仓库初始化")
-	
+
 	// Redis 仓库配置
 	redisConfig := []map[string]interface{}{
 		{
-			"仓库类型": "在线状态",
-			"Key前缀": cfg.RedisRepository.OnlineStatus.KeyPrefix,
+			"仓库类型":   "在线状态",
+			"Key前缀":  cfg.RedisRepository.OnlineStatus.KeyPrefix,
 			"TTL(秒)": cfg.RedisRepository.OnlineStatus.TTL.Seconds(),
 		},
 		{
-			"仓库类型": "统计数据",
-			"Key前缀": cfg.RedisRepository.Stats.KeyPrefix,
+			"仓库类型":    "统计数据",
+			"Key前缀":   cfg.RedisRepository.Stats.KeyPrefix,
 			"TTL(小时)": cfg.RedisRepository.Stats.TTL.Hours(),
 		},
 		{
-			"仓库类型": "工作负载",
-			"Key前缀": cfg.RedisRepository.Workload.KeyPrefix,
+			"仓库类型":    "工作负载",
+			"Key前缀":   cfg.RedisRepository.Workload.KeyPrefix,
 			"TTL(小时)": cfg.RedisRepository.Workload.TTL.Hours(),
 		},
 	}
 	cg.Table(redisConfig)
-	
+
 	// 离线消息配置
 	offlineConfig := map[string]interface{}{
-		"Key前缀": cfg.RedisRepository.OfflineMessage.KeyPrefix,
-		"队列TTL(天)": cfg.RedisRepository.OfflineMessage.QueueTTL.Hours()/24,
-		"自动存储": cfg.RedisRepository.OfflineMessage.AutoStore,
-		"自动推送": cfg.RedisRepository.OfflineMessage.AutoPush,
-		"最大消息数": cfg.RedisRepository.OfflineMessage.MaxCount,
+		"Key前缀":     cfg.RedisRepository.OfflineMessage.KeyPrefix,
+		"队列TTL(小时)": cfg.RedisRepository.OfflineMessage.QueueTTL.Hours(),
+		"自动存储":      cfg.RedisRepository.OfflineMessage.AutoStore,
+		"自动推送":      cfg.RedisRepository.OfflineMessage.AutoPush,
+		"最大消息数":     cfg.RedisRepository.OfflineMessage.MaxCount,
 	}
 	cg.Table(offlineConfig)
-	
+
 	cg.Info("✅ MySQL 消息记录仓库已初始化")
+	cg.Info("✅ MySQL 连接记录仓库已初始化")
+	cg.Info("✅ ShortFlake ID 生成器已初始化 (Hub NodeID: %s, WorkerID: %d)", hub.GetNodeID(), hub.GetWorkerID())
 	cg.GroupEnd()
 
 	ctx, cancel = context.WithCancel(context.Background())
@@ -164,13 +171,13 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	// 使用 Console 展示服务配置
 	cgInit := global.LOGGER.NewConsoleGroup()
 	cgInit.Group("✅ WebSocket 服务已初始化")
-	
+
 	serviceConfig := map[string]interface{}{
-		"节点IP": cfg.NodeIP,
-		"节点端口": cfg.NodePort,
+		"节点IP":    cfg.NodeIP,
+		"节点端口":    cfg.NodePort,
 		"心跳间隔(秒)": cfg.HeartbeatInterval,
 		"消息缓冲区大小": cfg.MessageBufferSize,
-		"启用ACK": cfg.EnableAck,
+		"启用ACK":   cfg.EnableAck,
 	}
 	cgInit.Table(serviceConfig)
 	cgInit.GroupEnd()
@@ -220,16 +227,16 @@ func (ws *WebSocketService) Start() error {
 	}()
 
 	ws.running.Store(true)
-	
+
 	// 使用 Console 展示启动信息
 	cgStart := global.LOGGER.NewConsoleGroup()
 	cgStart.Group("✅ WebSocket 服务已启动")
-	
+
 	startupInfo := map[string]interface{}{
-		"监听地址": ws.httpServer.Addr,
-		"网络类型": ws.config.Network,
+		"监听地址":        ws.httpServer.Addr,
+		"网络类型":        ws.config.Network,
 		"WebSocket路径": ws.config.Path,
-		"服务状态": "运行中",
+		"服务状态":        "运行中",
 	}
 	cgStart.Table(startupInfo)
 	cgStart.GroupEnd()
@@ -312,15 +319,22 @@ func (ws *WebSocketService) createClient(r *http.Request, conn *websocket.Conn) 
 	clientID, userID, userType := ws.extractClientAttributes(r)
 	clientUserType := ws.convertUserType(userType)
 
+	// 使用 metadata 提取所有请求元数据
+	requestMeta := metadata.ExtractRequestMetadata(r)
+	metaMap := requestMeta.ToMap()
+
 	return &wsc.Client{
-		ID:       clientID,
-		UserID:   userID,
-		UserType: clientUserType,
-		Conn:     conn,
-		LastSeen: time.Now(),
-		Status:   wsc.UserStatusOnline,
-		SendChan: make(chan []byte, ws.config.MessageBufferSize),
-		Context:  context.WithValue(r.Context(), wsc.ContextKeySenderID, userID),
+		ID:         clientID,
+		UserID:     userID,
+		UserType:   clientUserType,
+		ClientIP:   requestMeta.ClientIP, // 从 metadata 提取 ClientIP
+		ClientType: wsc.ClientTypeWeb,    // 默认为 Web 类型
+		Conn:       conn,
+		LastSeen:   time.Now(),
+		Status:     wsc.UserStatusOnline,
+		SendChan:   make(chan []byte, ws.config.MessageBufferSize),
+		Context:    context.WithValue(r.Context(), wsc.ContextKeySenderID, userID),
+		Metadata:   metaMap,
 	}
 }
 
