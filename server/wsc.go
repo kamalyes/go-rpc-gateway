@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-16 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-12 15:29:05
+ * @LastEditTime: 2025-12-22 15:27:05
  * @FilePath: \go-rpc-gateway\server\wsc.go
  * @Description: WebSocket 集成层 - go-wsc 的薄封装
  * 职责：
@@ -18,7 +18,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -32,7 +31,6 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/metadata"
 	"github.com/kamalyes/go-wsc"
-	"github.com/redis/go-redis/v9"
 )
 
 // ============================================================================
@@ -415,263 +413,15 @@ func (ws *WebSocketService) handleWebSocketUpgrade(w http.ResponseWriter, r *htt
 	// 创建客户端
 	client := ws.createClient(r, conn)
 
-	// 🔥 关键修复：先启动客户端写入 goroutine，再注册到 Hub
-	// 这样可以避免在注册和启动 write goroutine 之间收到消息时导致消息丢失
-	go func() {
-		defer func() {
-			// 记录客户端断开连接日志
-			global.LOGGER.InfoContextKV(ctx, "[WebSocket] 客户端连接关闭",
-				"client_id", client.ID,
-				"user_id", client.UserID,
-				"connection_duration_ms", time.Since(start).Milliseconds(),
-			)
-			ws.hub.Unregister(client)
-		}()
-		defer func() {
-			if client.Conn != nil {
-				client.Conn.Close()
-			}
-		}()
+	// 注册到 Hub（go-wsc 接管后续所有处理，包括消息读取）
+	ws.hub.Register(client)
 
-		// 注册到 Hub（go-wsc 接管后续所有处理）
-		ws.hub.Register(client)
-
-		// 记录客户端注册成功日志
-		global.LOGGER.InfoContextKV(ctx, "[WebSocket] 客户端注册成功",
-			"client_id", client.ID,
-			"user_id", client.UserID,
-			"user_type", string(client.UserType),
-		)
-
-		// 处理消息循环
-		ws.handleMessageLoop(client)
-	}()
-}
-
-// handleMessageLoop 处理客户端消息循环
-func (ws *WebSocketService) handleMessageLoop(client *wsc.Client) {
-	for {
-		select {
-		case <-ws.ctx.Done():
-			return
-		default:
-		}
-		// 读取消息
-		messageType, data, err := client.Conn.ReadMessage()
-		if err != nil {
-			// WebSocket 连接错误
-			return
-		}
-
-		// 更新最后活跃时间
-		client.LastSeen = time.Now()
-
-		// 根据 WebSocket 消息类型处理
-		switch messageType {
-		case 1: // TextMessage
-			ws.handleTextMessage(client, data)
-		case 2: // BinaryMessage
-			ws.handleBinaryMessage(client, data)
-		case 8: // CloseMessage
-			return
-		case 9: // PingMessage
-			// 响应 Pong
-			_ = client.Conn.WriteMessage(10, nil)
-		case 10: // PongMessage
-			// 忽略 Pong 消息
-		default:
-			global.LOGGER.DebugKV("收到未知类型的消息", "type", messageType)
-		}
-	}
-}
-
-// handleTextMessage 处理文本消息
-func (ws *WebSocketService) handleTextMessage(client *wsc.Client, data []byte) {
-	ctx := ws.ctx
-
-	// 解析并规范化消息
-	msg := ws.parseAndNormalizeMessage(client, data)
-
-	// 调用消息接收回调
-	if err := ws.hub.InvokeMessageReceivedCallback(ctx, client, &msg); err != nil {
-		global.LOGGER.WarnKV("消息接收回调执行失败",
-			"client_id", client.ID,
-			"user_id", client.UserID,
-			"message_id", msg.ID,
-			"error", err,
-		)
-		// 通知错误回调
-		_ = ws.hub.InvokeErrorCallback(ctx, err, "warning")
-	}
-
-	// 处理心跳消息
-	if msg.MessageType == wsc.MessageTypeHeartbeat {
-		ws.handleHeartbeatMessage(client)
-		return
-	}
-
-	// 转发消息
-	ws.forwardMessage(&msg)
-}
-
-// parseAndNormalizeMessage 解析并规范化消息
-func (ws *WebSocketService) parseAndNormalizeMessage(client *wsc.Client, data []byte) wsc.HubMessage {
-	var msg wsc.HubMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
-		// 不是 JSON 格式，当作纯文本处理
-		return wsc.HubMessage{
-			ID:          fmt.Sprintf("text_%s_%d", client.UserID, time.Now().UnixNano()),
-			Sender:      client.UserID,
-			SenderType:  client.UserType,
-			Content:     string(data),
-			MessageType: wsc.MessageTypeText,
-			CreateAt:    time.Now(),
-			Priority:    wsc.PriorityNormal,
-			Status:      wsc.MessageStatusSent,
-		}
-	}
-
-	// 补充必要字段
-	ws.normalizeMessageFields(client, &msg)
-	return msg
-}
-
-// normalizeMessageFields 规范化消息字段
-func (ws *WebSocketService) normalizeMessageFields(client *wsc.Client, msg *wsc.HubMessage) {
-	if msg.Sender == "" {
-		msg.Sender = client.UserID
-	}
-	if msg.SenderType == "" {
-		msg.SenderType = client.UserType
-	}
-	if msg.CreateAt.IsZero() {
-		msg.CreateAt = time.Now()
-	}
-	if msg.MessageType == "" {
-		msg.MessageType = wsc.MessageTypeText
-	}
-	if msg.ID == "" {
-		msg.ID = fmt.Sprintf("json_%s_%d", client.UserID, time.Now().UnixNano())
-	}
-	if msg.Priority == "" {
-		msg.Priority = wsc.PriorityNormal
-	}
-	if msg.Status == "" {
-		msg.Status = wsc.MessageStatusSent
-	}
-}
-
-// forwardMessage 转发消息到 Hub
-func (ws *WebSocketService) forwardMessage(msg *wsc.HubMessage) {
-	if msg.Receiver != "" {
-		// 点对点消息
-		if result := ws.hub.SendToUserWithRetry(ws.ctx, msg.Receiver, msg); result.FinalError != nil {
-			global.LOGGER.WarnKV("消息发送失败",
-				"message_id", msg.ID,
-				"sender", msg.Sender,
-				"receiver", msg.Receiver,
-				"error", result.FinalError,
-			)
-		}
-	} else {
-		// 广播消息（没有指定接收者）
-		ws.hub.Broadcast(ws.ctx, msg)
-	}
-}
-
-// handleHeartbeatMessage 处理心跳消息
-func (ws *WebSocketService) handleHeartbeatMessage(client *wsc.Client) {
-	// 更新心跳时间（内存）
-	ws.hub.UpdateHeartbeat(client.ID)
-
-	// 🔥 同步更新 Redis 中的在线状态和心跳时间
-	if err := ws.hub.UpdateUserHeartbeat(client.UserID); err != nil {
-		// 过滤 redis: nil 错误，这是正常的键不存在情况
-		if err == redis.Nil {
-			// 键不存在是正常的，特别是首次心跳时，不需要记录错误日志
-			global.LOGGER.DebugKV("Redis 心跳键不存在，可能是首次心跳",
-				"client_id", client.ID,
-				"user_id", client.UserID,
-			)
-		} else {
-			// 只有真正的错误才记录警告日志
-			global.LOGGER.WarnKV("更新 Redis 心跳失败",
-				"client_id", client.ID,
-				"user_id", client.UserID,
-				"error", err,
-				"error_type", fmt.Sprintf("%T", err),
-			)
-		}
-	}
-
-	// 🔥 发送 pong 响应
-	pongMsg := &wsc.HubMessage{
-		ID:          fmt.Sprintf("pong_%s_%d", client.UserID, time.Now().UnixNano()),
-		MessageType: wsc.MessageTypePong,
-		Sender:      wsc.UserTypeSystem.String(),
-		Receiver:    client.UserID,
-		CreateAt:    time.Now(),
-		Priority:    wsc.PriorityNormal,
-		Status:      wsc.MessageStatusSent,
-	}
-
-	// 添加错误处理和日志
-	if result := ws.hub.SendToUserWithRetry(ws.ctx, client.UserID, pongMsg); result.FinalError != nil {
-		global.LOGGER.WarnKV("心跳 pong 响应发送失败",
-			"client_id", client.ID,
-			"user_id", client.UserID,
-			"error", result.FinalError,
-		)
-		return
-	}
-	global.LOGGER.DebugKV("心跳 pong 响应发送成功",
+	// 记录客户端注册成功日志
+	global.LOGGER.InfoContextKV(ctx, "[WebSocket] 客户端注册成功",
 		"client_id", client.ID,
 		"user_id", client.UserID,
-		"pong_msg_id", pongMsg.ID,
+		"user_type", string(client.UserType),
 	)
-}
-
-// handleBinaryMessage 处理二进制消息
-func (ws *WebSocketService) handleBinaryMessage(client *wsc.Client, data []byte) {
-	ctx := ws.ctx
-
-	msg := &wsc.HubMessage{
-		ID:          fmt.Sprintf("binary_%s_%d", client.UserID, time.Now().UnixNano()),
-		Sender:      client.UserID,
-		SenderType:  client.UserType,
-		Content:     string(data),
-		MessageType: wsc.MessageTypeBinary,
-		CreateAt:    time.Now(),
-		Priority:    wsc.PriorityNormal,
-		Status:      wsc.MessageStatusSent,
-		Data: map[string]interface{}{
-			"binary_length": len(data),
-		},
-	}
-
-	// 调用消息接收回调
-	if err := ws.hub.InvokeMessageReceivedCallback(ctx, client, msg); err != nil {
-		global.LOGGER.WarnKV("二进制消息接收回调执行失败",
-			"client_id", client.ID,
-			"user_id", client.UserID,
-			"message_id", msg.ID,
-			"error", err,
-		)
-		// 通知错误回调
-		_ = ws.hub.InvokeErrorCallback(ctx, err, "warning")
-	}
-
-	// 🔥 关键修复：将二进制消息转发到 Hub
-	if msg.Receiver != "" {
-		if result := ws.hub.SendToUserWithRetry(ctx, msg.Receiver, msg); result.FinalError != nil {
-			global.LOGGER.WarnKV("二进制消息发送失败",
-				"message_id", msg.ID,
-				"sender", msg.Sender,
-				"receiver", msg.Receiver,
-				"error", result.FinalError,
-			)
-		}
-	}
 }
 
 // extractClientAttributes 从请求中提取客户端属性

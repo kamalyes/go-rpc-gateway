@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/go-sql-driver/mysql"
 	"github.com/kamalyes/go-config/pkg/database"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
@@ -14,9 +18,6 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
-	"os"
-	"strings"
-	"time"
 )
 
 // contextLogger 存储在context中的logger实例
@@ -60,7 +61,7 @@ func GormMySQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger)
 
 	config := cfg.Database.MySQL
 	return initDB(ctx, config, database.DBTypeMySQL, log, func(dsn string) (*gorm.DB, error) {
-		return gorm.Open(mysqldriver.New(mysqldriver.Config{DSN: dsn}), gormConfig(config.LogLevel))
+		return gorm.Open(mysqldriver.New(mysqldriver.Config{DSN: dsn}), gormConfig(config))
 	})
 }
 
@@ -75,7 +76,7 @@ func GormPostgreSQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILo
 
 	config := cfg.Database.PostgreSQL
 	return initDB(ctx, config, database.DBTypePostgreSQL, log, func(dsn string) (*gorm.DB, error) {
-		return gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), gormConfig(config.LogLevel))
+		return gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), gormConfig(config))
 	})
 }
 
@@ -90,7 +91,7 @@ func GormSQLite(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger
 
 	config := cfg.Database.SQLite
 	return initDB(ctx, config, database.DBTypeSQLite, log, func(dsn string) (*gorm.DB, error) {
-		return gorm.Open(sqlite.Open(config.DbPath), gormConfig(config.LogLevel))
+		return gorm.Open(sqlite.Open(config.DbPath), gormConfig(config))
 	})
 }
 
@@ -199,20 +200,41 @@ func parseConfigParams(configString string) map[string]string {
 }
 
 // gormConfig 根据配置决定是否开启日志
-func gormConfig(logLevel string) *gorm.Config {
+func gormConfig(provider database.DatabaseProvider) *gorm.Config {
+	// 从 DatabaseProvider 读取所有 GORM 配置
+	slowThreshold := provider.GetSlowThreshold()
+	ignoreRecordNotFoundError := provider.GetIgnoreRecordNotFoundError()
+	skipDefaultTransaction := provider.GetSkipDefaultTransaction()
+	prepareStmt := provider.GetPrepareStmt()
+	disableForeignKeyConstraintWhenMigrating := provider.GetDisableForeignKeyConstraintWhenMigrating()
+	disableNestedTransaction := provider.GetDisableNestedTransaction()
+	allowGlobalUpdate := provider.GetAllowGlobalUpdate()
+	queryFields := provider.GetQueryFields()
+	createBatchSize := provider.GetCreateBatchSize()
+	singularTable := provider.GetSingularTable()
+
 	config := &gorm.Config{
-		DisableForeignKeyConstraintWhenMigrating: true,
+		// 性能优化配置
+		SkipDefaultTransaction:                   skipDefaultTransaction,
+		PrepareStmt:                              prepareStmt,
+		DisableForeignKeyConstraintWhenMigrating: disableForeignKeyConstraintWhenMigrating,
+		DisableNestedTransaction:                 disableNestedTransaction,
+		AllowGlobalUpdate:                        allowGlobalUpdate,
+		QueryFields:                              queryFields,
+		CreateBatchSize:                          createBatchSize,
+		// 命名策略
 		NamingStrategy: schema.NamingStrategy{
-			SingularTable: true,
+			SingularTable: singularTable,
 		},
 	}
+
 	// 使用自定义的JSON格式Logger,支持trace_id自动注入
 	config.Logger = NewGormLogger(
 		gormlogger.Config{
-			SlowThreshold:             100 * time.Millisecond, // 慢查询阈值
-			LogLevel:                  gormlogger.Info,        // 记录所有SQL
-			IgnoreRecordNotFoundError: false,                  // 不忽略记录未找到错误
-			Colorful:                  false,                  // 使用JSON格式,不需要彩色
+			SlowThreshold:             time.Duration(slowThreshold) * time.Millisecond, // 从配置读取慢查询阈值
+			LogLevel:                  gormlogger.Info,                                 // 记录所有SQL
+			IgnoreRecordNotFoundError: ignoreRecordNotFoundError,                       // 从配置读取是否忽略记录未找到错误
+			Colorful:                  false,                                           // 使用JSON格式,不需要彩色
 		},
 	)
 	return config
@@ -268,26 +290,41 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 	sql, rows := fc()
 
 	switch {
-	case err != nil && l.Config.LogLevel >= gormlogger.Error && (!errors.Is(err, gormlogger.ErrRecordNotFound) || !l.Config.IgnoreRecordNotFoundError):
+	case err != nil && errors.Is(err, gormlogger.ErrRecordNotFound) && l.Config.LogLevel >= gormlogger.Warn:
+		// Record Not Found - 降级为WARN
+		contextLogger.WarnContextKV(
+			ctx,
+			"⚠️ Record Not Found",
+			"ms", elapsed.Milliseconds(),
+			"rows", rows,
+			"sql", sql,
+		)
+	case err != nil && l.Config.LogLevel >= gormlogger.Error:
 		// SQL错误 - 显示完整信息
-		contextLogger.ErrorContextKV(ctx, "❌ SQL Error",
-			"ms", fmt.Sprintf("%.2f", float64(elapsed.Nanoseconds())/1e6),
+		contextLogger.ErrorContextKV(
+			ctx,
+			"❌ SQL Error",
+			"ms", elapsed.Milliseconds(),
 			"rows", rows,
 			"error", err.Error(),
 			"sql", sql,
 		)
 	case elapsed > l.Config.SlowThreshold && l.Config.SlowThreshold != 0 && l.Config.LogLevel >= gormlogger.Warn:
 		// 慢查询 - 显示详细信息
-		contextLogger.WarnContextKV(ctx, "🐌 SLOW SQL",
-			"ms", fmt.Sprintf("%.2f", float64(elapsed.Nanoseconds())/1e6),
-			"threshold", fmt.Sprintf("%.0f", float64(l.Config.SlowThreshold.Nanoseconds())/1e6),
+		contextLogger.WarnContextKV(
+			ctx,
+			"🐌 SLOW SQL",
+			"ms", elapsed.Milliseconds(),
+			"threshold", l.Config.SlowThreshold.Milliseconds(),
 			"rows", rows,
 			"sql", sql,
 		)
 	case l.Config.LogLevel >= gormlogger.Info:
-		// 正常SQL
-		contextLogger.InfoContextKV(ctx, "SQL",
-			"ms", fmt.Sprintf("%.2f", float64(elapsed.Nanoseconds())/1e6),
+		// 正常SQL执行
+		contextLogger.InfoContextKV(
+			ctx,
+			"SQL",
+			"ms", elapsed.Milliseconds(),
 			"rows", rows,
 			"sql", sql,
 		)

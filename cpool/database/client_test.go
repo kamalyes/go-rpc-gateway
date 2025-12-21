@@ -12,22 +12,22 @@ package database
 
 import (
 	"testing"
+	"time"
 
 	"github.com/kamalyes/go-config/pkg/database"
 	"github.com/stretchr/testify/assert"
-	"gorm.io/gorm/logger"
 )
 
 // TestBuildDSN 测试DSN构建
 func TestBuildDSN(t *testing.T) {
 	// 创建MySQL配置
 	mysqlConfig := &database.MySQL{
-			Host:     "localhost",
-			Port:     "3306",
-			Username: "user",
-			Password: "pass",
-			Dbname:   "testdb",
-			Config:   "charset=utf8mb4&parseTime=True&loc=Local",
+		Host:     "localhost",
+		Port:     "3306",
+		Username: "user",
+		Password: "pass",
+		Dbname:   "testdb",
+		Config:   "charset=utf8mb4&parseTime=True&loc=Local",
 	}
 
 	// 测试MySQL DSN
@@ -37,12 +37,12 @@ func TestBuildDSN(t *testing.T) {
 
 	// 创建PostgreSQL配置
 	postgresConfig := &database.PostgreSQL{
-			Host:     "localhost",
-			Port:     "5432",
-			Username: "user",
-			Password: "pass",
-			Dbname:   "testdb",
-			Config:   "sslmode=disable",
+		Host:     "localhost",
+		Port:     "5432",
+		Username: "user",
+		Password: "pass",
+		Dbname:   "testdb",
+		Config:   "sslmode=disable",
 	}
 
 	// 测试PostgreSQL DSN
@@ -63,28 +63,61 @@ func TestBuildDSN(t *testing.T) {
 // TestGormConfig 测试GORM配置
 func TestGormConfig(t *testing.T) {
 	tests := []struct {
-		logLevel       string
-		expectedLogger logger.LogLevel
+		name                                     string
+		slowThreshold                            int
+		ignoreRecordNotFoundError                bool
+		skipDefaultTransaction                   bool
+		prepareStmt                              bool
+		disableForeignKeyConstraintWhenMigrating bool
+		allowGlobalUpdate                        bool
+		createBatchSize                          int
+		singularTable                            bool
 	}{
-		{"silent", logger.Silent},
-		{"Silent", logger.Silent},
-		{"error", logger.Error},
-		{"Error", logger.Error},
-		{"warn", logger.Warn},
-		{"Warn", logger.Warn},
-		{"info", logger.Info},
-		{"Info", logger.Info},
-		{"unknown", logger.Error}, // 默认值
-		{"", logger.Error},        // 空值
+		{"默认配置", 100, false, false, true, true, false, 100, true},
+		{"高性能配置", 50, true, true, true, false, false, 200, true},
+		{"安全配置", 200, false, false, true, true, false, 50, false},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.logLevel, func(t *testing.T) {
-			config := gormConfig(tt.logLevel)
+		t.Run(tt.name, func(t *testing.T) {
+			// 创建测试用的MySQL配置
+			mysqlConfig := &database.MySQL{
+				Host:                                     "localhost",
+				Port:                                     "3306",
+				Username:                                 "user",
+				Password:                                 "pass",
+				Dbname:                                   "testdb",
+				Config:                                   "charset=utf8mb4",
+				SlowThreshold:                            tt.slowThreshold,
+				IgnoreRecordNotFoundError:                tt.ignoreRecordNotFoundError,
+				SkipDefaultTransaction:                   tt.skipDefaultTransaction,
+				PrepareStmt:                              tt.prepareStmt,
+				DisableForeignKeyConstraintWhenMigrating: tt.disableForeignKeyConstraintWhenMigrating,
+				AllowGlobalUpdate:                        tt.allowGlobalUpdate,
+				CreateBatchSize:                          tt.createBatchSize,
+				SingularTable:                            tt.singularTable,
+				QueryFields:                              true,
+				DisableNestedTransaction:                 false,
+			}
+
+			config := gormConfig(mysqlConfig)
 			assert.NotNil(t, config)
-			assert.True(t, config.DisableForeignKeyConstraintWhenMigrating)
+
+			// 验证 GORM 配置
+			assert.Equal(t, tt.skipDefaultTransaction, config.SkipDefaultTransaction)
+			assert.Equal(t, tt.prepareStmt, config.PrepareStmt)
+			assert.Equal(t, tt.disableForeignKeyConstraintWhenMigrating, config.DisableForeignKeyConstraintWhenMigrating)
+			assert.Equal(t, tt.allowGlobalUpdate, config.AllowGlobalUpdate)
+			assert.Equal(t, tt.createBatchSize, config.CreateBatchSize)
 			assert.NotNil(t, config.NamingStrategy)
+
+			// 验证logger配置
 			assert.NotNil(t, config.Logger)
+			gormLogger, ok := config.Logger.(*GormLogger)
+			assert.True(t, ok)
+			assert.NotNil(t, gormLogger)
+			assert.Equal(t, time.Duration(tt.slowThreshold)*time.Millisecond, gormLogger.Config.SlowThreshold)
+			assert.Equal(t, tt.ignoreRecordNotFoundError, gormLogger.Config.IgnoreRecordNotFoundError)
 		})
 	}
 }

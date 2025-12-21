@@ -13,10 +13,10 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-config v0.12.14-0.20251219082246-a83b076b88a4
+	github.com/kamalyes/go-config v0.12.14-0.20251221163245-a55c9caa2cea
 	github.com/kamalyes/go-logger v0.4.6-0.20251220131326-ff4bf447209b
 	github.com/kamalyes/go-toolbox v0.11.87-0.20251220131055-a848b26b8f42
-	github.com/kamalyes/go-wsc v0.5.7-0.20251220131929-faf4d8bde7de
+	github.com/kamalyes/go-wsc v0.5.7-0.20251222101701-877c2b4cfc14
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/stretchr/testify v1.11.1
@@ -86,14 +86,14 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.29.0
+	github.com/go-playground/validator/v10 v10.30.0
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12
-	github.com/kamalyes/go-cachex v0.1.8
+	github.com/kamalyes/go-cachex v0.1.9-0.20251221150033-0be6bfea3bb9
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
