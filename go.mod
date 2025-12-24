@@ -13,10 +13,10 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-config v0.12.14-0.20251221163245-a55c9caa2cea
+	github.com/kamalyes/go-config v0.12.14-0.20251224091054-ca041bd7c33b
 	github.com/kamalyes/go-logger v0.4.6-0.20251220131326-ff4bf447209b
-	github.com/kamalyes/go-toolbox v0.11.87-0.20251220131055-a848b26b8f42
-	github.com/kamalyes/go-wsc v0.5.7-0.20251222101701-877c2b4cfc14
+	github.com/kamalyes/go-toolbox v0.11.87-0.20251224101917-ff7fb4a8f5c9
+	github.com/kamalyes/go-wsc v0.5.7-0.20251224091600-916a8cff222f
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/stretchr/testify v1.11.1
@@ -27,7 +27,7 @@ require (
 	go.opentelemetry.io/otel/exporters/zipkin v1.38.0
 	go.opentelemetry.io/otel/sdk v1.38.0
 	go.opentelemetry.io/otel/trace v1.38.0
-	google.golang.org/grpc v1.77.0
+	google.golang.org/grpc v1.78.0
 	google.golang.org/protobuf v1.36.11
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.0
@@ -59,7 +59,7 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
-	github.com/kamalyes/go-sqlbuilder v0.3.6-0.20251216095122-d53c45afd826 // indirect
+	github.com/kamalyes/go-sqlbuilder v0.3.6-0.20251224100607-c706363a70ae // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/spf13/viper v1.21.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
@@ -126,8 +126,8 @@ require (
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20251022142026-3a174f9686a8 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251022142026-3a174f9686a8 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20251029180050-ab9386a59fda // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20251029180050-ab9386a59fda // indirect
 	gopkg.in/yaml.v3 v3.0.1
 )
 
