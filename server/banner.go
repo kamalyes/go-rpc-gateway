@@ -300,7 +300,7 @@ func (b *BannerManager) PrintMiddlewareStatus() {
 
 		// 安全中间件
 		{"CORS", b.config.CORS.AllowedAllOrigins || len(b.config.CORS.AllowedOrigins) > 0, "跨域处理"},
-		{"Security", b.config.Security.Enabled, "安全头设置"},
+		{"CSP", b.config.Security.CSP.Enabled, "内容安全策略"},
 		{"JWT", b.config.Security.JWT.Secret != "", "身份认证"},
 		{"Signature", b.config.Middleware.Signature.Enabled, "签名验证"},
 

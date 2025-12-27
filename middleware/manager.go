@@ -124,8 +124,7 @@ func (m *Manager) GRPCTracingInterceptor() GRPCInterceptor {
 
 // CORSMiddleware CORS 中间件
 func (m *Manager) CORSMiddleware() MiddlewareFunc {
-	// CORS配置通常在gateway配置中，这里暂时返回空实现
-	return func(next http.Handler) http.Handler { return next }
+	return MiddlewareFunc(CORSMiddleware(m.cfg.CORS))
 }
 
 // RecoveryMiddleware 恢复中间件
@@ -139,9 +138,9 @@ func (m *Manager) ContextTraceMiddlewareFunc() MiddlewareFunc {
 	return MiddlewareFunc(ContextTraceMiddleware())
 }
 
-// SecurityMiddleware 安全中间件 - 从配置读取 CSP 策略
-func (m *Manager) SecurityMiddleware() MiddlewareFunc {
-	return MiddlewareFunc(SecurityMiddleware(m.cfg.Security.CSP))
+// SCPMiddleware 安全中间件 - 从配置读取 CSP 策略
+func (m *Manager) SCPMiddleware() MiddlewareFunc {
+	return MiddlewareFunc(SCPMiddleware(m.cfg.Security.CSP))
 }
 
 // RateLimitMiddleware 限流中间件
@@ -155,21 +154,13 @@ func (m *Manager) LoggingMiddleware() MiddlewareFunc {
 }
 
 // SignatureMiddleware 签名验证中间件
-// TODO: 实现签名配置
 func (m *Manager) SignatureMiddleware() MiddlewareFunc {
-	return func(next http.Handler) http.Handler { return next }
+	return MiddlewareFunc(SignatureMiddleware(m.cfg.Middleware.Signature, m.signatureValidator))
 }
 
 // TimestampMiddleware 时间戳验证中间件
-// TODO: 实现时间戳验证配置
 func (m *Manager) TimestampMiddleware() MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 时间戳验证逻辑可以在这里实现
-			// 目前暂时直接通过
-			next.ServeHTTP(w, r)
-		})
-	}
+	return MiddlewareFunc(TimestampMiddleware(m.cfg.Middleware.Signature))
 }
 
 // I18nMiddleware 国际化中间件
@@ -282,8 +273,8 @@ func (m *Manager) GetMiddlewares() []MiddlewareFunc {
 	}
 
 	// 9. 安全中间件（根据配置）
-	if m.cfg.Security.Enabled {
-		middlewares = append(middlewares, m.SecurityMiddleware())
+	if m.cfg.Security.CSP.Enabled {
+		middlewares = append(middlewares, m.SCPMiddleware())
 	}
 
 	// 10. PProf 性能分析（根据配置）
@@ -291,8 +282,10 @@ func (m *Manager) GetMiddlewares() []MiddlewareFunc {
 		middlewares = append(middlewares, m.PProfMiddleware())
 	}
 
-	// 11. CORS 中间件
-	middlewares = append(middlewares, m.CORSMiddleware())
+	// 11. CORS 中间件（根据配置）
+	if m.cfg.CORS.Enabled {
+		middlewares = append(middlewares, m.CORSMiddleware())
+	}
 
 	// 12. 签名验证中间件
 	if m.cfg.Middleware.Signature.Enabled {

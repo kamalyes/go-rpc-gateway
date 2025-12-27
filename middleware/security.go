@@ -25,17 +25,17 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/response"
+	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"github.com/kamalyes/go-toolbox/pkg/validator"
 )
 
-// CORSMiddleware CORS 中间件（使用默认配置）
-func CORSMiddleware() HTTPMiddleware {
-	config := cors.Default()
-
+// CORSMiddleware CORS 中间件
+func CORSMiddleware(corsConfig *cors.Cors) HTTPMiddleware {
+	mergedHeaders := mathx.SliceUnion(cors.Default().AllowedHeaders, corsConfig.AllowedHeaders)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			setCORSHeaders(w, r, config)
+			setCORSHeaders(w, r, corsConfig, mergedHeaders)
 
 			// 处理预检请求
 			if r.Method == constants.HTTPMethodOptions {
@@ -49,10 +49,10 @@ func CORSMiddleware() HTTPMiddleware {
 }
 
 // setCORSHeaders 设置CORS相关头部
-func setCORSHeaders(w http.ResponseWriter, r *http.Request, config *cors.Cors) {
-	setAllowOrigin(w, r.Header.Get("Origin"), config.AllowedOrigins)
+func setCORSHeaders(w http.ResponseWriter, r *http.Request, config *cors.Cors, mergedHeaders []string) {
+	setAllowOrigin(w, r.Header.Get(constants.HeaderOrigin), config.AllowedOrigins)
 	setAllowMethods(w, config.AllowedMethods)
-	setAllowHeaders(w, config.AllowedHeaders)
+	setAllowHeaders(w, mergedHeaders)
 	setAllowCredentials(w, config.AllowCredentials)
 	setMaxAge(w, config.MaxAge)
 }
@@ -63,6 +63,7 @@ func setAllowOrigin(w http.ResponseWriter, origin string, allowOrigins []string)
 		return
 	}
 
+	// 检查是否允许所有源或包含当前源
 	for _, allowedOrigin := range allowOrigins {
 		if allowedOrigin == "*" || allowedOrigin == origin {
 			w.Header().Set(constants.HeaderAccessControlAllowOrigin, origin)
@@ -77,8 +78,7 @@ func setAllowMethods(w http.ResponseWriter, methods []string) {
 		return
 	}
 
-	value := joinStrings(methods, ", ")
-	w.Header().Set(constants.HeaderAccessControlAllowMethods, value)
+	w.Header().Set(constants.HeaderAccessControlAllowMethods, strings.Join(methods, ", "))
 }
 
 // setAllowHeaders 设置允许的头部
@@ -87,8 +87,7 @@ func setAllowHeaders(w http.ResponseWriter, headers []string) {
 		return
 	}
 
-	value := joinStrings(headers, ", ")
-	w.Header().Set(constants.HeaderAccessControlAllowHeaders, value)
+	w.Header().Set(constants.HeaderAccessControlAllowHeaders, strings.Join(headers, ", "))
 }
 
 // setAllowCredentials 设置是否允许凭证
@@ -105,22 +104,9 @@ func setMaxAge(w http.ResponseWriter, maxAge string) {
 	}
 }
 
-// joinStrings 连接字符串数组
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-
-	result := strs[0]
-	for i := 1; i < len(strs); i++ {
-		result += sep + strs[i]
-	}
-	return result
-}
-
-// SecurityMiddleware 安全中间件 - 从配置读取 CSP 策略
+// SCPMiddleware 安全中间件 - 从配置读取 CSP 策略
 // 参数 cspConfig: 从 go-config/pkg/security 读取的 CSP 配置
-func SecurityMiddleware(cspConfig *security.CSP) HTTPMiddleware {
+func SCPMiddleware(cspConfig *security.CSP) HTTPMiddleware {
 	// 获取 CSP 策略字符串
 	var cspPolicy = cspConfig.GetPolicy()
 	return func(next http.Handler) http.Handler {
@@ -148,7 +134,7 @@ func CSRFProtectionMiddleware(enabled bool) HTTPMiddleware {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !enabled || isCSRFExemptMethod(r.Method) {
+			if !enabled || constants.CSRFExemptMethods[r.Method] {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -163,13 +149,6 @@ func CSRFProtectionMiddleware(enabled bool) HTTPMiddleware {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// isCSRFExemptMethod 检查是否为 CSRF 豁免的 HTTP 方法
-func isCSRFExemptMethod(method string) bool {
-	return method == constants.HTTPMethodGet ||
-		method == constants.HTTPMethodHead ||
-		method == constants.HTTPMethodOptions
 }
 
 // getCSRFToken 从请求中获取 CSRF token
@@ -201,12 +180,10 @@ func IPWhitelistMiddleware(allowedIPs []string) HTTPMiddleware {
 			clientIP := netx.GetClientIP(r)
 
 			if !isIPAllowed(clientIP, allowedIPs) {
-				if global.LOGGER != nil {
-					global.LOGGER.WarnKV(constants.LogMsgIPAccessDenied,
-						constants.LogFieldClientIP, clientIP,
-						constants.LogFieldPath, r.URL.Path,
-						constants.LogFieldUserAgent, r.Header.Get(constants.HeaderUserAgent))
-				}
+				global.LOGGER.WarnKV(constants.LogMsgIPAccessDenied,
+					constants.LogFieldClientIP, clientIP,
+					constants.LogFieldPath, r.URL.Path,
+					constants.LogFieldUserAgent, r.Header.Get(constants.HeaderUserAgent))
 
 				response.WriteAppError(w, errors.ErrForbidden.WithDetails(constants.ErrMsgIPAccessDenied))
 				return
@@ -315,12 +292,10 @@ func checkIPWhitelist(r *http.Request, pathPrefix string, whitelist []string) er
 
 	clientIP := netx.GetClientIP(r)
 	if !isIPInWhitelist(clientIP, whitelist) {
-		if global.LOGGER != nil {
-			global.LOGGER.Warn(constants.LogMsgIPNotInWhitelist,
-				constants.LogFieldPath, r.URL.Path,
-				constants.LogFieldClientIP, clientIP,
-				constants.LogFieldProtectionPath, pathPrefix)
-		}
+		global.LOGGER.Warn(constants.LogMsgIPNotInWhitelist,
+			constants.LogFieldPath, r.URL.Path,
+			constants.LogFieldClientIP, clientIP,
+			constants.LogFieldProtectionPath, pathPrefix)
 		return fmt.Errorf("IP not in whitelist")
 	}
 	return nil
@@ -333,12 +308,10 @@ func checkAuthentication(w http.ResponseWriter, r *http.Request, pathPrefix stri
 	}
 
 	if !checkPathAuthentication(r, cfg) {
-		if global.LOGGER != nil {
-			global.LOGGER.Warn(constants.LogMsgAuthFailed,
-				constants.LogFieldPath, r.URL.Path,
-				constants.LogFieldClientIP, netx.GetClientIP(r),
-				constants.LogFieldProtectionPath, pathPrefix)
-		}
+		global.LOGGER.Warn(constants.LogMsgAuthFailed,
+			constants.LogFieldPath, r.URL.Path,
+			constants.LogFieldClientIP, netx.GetClientIP(r),
+			constants.LogFieldProtectionPath, pathPrefix)
 		return fmt.Errorf("authentication failed")
 	}
 	return nil
@@ -350,22 +323,18 @@ func checkHTTPS(r *http.Request, pathPrefix string, requireHTTPS bool) error {
 		return nil
 	}
 
-	if global.LOGGER != nil {
-		global.LOGGER.Warn(constants.LogMsgHTTPSRequired,
-			constants.LogFieldPath, r.URL.Path,
-			constants.LogFieldProtectionPath, pathPrefix)
-	}
+	global.LOGGER.Warn(constants.LogMsgHTTPSRequired,
+		constants.LogFieldPath, r.URL.Path,
+		constants.LogFieldProtectionPath, pathPrefix)
 	return fmt.Errorf("HTTPS required")
 }
 
 // logAccessGranted 记录访问授权日志
 func logAccessGranted(r *http.Request, pathPrefix string) {
-	if global.LOGGER != nil {
-		global.LOGGER.Debug(constants.LogMsgAccessGranted,
-			constants.LogFieldPath, r.URL.Path,
-			constants.LogFieldClientIP, netx.GetClientIP(r),
-			constants.LogFieldProtectionPath, pathPrefix)
-	}
+	global.LOGGER.Debug(constants.LogMsgAccessGranted,
+		constants.LogFieldPath, r.URL.Path,
+		constants.LogFieldClientIP, netx.GetClientIP(r),
+		constants.LogFieldProtectionPath, pathPrefix)
 }
 
 // isIPInWhitelist 检查IP是否在白名单中(支持CIDR、通配符、IPv6)

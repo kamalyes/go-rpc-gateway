@@ -121,8 +121,30 @@ const (
 	HTTPMethodHead    = "HEAD"
 	HTTPMethodPost    = "POST"
 	HTTPMethodPut     = "PUT"
+	HTTPMethodPatch   = "PATCH"
+	HTTPMethodTrace   = "TRACE"
 	HTTPMethodDelete  = "DELETE"
 )
+
+// HTTPMethods 有效的 HTTP 方法集合
+var HTTPMethods = map[string]bool{
+	HTTPMethodOptions: true,
+	HTTPMethodGet:     true,
+	HTTPMethodHead:    true,
+	HTTPMethodPost:    true,
+	HTTPMethodPut:     true,
+	HTTPMethodPatch:   true,
+	HTTPMethodTrace:   true,
+	HTTPMethodDelete:  true,
+}
+
+// CSRFExemptMethods CSRF 豁免的 HTTP 方法（GET、HEAD、OPTIONS、TRACE）
+var CSRFExemptMethods = map[string]bool{
+	HTTPMethodGet:     true,
+	HTTPMethodHead:    true,
+	HTTPMethodOptions: true,
+	HTTPMethodTrace:   true,
+}
 
 // CSRF Token 相关常量
 const (

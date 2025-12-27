@@ -76,27 +76,27 @@ func (r *StartupReporter) PrintStartupStatus() {
 // printBasicStatus 打印基础状态
 func (r *StartupReporter) printBasicStatus(cg *logger.ConsoleGroup) {
 	cg.Group("📋 基础服务状态")
-	
+
 	basicInfo := [][]string{
 		{"服务类型", "地址", "端口", "状态"},
 		{"HTTP", r.config.HTTPServer.Host, fmt.Sprintf("%d", r.config.HTTPServer.Port), "✅ 运行中"},
 		{"gRPC", r.config.GRPC.Server.Host, fmt.Sprintf("%d", r.config.GRPC.Server.Port), "✅ 运行中"},
 	}
 	cg.Table(basicInfo)
-	
+
 	envInfo := map[string]interface{}{
 		"运行环境": r.config.Environment,
 		"调试模式": r.config.Debug,
 	}
 	cg.Table(envInfo)
-	
+
 	cg.GroupEnd()
 }
 
 // printFeatureStatus 打印功能状态
 func (r *StartupReporter) printFeatureStatus(cg *logger.ConsoleGroup) {
 	cg.Group("🔧 功能模块状态")
-	
+
 	features := []map[string]interface{}{
 		{
 			"功能名称": "健康检查",
@@ -115,17 +115,17 @@ func (r *StartupReporter) printFeatureStatus(cg *logger.ConsoleGroup) {
 		},
 	}
 	cg.Table(features)
-	
+
 	cg.GroupEnd()
 }
 
 // printMiddlewareStatus 打印中间件状态
 func (r *StartupReporter) printMiddlewareStatus(cg *logger.ConsoleGroup) {
 	cg.Group("🔌 中间件状态")
-	
+
 	corsEnabled := r.config.CORS.AllowedAllOrigins || len(r.config.CORS.AllowedOrigins) > 0
 	authEnabled := r.config.Security.JWT.Secret != ""
-	
+
 	middlewares := []map[string]interface{}{
 		{"中间件": "CORS跨域", "状态": r.getStatusIcon(corsEnabled)},
 		{"中间件": "限流控制", "状态": r.getStatusIcon(r.config.RateLimit.Enabled)},
@@ -133,19 +133,24 @@ func (r *StartupReporter) printMiddlewareStatus(cg *logger.ConsoleGroup) {
 		{"中间件": "异常恢复", "状态": r.getStatusIcon(r.config.Middleware.Recovery.Enabled)},
 		{"中间件": "访问日志", "状态": r.getStatusIcon(r.config.Middleware.Logging.Enabled)},
 		{"中间件": "身份认证(JWT)", "状态": r.getStatusIcon(authEnabled)},
-		{"中间件": "安全头设置", "状态": r.getStatusIcon(r.config.Security.Enabled)},
+		{"中间件": "CSP内容安全策略", "状态": r.getStatusIcon(r.config.Security.CSP.Enabled)},
+		{"中间件": "指标收集", "状态": r.getStatusIcon(r.config.Middleware.Metrics.Enabled)},
+		{"中间件": "链路追踪", "状态": r.getStatusIcon(r.config.Middleware.Tracing.Enabled)},
+		{"中间件": "熔断器", "状态": r.getStatusIcon(r.config.Middleware.CircuitBreaker.Enabled)},
+		{"中间件": "签名验证", "状态": r.getStatusIcon(r.config.Middleware.Signature.Enabled)},
+		{"中间件": "国际化", "状态": r.getStatusIcon(r.config.Middleware.I18N.Enabled)},
 	}
 	cg.Table(middlewares)
-	
+
 	cg.GroupEnd()
 }
 
 // printMonitoringStatus 打印监控和分析功能状态
 func (r *StartupReporter) printMonitoringStatus(cg *logger.ConsoleGroup) {
 	cg.Group("📊 监控与分析状态")
-	
+
 	monitoring := []map[string]interface{}{}
-	
+
 	if r.config.Monitoring.Prometheus.Enabled {
 		monitoring = append(monitoring, map[string]interface{}{
 			"类型": "Prometheus指标",
@@ -153,7 +158,7 @@ func (r *StartupReporter) printMonitoringStatus(cg *logger.ConsoleGroup) {
 			"访问": fmt.Sprintf("http://localhost:%d%s", r.config.Monitoring.Prometheus.Port, r.config.Monitoring.Prometheus.Path),
 		})
 	}
-	
+
 	if r.config.Middleware.PProf.Enabled {
 		authStatus := "⚠️  未启用认证"
 		if r.config.Middleware.PProf.Authentication.Enabled {
@@ -166,7 +171,7 @@ func (r *StartupReporter) printMonitoringStatus(cg *logger.ConsoleGroup) {
 			"认证": authStatus,
 		})
 	}
-	
+
 	if r.config.Monitoring.Jaeger.Enabled {
 		monitoring = append(monitoring, map[string]interface{}{
 			"类型":   "Jaeger链路追踪",
@@ -174,13 +179,13 @@ func (r *StartupReporter) printMonitoringStatus(cg *logger.ConsoleGroup) {
 			"服务名称": r.config.Monitoring.Jaeger.ServiceName,
 		})
 	}
-	
+
 	if len(monitoring) > 0 {
 		cg.Table(monitoring)
 	} else {
 		cg.Info("所有监控功能均未启用")
 	}
-	
+
 	cg.GroupEnd()
 }
 
@@ -214,9 +219,9 @@ func (r *StartupReporter) printStartupSummaryInternal(cg *logger.ConsoleGroup) {
 
 	summary := map[string]interface{}{
 		"已启用功能": enabledCount,
-		"总功能数":   totalCount,
-		"启用率":    fmt.Sprintf("%.1f%%", float64(enabledCount)/float64(totalCount)*100),
-		"启动时间":   time.Now().Format("2006-01-02 15:04:05"),
+		"总功能数":  totalCount,
+		"启用率":   fmt.Sprintf("%.1f%%", float64(enabledCount)/float64(totalCount)*100),
+		"启动时间":  time.Now().Format("2006-01-02 15:04:05"),
 	}
 	cg.Table(summary)
 }

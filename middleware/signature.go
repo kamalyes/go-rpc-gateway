@@ -12,20 +12,20 @@ package middleware
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kamalyes/go-config/pkg/request"
 	"github.com/kamalyes/go-config/pkg/signature"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/response"
+	"github.com/kamalyes/go-toolbox/pkg/sign"
 )
 
 // RequestCommon 通用请求结构 - 继承自go-config的BaseRequest
@@ -37,7 +37,7 @@ type RequestCommon struct {
 // SignatureValidator 签名验证器接口
 type SignatureValidator interface {
 	Validate(r *http.Request, config *signature.Signature) error
-	GenerateSignature(reqCommon *RequestCommon, secretKey string, body []byte, query url.Values) (string, error)
+	GenerateSignature(reqCommon *RequestCommon, secretKey string, body []byte, query url.Values, algorithm sign.HashCryptoFunc) (string, error)
 }
 
 // HMACValidator HMAC 签名验证器
@@ -47,6 +47,13 @@ type HMACValidator struct{}
 func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) error {
 	if !config.Enabled {
 		return nil
+	}
+
+	// 检查是否在忽略路径中
+	for _, ignorePath := range config.IgnorePaths {
+		if r.URL.Path == ignorePath || strings.HasPrefix(r.URL.Path, ignorePath) {
+			return nil
+		}
 	}
 
 	// 提取请求公共信息
@@ -76,7 +83,7 @@ func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) e
 	}
 
 	// 生成期望的签名
-	expectedSign, err := v.GenerateSignature(reqCommon, config.SecretKey, body, query)
+	expectedSign, err := v.GenerateSignature(reqCommon, config.SecretKey, body, query, config.Algorithm)
 	if err != nil {
 		return fmt.Errorf("failed to generate signature: %w", err)
 	}
@@ -90,7 +97,7 @@ func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) e
 }
 
 // GenerateSignature 生成签名
-func (v *HMACValidator) GenerateSignature(reqCommon *RequestCommon, secretKey string, body []byte, query url.Values) (string, error) {
+func (v *HMACValidator) GenerateSignature(reqCommon *RequestCommon, secretKey string, body []byte, query url.Values, algorithm sign.HashCryptoFunc) (string, error) {
 	// 构建签名数据
 	var dataToSign string
 
@@ -107,13 +114,20 @@ func (v *HMACValidator) GenerateSignature(reqCommon *RequestCommon, secretKey st
 		dataToSign += string(body)
 	}
 
-	// 生成 HMAC-SHA256 签名
-	h := hmac.New(sha256.New, []byte(secretKey))
-	h.Write([]byte(dataToSign))
-	signature := h.Sum(nil)
+	// 使用 go-toolbox 的 HMAC 签名器
+	signer, err := sign.NewHMACSigner(algorithm)
+	if err != nil {
+		return "", fmt.Errorf("failed to create HMAC signer: %w", err)
+	}
+
+	// 生成签名
+	signatureBytes, err := signer.Sign([]byte(dataToSign), []byte(secretKey))
+	if err != nil {
+		return "", fmt.Errorf("failed to sign data: %w", err)
+	}
 
 	// 返回 Base64 编码的签名
-	return base64.StdEncoding.EncodeToString(signature), nil
+	return base64.StdEncoding.EncodeToString(signatureBytes), nil
 }
 
 // validateTimestamp 验证时间戳
@@ -150,7 +164,7 @@ func extractRequestCommon(r *http.Request, config *signature.Signature) *Request
 // getValueFromRequest 从请求中获取值（优先从 Header，然后从 Query）
 func getValueFromRequest(r *http.Request, fieldName string) string {
 	// 尝试从 Header 获取
-	if value := r.Header.Get("X-" + fieldName); value != "" {
+	if value := r.Header.Get(fieldName); value != "" {
 		return value
 	}
 
@@ -164,10 +178,6 @@ func getValueFromRequest(r *http.Request, fieldName string) string {
 
 // SignatureMiddleware 签名验证中间件
 func SignatureMiddleware(config *signature.Signature, validator SignatureValidator) HTTPMiddleware {
-	if config == nil {
-		config = signature.Default()
-	}
-
 	if !config.Enabled {
 		return func(next http.Handler) http.Handler {
 			return next
@@ -180,9 +190,10 @@ func SignatureMiddleware(config *signature.Signature, validator SignatureValidat
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
 			// 验证签名
 			if err := validator.Validate(r, config); err != nil {
-				response.WriteErrorResponseWithCode(w, http.StatusUnauthorized, constants.SignatureErrorCodeInvalid, err.Error())
+				response.WriteErrorResponseWithCode(w, http.StatusForbidden, constants.SignatureErrorCodeInvalid, err.Error())
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -192,10 +203,6 @@ func SignatureMiddleware(config *signature.Signature, validator SignatureValidat
 
 // TimestampMiddleware 时间戳验证中间件（独立使用）
 func TimestampMiddleware(config *signature.Signature) HTTPMiddleware {
-	if config == nil {
-		config = signature.Default()
-	}
-
 	if !config.Enabled {
 		return func(next http.Handler) http.Handler {
 			return next
@@ -216,7 +223,7 @@ func TimestampMiddleware(config *signature.Signature) HTTPMiddleware {
 			}
 			now := time.Now().Unix()
 			if now-timestamp > int64(config.TimeoutWindow.Seconds()) {
-				response.WriteErrorResponseWithCode(w, http.StatusUnauthorized, constants.SignatureErrorCodeTimestampExpired, constants.SignatureErrorTimestampExpired)
+				response.WriteErrorResponseWithCode(w, http.StatusForbidden, constants.SignatureErrorCodeTimestampExpired, constants.SignatureErrorTimestampExpired)
 				return
 			}
 			next.ServeHTTP(w, r)
