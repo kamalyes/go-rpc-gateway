@@ -80,6 +80,9 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 		os.Exit(1)
 	}
 
+	// 获取 Hub 的 Logger
+	hubLogger := hub.GetLogger()
+
 	// 在线状态仓库 (TTL固定为心跳间隔的3倍)
 	cfg.RedisRepository.OnlineStatus.TTL = time.Duration(cfg.HeartbeatInterval) * time.Second * 3
 	onlineStatusRepo := wsc.NewRedisOnlineStatusRepository(redisClient, cfg.RedisRepository.OnlineStatus)
@@ -90,7 +93,7 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	hub.SetHubStatsRepository(statsRepo)
 
 	// 负载管理仓库
-	workloadRepo := wsc.NewRedisWorkloadRepository(redisClient, cfg.RedisRepository.Workload)
+	workloadRepo := wsc.NewRedisWorkloadRepository(redisClient, cfg.RedisRepository.Workload, hubLogger)
 	hub.SetWorkloadRepository(workloadRepo)
 
 	// 2. 获取 MySQL/GORM 数据库并初始化 MySQL 仓库
@@ -109,8 +112,8 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	hub.SetConnectionRecordRepository(connectionRecordRepo)
 
 	// 🔥 离线消息处理器
-	offlineHandler := wsc.NewHybridOfflineMessageHandler(redisClient, db, cfg.RedisRepository.OfflineMessage)
-	hub.SetOfflineMessageRepo(offlineHandler)
+	offlineHandler := wsc.NewHybridOfflineMessageHandler(redisClient, db, cfg.RedisRepository.OfflineMessage, hubLogger)
+	hub.SetOfflineMessageHandler(offlineHandler)
 
 	// 使用 Console 展示仓库初始化信息
 	cg := global.LOGGER.NewConsoleGroup()

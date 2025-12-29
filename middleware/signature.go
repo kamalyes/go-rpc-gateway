@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -37,7 +36,7 @@ type RequestCommon struct {
 // SignatureValidator 签名验证器接口
 type SignatureValidator interface {
 	Validate(r *http.Request, config *signature.Signature) error
-	GenerateSignature(reqCommon *RequestCommon, secretKey string, body []byte, query url.Values, algorithm sign.HashCryptoFunc) (string, error)
+	GenerateSignature(reqCommon *RequestCommon, secretKey string, body []byte, queryString string, algorithm sign.HashCryptoFunc) (string, error)
 }
 
 // HMACValidator HMAC 签名验证器
@@ -76,14 +75,14 @@ func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) e
 		r.Body = io.NopCloser(bytes.NewBuffer(body))
 	}
 
-	// 获取查询参数
-	var query url.Values
+	// 获取查询字符串（使用原始查询字符串，保持参数顺序）
+	var queryString string
 	if !config.SkipQuery {
-		query = r.URL.Query()
+		queryString = r.URL.RawQuery
 	}
 
 	// 生成期望的签名
-	expectedSign, err := v.GenerateSignature(reqCommon, config.SecretKey, body, query, config.Algorithm)
+	expectedSign, err := v.GenerateSignature(reqCommon, config.SecretKey, body, queryString, config.Algorithm)
 	if err != nil {
 		return fmt.Errorf("failed to generate signature: %w", err)
 	}
@@ -97,16 +96,16 @@ func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) e
 }
 
 // GenerateSignature 生成签名
-func (v *HMACValidator) GenerateSignature(reqCommon *RequestCommon, secretKey string, body []byte, query url.Values, algorithm sign.HashCryptoFunc) (string, error) {
+func (v *HMACValidator) GenerateSignature(reqCommon *RequestCommon, secretKey string, body []byte, queryString string, algorithm sign.HashCryptoFunc) (string, error) {
 	// 构建签名数据
 	var dataToSign string
 
 	// 添加时间戳
 	dataToSign += reqCommon.Timestamp
 
-	// 添加查询参数
-	if query != nil {
-		dataToSign += query.Encode()
+	// 添加查询字符串（直接使用原始字符串，保持参数顺序）
+	if queryString != "" {
+		dataToSign += queryString
 	}
 
 	// 添加请求体
