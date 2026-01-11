@@ -12,10 +12,12 @@
 package middleware
 
 import (
-	"net"
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/kamalyes/go-toolbox/pkg/matcher"
+	"github.com/kamalyes/go-toolbox/pkg/validator"
 )
 
 // ============================================================================
@@ -58,7 +60,7 @@ func (m *WhitelistManager) Register(rule WhitelistRule) {
 
 	// 检查是否是 IP 规则
 	if ipRule, ok := rule.(IPWhitelistRule); ok {
-		// IP 规则单独存储
+		// IP 规则单独存储，不加入普通规则列表
 		inserted := false
 		for i, r := range m.ipRules {
 			if rule.Priority() < r.Priority() {
@@ -70,9 +72,11 @@ func (m *WhitelistManager) Register(rule WhitelistRule) {
 		if !inserted {
 			m.ipRules = append(m.ipRules, ipRule)
 		}
+		// IP 规则已单独存储，直接返回，避免重复添加到 rules
+		return
 	}
 
-	// 按优先级插入排序
+	// 按优先级插入排序（仅非 IP 规则）
 	inserted := false
 	for i, r := range m.rules {
 		if rule.Priority() < r.Priority() {
@@ -145,12 +149,22 @@ func (m *WhitelistManager) Clear() {
 // PathPrefixRule 路径前缀匹配规则
 type PathPrefixRule struct {
 	prefix      string
+	methods     []string // 支持的 HTTP 方法列表，空表示匹配所有方法
 	description string
 	priority    int
 }
 
 func (r *PathPrefixRule) Match(method, path string) bool {
-	return strings.HasPrefix(path, r.prefix)
+	// 检查路径前缀
+	if !strings.HasPrefix(path, r.prefix) {
+		return false
+	}
+	// 如果未指定方法，匹配所有方法
+	if len(r.methods) == 0 {
+		return true
+	}
+	// 否则检查方法是否匹配
+	return matcher.MatchMethod(r.methods, method)
 }
 
 func (r *PathPrefixRule) Description() string {
@@ -158,6 +172,26 @@ func (r *PathPrefixRule) Description() string {
 }
 
 func (r *PathPrefixRule) Priority() int {
+	return r.priority
+}
+
+// PathGlobRule 路径 Glob 匹配规则
+type PathGlobRule struct {
+	pattern     string
+	methods     []string
+	description string
+	priority    int
+}
+
+func (r *PathGlobRule) Match(method, path string) bool {
+	return matcher.MatchPathWithMethod(path, method, r.pattern, r.methods)
+}
+
+func (r *PathGlobRule) Description() string {
+	return r.description
+}
+
+func (r *PathGlobRule) Priority() int {
 	return r.priority
 }
 
@@ -170,7 +204,7 @@ type ExactPathRule struct {
 }
 
 func (r *ExactPathRule) Match(method, path string) bool {
-	return r.method == method && strings.EqualFold(path, r.path)
+	return matcher.MatchMethod([]string{r.method}, method) && path == r.path
 }
 
 func (r *ExactPathRule) Description() string {
@@ -227,12 +261,7 @@ type MethodRule struct {
 }
 
 func (r *MethodRule) Match(method, path string) bool {
-	for _, m := range r.methods {
-		if strings.EqualFold(m, method) {
-			return true
-		}
-	}
-	return false
+	return matcher.MatchMethod(r.methods, method)
 }
 
 func (r *MethodRule) Description() string {
@@ -276,12 +305,8 @@ func (r *IPRule) Match(method, path string) bool {
 }
 
 func (r *IPRule) MatchWithIP(clientIP string) bool {
-	for _, ip := range r.allowedIPs {
-		if ip == clientIP {
-			return true
-		}
-	}
-	return false
+	// 使用 go-toolbox 的 IP 匹配功能
+	return validator.IsIPAllowed(clientIP, r.allowedIPs)
 }
 
 func (r *IPRule) Description() string {
@@ -294,9 +319,9 @@ func (r *IPRule) Priority() int {
 
 // CIDRRule CIDR 网段匹配规则
 type CIDRRule struct {
-	allowedNets []*net.IPNet
-	description string
-	priority    int
+	allowedCIDRs []string
+	description  string
+	priority     int
 }
 
 func (r *CIDRRule) Match(method, path string) bool {
@@ -306,17 +331,8 @@ func (r *CIDRRule) Match(method, path string) bool {
 }
 
 func (r *CIDRRule) MatchWithIP(clientIP string) bool {
-	ip := net.ParseIP(clientIP)
-	if ip == nil {
-		return false
-	}
-
-	for _, ipNet := range r.allowedNets {
-		if ipNet.Contains(ip) {
-			return true
-		}
-	}
-	return false
+	// 直接使用 go-toolbox 的 IP 匹配功能
+	return validator.IsIPAllowed(clientIP, r.allowedCIDRs)
 }
 
 func (r *CIDRRule) Description() string {
@@ -356,6 +372,7 @@ func NewRuleBuilder(manager *WhitelistManager) *RuleBuilder {
 func (b *RuleBuilder) AddPathPrefix(prefix, description string) *RuleBuilder {
 	b.manager.Register(&PathPrefixRule{
 		prefix:      prefix,
+		methods:     nil, // 匹配所有方法
 		description: description,
 		priority:    100,
 	})
@@ -366,8 +383,31 @@ func (b *RuleBuilder) AddPathPrefix(prefix, description string) *RuleBuilder {
 func (b *RuleBuilder) AddPathPrefixWithPriority(prefix, description string, priority int) *RuleBuilder {
 	b.manager.Register(&PathPrefixRule{
 		prefix:      prefix,
+		methods:     nil, // 匹配所有方法
 		description: description,
 		priority:    priority,
+	})
+	return b
+}
+
+// AddPathPrefixWithMethods 添加路径前缀规则（指定HTTP方法）
+func (b *RuleBuilder) AddPathPrefixWithMethods(prefix string, methods []string, description string) *RuleBuilder {
+	b.manager.Register(&PathPrefixRule{
+		prefix:      prefix,
+		methods:     methods,
+		description: description,
+		priority:    100,
+	})
+	return b
+}
+
+// AddPathGlob 添加路径 Glob 匹配规则（支持通配符）
+func (b *RuleBuilder) AddPathGlob(pattern string, methods []string, description string) *RuleBuilder {
+	b.manager.Register(&PathGlobRule{
+		pattern:     pattern,
+		methods:     methods,
+		description: description,
+		priority:    80,
 	})
 	return b
 }
@@ -436,20 +476,10 @@ func (b *RuleBuilder) AddIP(ips []string, description string) *RuleBuilder {
 
 // AddCIDR 添加 CIDR 网段规则
 func (b *RuleBuilder) AddCIDR(cidrs []string, description string) *RuleBuilder {
-	ipNets := make([]*net.IPNet, 0, len(cidrs))
-	for _, cidr := range cidrs {
-		_, ipNet, err := net.ParseCIDR(cidr)
-		if err != nil {
-			// 忽略无效的 CIDR
-			continue
-		}
-		ipNets = append(ipNets, ipNet)
-	}
-
 	b.manager.Register(&CIDRRule{
-		allowedNets: ipNets,
-		description: description,
-		priority:    5, // CIDR 规则优先级很高
+		allowedCIDRs: cidrs,
+		description:  description,
+		priority:     5, // CIDR 规则优先级很高
 	})
 	return b
 }
@@ -470,6 +500,7 @@ type CommonRules struct{}
 func (CommonRules) HealthCheck() WhitelistRule {
 	return &PathPrefixRule{
 		prefix:      "/health",
+		methods:     nil,
 		description: "健康检查端点",
 		priority:    10,
 	}
@@ -479,6 +510,7 @@ func (CommonRules) HealthCheck() WhitelistRule {
 func (CommonRules) Metrics() WhitelistRule {
 	return &PathPrefixRule{
 		prefix:      "/metrics",
+		methods:     nil,
 		description: "Prometheus 监控指标",
 		priority:    10,
 	}
@@ -488,6 +520,7 @@ func (CommonRules) Metrics() WhitelistRule {
 func (CommonRules) StaticFiles(prefix string) WhitelistRule {
 	return &PathPrefixRule{
 		prefix:      prefix,
+		methods:     nil,
 		description: "静态文件资源",
 		priority:    100,
 	}
@@ -497,6 +530,7 @@ func (CommonRules) StaticFiles(prefix string) WhitelistRule {
 func (CommonRules) PublicAPI(prefix string) WhitelistRule {
 	return &PathPrefixRule{
 		prefix:      prefix,
+		methods:     nil,
 		description: "公开 API",
 		priority:    80,
 	}
@@ -506,6 +540,7 @@ func (CommonRules) PublicAPI(prefix string) WhitelistRule {
 func (CommonRules) Swagger() WhitelistRule {
 	return &PathPrefixRule{
 		prefix:      "/swagger",
+		methods:     nil,
 		description: "Swagger API 文档",
 		priority:    10,
 	}
@@ -515,6 +550,7 @@ func (CommonRules) Swagger() WhitelistRule {
 func (CommonRules) Pprof() WhitelistRule {
 	return &PathPrefixRule{
 		prefix:      "/debug/pprof",
+		methods:     nil,
 		description: "性能分析端点",
 		priority:    10,
 	}

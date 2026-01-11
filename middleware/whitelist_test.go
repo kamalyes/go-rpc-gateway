@@ -12,12 +12,12 @@
 package middleware
 
 import (
-	"github.com/kamalyes/go-toolbox/pkg/netx"
-	"github.com/stretchr/testify/assert"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/kamalyes/go-toolbox/pkg/netx"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestGetClientIP 测试客户端 IP 提取
@@ -163,7 +163,7 @@ func TestExactPathRule(t *testing.T) {
 		expected bool
 	}{
 		{"POST", "/v1/install", true},
-		{"POST", "/V1/INSTALL", true}, // 大小写不敏感
+		{"POST", "/V1/INSTALL", false}, // 路径大小写敏感
 		{"GET", "/v1/install", false},
 		{"POST", "/v1/install/", false},
 		{"POST", "/v2/install", false},
@@ -206,11 +206,10 @@ func TestIPRule(t *testing.T) {
 
 // TestCIDRRule 测试 CIDR 规则
 func TestCIDRRule(t *testing.T) {
-	_, cidrNet, _ := net.ParseCIDR("192.168.1.0/24")
 	rule := &CIDRRule{
-		allowedNets: []*net.IPNet{cidrNet},
-		description: "内网IP段",
-		priority:    10,
+		allowedCIDRs: []string{"192.168.1.0/24"},
+		description:  "内网IP段",
+		priority:     10,
 	}
 
 	tests := []struct {
@@ -323,28 +322,80 @@ func TestRulePriority(t *testing.T) {
 	assert.Equal(t, 100, rules[1].Priority())
 }
 
-// BenchmarkGetClientIP 性能测试
-func BenchmarkGetClientIP(b *testing.B) {
-	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("X-Forwarded-For", "192.168.1.100, 10.0.0.1")
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		netx.GetClientIP(req)
+// BenchmarkWhitelist 性能测试
+func BenchmarkWhitelist(b *testing.B) {
+	benchmarks := []struct {
+		name  string
+		setup func() func()
+	}{
+		{
+			name: "GetClientIP_XForwardedFor",
+			setup: func() func() {
+				req := httptest.NewRequest("GET", "/test", nil)
+				req.Header.Set("X-Forwarded-For", "192.168.1.100, 10.0.0.1")
+				return func() {
+					netx.GetClientIP(req)
+				}
+			},
+		},
+		{
+			name: "GetClientIP_RemoteAddr",
+			setup: func() func() {
+				req := httptest.NewRequest("GET", "/test", nil)
+				req.RemoteAddr = "198.51.100.1:54321"
+				return func() {
+					netx.GetClientIP(req)
+				}
+			},
+		},
+		{
+			name: "WhitelistMatch_PathPrefix",
+			setup: func() func() {
+				manager := NewWhitelistManager()
+				NewRuleBuilder(manager).
+					AddPathPrefix("/api/", "API").
+					AddPathPrefix("/public/", "公开").
+					Build()
+				return func() {
+					manager.IsWhitelisted("GET", "/api/users")
+				}
+			},
+		},
+		{
+			name: "WhitelistMatch_ExactPath",
+			setup: func() func() {
+				manager := NewWhitelistManager()
+				NewRuleBuilder(manager).
+					AddExactPath("POST", "/v1/install", "安装").
+					AddExactPath("GET", "/health", "健康检查").
+					Build()
+				return func() {
+					manager.IsWhitelisted("POST", "/v1/install")
+				}
+			},
+		},
+		{
+			name: "WhitelistMatch_WithIP",
+			setup: func() func() {
+				manager := NewWhitelistManager()
+				NewRuleBuilder(manager).
+					AddIP([]string{"192.168.1.100"}, "特定IP").
+					AddCIDR([]string{"10.0.0.0/8"}, "内网").
+					Build()
+				return func() {
+					manager.IsWhitelistedWithIP("GET", "/admin/users", "192.168.1.100")
+				}
+			},
+		},
 	}
-}
 
-// BenchmarkWhitelistMatch 性能测试
-func BenchmarkWhitelistMatch(b *testing.B) {
-	manager := NewWhitelistManager()
-	NewRuleBuilder(manager).
-		AddPathPrefix("/api/", "API").
-		AddPathPrefix("/public/", "公开").
-		AddExactPath("POST", "/v1/install", "安装").
-		Build()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		manager.IsWhitelisted("GET", "/api/users")
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			fn := bm.setup()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				fn()
+			}
+		})
 	}
 }
