@@ -97,7 +97,9 @@ func (i *I18nManager) loadLanguage(language string) error {
 	i.messages[language] = messages
 
 	return nil
-} // GetMessage 获取翻译消息
+}
+
+// GetMessage 获取翻译消息
 func (i *I18nManager) GetMessage(language, key string, args ...interface{}) string {
 	return i.getMessageInternal(language, key, args, nil)
 }
@@ -283,16 +285,57 @@ func detectFromHeader(r *http.Request, config *goi18n.I18N) string {
 	// 解析Accept-Language头
 	languages := parseAcceptLanguage(acceptLanguage)
 
-	// 查找第一个支持的语言
+	// 按优先级尝试匹配每个语言
 	for _, lang := range languages {
-		for _, supported := range config.SupportedLanguages {
-			if strings.HasPrefix(lang, supported) || strings.HasPrefix(supported, lang) {
-				return supported
+		// 1. 直接精确匹配（优先级最高）
+		if isLanguageSupported(lang, config.SupportedLanguages) {
+			return lang
+		}
+
+		// 2. 尝试语言映射（en-us -> en）
+		if result := tryMapLanguage(lang, config); result != "" {
+			return result
+		}
+
+		// 3. 尝试基础语言回退（en-us -> en）
+		if idx := strings.Index(lang, "-"); idx > 0 {
+			baseLang := lang[:idx]
+			// 先直接匹配基础语言
+			if isLanguageSupported(baseLang, config.SupportedLanguages) {
+				return baseLang
+			}
+			// 再尝试基础语言的映射
+			if result := tryMapLanguage(baseLang, config); result != "" {
+				return result
 			}
 		}
 	}
 
 	return ""
+}
+
+// tryMapLanguage 尝试通过 language-mapping 映射语言，并验证映射后的语言是否被支持
+func tryMapLanguage(lang string, config *goi18n.I18N) string {
+	if config.LanguageMapping == nil {
+		return ""
+	}
+
+	if mappedLang, exists := config.LanguageMapping[lang]; exists {
+		if isLanguageSupported(mappedLang, config.SupportedLanguages) {
+			return mappedLang
+		}
+	}
+	return ""
+}
+
+// isLanguageSupported 检查语言是否在支持的语言列表中
+func isLanguageSupported(lang string, supportedLanguages []string) bool {
+	for _, supported := range supportedLanguages {
+		if lang == supported {
+			return true
+		}
+	}
+	return false
 }
 
 // detectFromQuery 从查询参数检测语言
@@ -310,6 +353,8 @@ func detectFromCookie(r *http.Request, config *goi18n.I18N) string {
 }
 
 // parseAcceptLanguage 解析Accept-Language头
+// 返回按优先级排序的语言代码列表（小写格式，保留完整区域信息）
+// 例如: "en-US,zh-CN;q=0.9" -> ["en-us", "zh-cn"]
 func parseAcceptLanguage(acceptLanguage string) []string {
 	var languages []string
 
@@ -322,10 +367,8 @@ func parseAcceptLanguage(acceptLanguage string) []string {
 		// 移除权重信息（如 en;q=0.9）
 		lang := strings.TrimSpace(strings.Split(part, ";")[0])
 		if lang != "" {
-			// 处理语言代码（如 en-US -> en）
-			if idx := strings.Index(lang, "-"); idx > 0 {
-				lang = lang[:idx]
-			}
+			// 转换为小写，支持大小写不敏感匹配（en-US -> en-us）
+			lang = strings.ToLower(lang)
 			languages = append(languages, lang)
 		}
 	}
