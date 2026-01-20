@@ -23,6 +23,7 @@ import (
 	"github.com/kamalyes/go-config/pkg/request"
 	"github.com/kamalyes/go-config/pkg/signature"
 	"github.com/kamalyes/go-rpc-gateway/constants"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/kamalyes/go-toolbox/pkg/sign"
 )
@@ -110,7 +111,16 @@ func (v *HMACValidator) GenerateSignature(reqCommon *RequestCommon, secretKey st
 
 	// 添加请求体
 	if body != nil {
-		dataToSign += string(body)
+		bodyStr := string(body)
+		// 调试：打印签名参数
+		global.LOGGER.Debug("🔐 后端签名参数:")
+		global.LOGGER.Debug("  - Timestamp: %s", reqCommon.Timestamp)
+		global.LOGGER.Debug("  - QueryString: %s", queryString)
+		global.LOGGER.Debug("  - Body length: %d bytes, %d chars", len(body), len(bodyStr))
+		global.LOGGER.Debug("  - Body 完整内容: %s", bodyStr)
+		global.LOGGER.Debug("  - 客户端签名: %s", reqCommon.Signature)
+
+		dataToSign += bodyStr
 	}
 
 	// 使用 go-toolbox 的 HMAC 签名器
@@ -126,7 +136,14 @@ func (v *HMACValidator) GenerateSignature(reqCommon *RequestCommon, secretKey st
 	}
 
 	// 返回 Base64 编码的签名
-	return base64.StdEncoding.EncodeToString(signatureBytes), nil
+	expectedSignature := base64.StdEncoding.EncodeToString(signatureBytes)
+
+	// 调试：打印生成的签名
+	if global.LOGGER != nil {
+		global.LOGGER.Debug("  - 服务端生成签名: %s", expectedSignature)
+	}
+
+	return expectedSignature, nil
 }
 
 // validateTimestamp 验证时间戳

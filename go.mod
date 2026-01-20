@@ -14,9 +14,9 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-config v0.12.14-0.20260105050236-a9fb03b20186
-	github.com/kamalyes/go-logger v0.4.6-0.20260105045952-3c767235782b
-	github.com/kamalyes/go-toolbox v0.11.87-0.20260111073122-2772a86c644a
-	github.com/kamalyes/go-wsc v0.5.7-0.20260105052252-125243a1e5b4
+	github.com/kamalyes/go-logger v0.4.6-0.20260113073109-516d3a52d3ee
+	github.com/kamalyes/go-toolbox v0.11.87-0.20260120082029-c1d3b5ee561d
+	github.com/kamalyes/go-wsc v0.5.7-0.20260120095737-7c28c590c64a
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/stretchr/testify v1.11.1
@@ -93,7 +93,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12
-	github.com/kamalyes/go-cachex v0.1.9-0.20251224051838-c78da4c8e703
+	github.com/kamalyes/go-cachex v0.1.9-0.20260113075842-a052631b57e8
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
@@ -121,8 +121,8 @@ require (
 	go.uber.org/multierr v1.10.0 // indirect
 	go.uber.org/zap v1.27.0
 	golang.org/x/arch v0.23.0 // indirect
-	golang.org/x/crypto v0.46.0 // indirect
-	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/crypto v0.47.0 // indirect
+	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect

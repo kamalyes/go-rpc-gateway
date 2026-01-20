@@ -79,7 +79,7 @@ func (lf *LogFields) AddUserContext(ctx context.Context) *LogFields {
 	return lf
 }
 
-// AddSlow 添加慢请求标记
+// AddSlow 添加慢请求标记 🐌
 func (lf *LogFields) AddSlow(duration, threshold time.Duration) *LogFields {
 	if duration > threshold {
 		lf.fields = append(lf.fields, "slow_request", true)
@@ -303,7 +303,14 @@ func LoggingMiddleware(config *logging.Logging) HTTPMiddleware {
 			// 捕获请求体
 			var reqBody []byte
 			if shouldCaptureRequest() && r.Body != nil {
-				reqBody = captureBody(r.Body, config.MaxBodySize)
+				var err error
+				reqBody, err = io.ReadAll(r.Body)
+				if err != nil && global.LOGGER != nil {
+					global.LOGGER.ErrorContextKV(ctx, "❌ Failed to read request body",
+						"path", r.URL.Path,
+						"method", r.Method,
+						"error", err)
+				}
 				r.Body = io.NopCloser(bytes.NewBuffer(reqBody))
 			}
 
@@ -355,16 +362,21 @@ func logHTTPRequest(ctx context.Context, r *http.Request, rw *ResponseWriter, du
 	}
 
 	level := constants.LogLevelInfo
+	message := "🚀 " + constants.LogMsgHTTPRequest
 	if rw.StatusCode() >= 500 {
 		level = constants.LogLevelError
+		message = "❌ " + constants.LogMsgHTTPRequest
 	} else if rw.StatusCode() >= 400 {
 		level = constants.LogLevelWarn
+		message = "⚠️ " + constants.LogMsgHTTPRequest
+	} else {
+		message = "✅ " + constants.LogMsgHTTPRequest
 	}
 
-	logger.Log(level, constants.LogMsgHTTPRequest, fields)
+	logger.Log(level, message, fields)
 }
 
-// logHTTPError 记录跳过路径的错误
+// logHTTPError 记录跳过路径的错误 🚫
 func logHTTPError(ctx context.Context, r *http.Request, rw *ResponseWriter, duration time.Duration) {
 	logger := NewRequestLogger(ctx)
 	fields := NewLogFields().
@@ -372,22 +384,7 @@ func logHTTPError(ctx context.Context, r *http.Request, rw *ResponseWriter, dura
 		Add(constants.LogFieldStatus, rw.StatusCode()).
 		Add(constants.LogFieldDuration, duration.Milliseconds())
 
-	logger.Log(constants.LogLevelWarn, constants.LogMsgHTTPRequestSkip, fields)
-}
-
-// captureBody 捕获请求体
-func captureBody(body io.ReadCloser, maxSize int) []byte {
-	if maxSize <= 0 {
-		maxSize = constants.LoggingDefaultMaxBodySize
-	}
-
-	limitedBody := io.LimitReader(body, int64(maxSize+1))
-	data, _ := io.ReadAll(limitedBody)
-
-	if len(data) > maxSize {
-		return data[:maxSize]
-	}
-	return data
+	logger.Log(constants.LogLevelWarn, "⚠️ "+constants.LogMsgHTTPRequestSkip, fields)
 }
 
 // ============================================================================
@@ -436,7 +433,7 @@ func logGRPCUnary(ctx context.Context, method string, req, resp interface{}, err
 		if shouldCaptureRequest() && req != nil {
 			fields.Add(constants.LogFieldRequest, masker.Mask(marshalProto(req)))
 		}
-		logger.Log(constants.LogLevelError, constants.LogMsgGRPCRequestError, fields)
+		logger.Log(constants.LogLevelError, "❌ "+constants.LogMsgGRPCRequestError, fields)
 	} else {
 		fields.Add(constants.LogFieldStatus, "OK")
 		if shouldCaptureRequest() && req != nil {
@@ -445,7 +442,7 @@ func logGRPCUnary(ctx context.Context, method string, req, resp interface{}, err
 		if shouldCaptureResponse() && resp != nil {
 			fields.Add(constants.LogFieldResponse, masker.Mask(marshalProto(resp)))
 		}
-		logger.Log(constants.LogLevelInfo, constants.LogMsgGRPCRequest, fields)
+		logger.Log(constants.LogLevelInfo, "✅ "+constants.LogMsgGRPCRequest, fields)
 	}
 }
 
@@ -468,10 +465,10 @@ func logGRPCStream(ctx context.Context, info *grpc.StreamServerInfo, err error, 
 	if err != nil {
 		st, _ := status.FromError(err)
 		fields.Add(constants.LogFieldStatus, st.Code().String()).Add(constants.LogFieldError, st.Message())
-		logger.Log(constants.LogLevelError, constants.LogMsgGRPCStreamError, fields)
+		logger.Log(constants.LogLevelError, "❌ "+constants.LogMsgGRPCStreamError, fields)
 	} else {
 		fields.Add(constants.LogFieldStatus, "OK")
-		logger.Log(constants.LogLevelInfo, constants.LogMsgGRPCStream, fields)
+		logger.Log(constants.LogLevelInfo, "📊 "+constants.LogMsgGRPCStream, fields)
 	}
 }
 
