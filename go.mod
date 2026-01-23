@@ -15,8 +15,8 @@ require (
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-config v0.12.14-0.20260105050236-a9fb03b20186
 	github.com/kamalyes/go-logger v0.4.6-0.20260113073109-516d3a52d3ee
-	github.com/kamalyes/go-toolbox v0.11.87-0.20260120082029-c1d3b5ee561d
-	github.com/kamalyes/go-wsc v0.5.7-0.20260120095737-7c28c590c64a
+	github.com/kamalyes/go-toolbox v0.11.87-0.20260122025301-13daf1a6eead
+	github.com/kamalyes/go-wsc v0.5.7-0.20260123052322-32d1879c451a
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/stretchr/testify v1.11.1
@@ -68,15 +68,15 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bwmarrin/snowflake v0.3.0
-	github.com/bytedance/sonic v1.14.2 // indirect
-	github.com/bytedance/sonic/loader v0.4.0 // indirect
+	github.com/bytedance/sonic v1.15.0 // indirect
+	github.com/bytedance/sonic/loader v0.5.0 // indirect
 	github.com/casbin/casbin/v2 v2.98.0
 	github.com/casbin/govaluate v1.2.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dgraph-io/ristretto/v2 v2.3.0 // indirect
+	github.com/dgraph-io/ristretto/v2 v2.4.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.5.0
