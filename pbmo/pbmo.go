@@ -25,10 +25,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const (
-	errConvertElem = "failed to convert element %d: %w"
-)
-
 // BidiConverter 双向转换器
 // 支持 PB ↔ Model 转换、参数校验、字段转换
 type BidiConverter struct {
@@ -37,6 +33,8 @@ type BidiConverter struct {
 	transformers       map[string]func(interface{}) interface{}
 	validators         map[string][]FieldRule // 添加校验规则存储
 	autoTimeConversion bool                   // 自动时间转换开关
+	fieldMapping       map[string]string      // 字段名映射: Model字段名 -> PB字段名
+	tagMappingCached   bool                   // struct tag映射是否已缓存
 }
 
 // NewBidiConverter 创建双向转换器
@@ -46,7 +44,9 @@ func NewBidiConverter(pbType, modelType interface{}) *BidiConverter {
 		modelType:          reflect.TypeOf(modelType),
 		transformers:       make(map[string]func(interface{}) interface{}),
 		validators:         make(map[string][]FieldRule),
-		autoTimeConversion: true, // 默认启用自动时间转换
+		autoTimeConversion: true,                    // 默认启用自动时间转换
+		fieldMapping:       make(map[string]string), // 初始化字段映射
+		tagMappingCached:   false,
 	}
 }
 
@@ -76,9 +76,114 @@ func (bc *BidiConverter) IsAutoTimeConversionEnabled() bool {
 	return bc.autoTimeConversion
 }
 
+// GetModelType 获取Model类型（实现Converter接口）
+func (bc *BidiConverter) GetModelType() reflect.Type {
+	return bc.modelType
+}
+
+// ConvertSlice 切片转换方法（实现Converter接口）
+func (bc *BidiConverter) ConvertSlice(src interface{}) (interface{}, error) {
+	// 使用批量转换实现切片转换
+	srcVal := reflect.ValueOf(src)
+	if srcVal.Kind() != reflect.Slice {
+		return nil, errors.ErrMustBeSlice
+	}
+
+	// 创建目标切片
+	dstType := reflect.SliceOf(bc.modelType)
+	dst := reflect.MakeSlice(dstType, 0, srcVal.Len())
+	dstPtr := reflect.New(dstType)
+	dstPtr.Elem().Set(dst)
+
+	// 执行批量转换
+	err := bc.BatchConvertPBToModel(src, dstPtr.Interface())
+	if err != nil {
+		return nil, err
+	}
+
+	return dstPtr.Elem().Interface(), nil
+}
+
+// GetConverterInfo 获取转换器信息（实现Converter接口）
+func (bc *BidiConverter) GetConverterInfo() ConverterInfo {
+	return ConverterInfo{
+		Type:    string(BidiConverterType),
+		Version: "1.0.0",
+		Features: []string{
+			string(ValidationFeature),
+			"field_mapping",
+			"auto_time_conversion",
+			"custom_transformers",
+		},
+		Performance: PerformanceInfo{
+			BenchmarkScore:   1.0,
+			AverageLatency:   3 * time.Microsecond,
+			ThroughputPerSec: 300000,
+		},
+		Config: map[string]interface{}{
+			"autoTimeConversion": bc.autoTimeConversion,
+			"fieldMappingCount":  len(bc.fieldMapping),
+			"validatorsCount":    len(bc.validators),
+		},
+	}
+}
+
+// WithFieldMapping 设置字段名映射（链式调用）
+// modelFieldName: Model结构体的字段名
+// pbFieldName: PB结构体的字段名
+// 示例: converter.WithFieldMapping("ID", "ClientId").WithFieldMapping("UserID", "UserId")
+func (bc *BidiConverter) WithFieldMapping(modelFieldName, pbFieldName string) *BidiConverter {
+	bc.fieldMapping[modelFieldName] = pbFieldName
+	return bc
+}
+
+// RegisterFieldMapping 注册字段映射（批量）
+// mappings: map[Model字段名]PB字段名
+func (bc *BidiConverter) RegisterFieldMapping(mappings map[string]string) {
+	for modelField, pbField := range mappings {
+		bc.fieldMapping[modelField] = pbField
+	}
+}
+
+// loadTagMappings 从Model结构体的pbmo tag加载字段映射
+// 只在首次使用时执行一次
+func (bc *BidiConverter) loadTagMappings() {
+	if bc.tagMappingCached {
+		return
+	}
+	bc.tagMappingCached = true
+
+	modelType := bc.modelType
+	// 如果是指针类型，获取其指向的类型
+	if modelType.Kind() == reflect.Ptr {
+		modelType = modelType.Elem()
+	}
+
+	// 只处理结构体类型
+	if modelType.Kind() != reflect.Struct {
+		return
+	}
+
+	// 遍历Model结构体的所有字段
+	for i := 0; i < modelType.NumField(); i++ {
+		field := modelType.Field(i)
+
+		// 读取 pbmo tag
+		if pbFieldName := field.Tag.Get("pbmo"); pbFieldName != "" {
+			// 如果该字段还没有手动配置映射，则使用tag定义的映射
+			if _, exists := bc.fieldMapping[field.Name]; !exists {
+				bc.fieldMapping[field.Name] = pbFieldName
+			}
+		}
+	}
+}
+
 // ConvertPBToModel 高性能 PB -> Model 转换
 // 性能：<3µs/次
 func (bc *BidiConverter) ConvertPBToModel(pb interface{}, modelPtr interface{}) error {
+	// 首次使用时加载struct tag映射
+	bc.loadTagMappings()
+
 	// 参数校验
 	if pb == nil {
 		return errors.ErrPBMessageNil
@@ -120,13 +225,25 @@ func (bc *BidiConverter) ConvertPBToModel(pb interface{}, modelPtr interface{}) 
 
 	pbType := pbVal.Type()
 
+	// 构建反向映射 (PB字段名 -> Model字段名)
+	reverseMapping := make(map[string]string)
+	for modelField, pbField := range bc.fieldMapping {
+		reverseMapping[pbField] = modelField
+	}
+
 	// 遍历 PB 字段进行转换
 	for i := 0; i < pbVal.NumField(); i++ {
 		pbField := pbVal.Field(i)
 		pbFieldName := pbType.Field(i).Name
 
+		// 检查是否有反向字段映射
+		modelFieldName := pbFieldName
+		if mappedName, ok := reverseMapping[pbFieldName]; ok {
+			modelFieldName = mappedName
+		}
+
 		// 查找对应 Model 字段
-		modelField := modelVal.FieldByName(pbFieldName)
+		modelField := modelVal.FieldByName(modelFieldName)
 		if !modelField.IsValid() || !modelField.CanSet() {
 			continue
 		}
@@ -138,7 +255,7 @@ func (bc *BidiConverter) ConvertPBToModel(pb interface{}, modelPtr interface{}) 
 
 		// 执行字段转换
 		if err := convertFieldFast(pbField, modelField, bc); err != nil {
-			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "field %s: %v", pbFieldName, err)
+			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "field %s->%s: %v", pbFieldName, modelFieldName, err)
 		}
 	}
 
@@ -148,6 +265,9 @@ func (bc *BidiConverter) ConvertPBToModel(pb interface{}, modelPtr interface{}) 
 // ConvertModelToPB 高性能 Model -> PB 转换
 // 性能：<3µs/次
 func (bc *BidiConverter) ConvertModelToPB(model interface{}, pbPtr interface{}) error {
+	// 首次使用时加载struct tag映射
+	bc.loadTagMappings()
+
 	// 参数校验
 	if model == nil {
 		return errors.ErrModelMessageNil
@@ -184,8 +304,14 @@ func (bc *BidiConverter) ConvertModelToPB(model interface{}, pbPtr interface{}) 
 		modelField := modelVal.Field(i)
 		modelFieldName := modelType.Field(i).Name
 
+		// 检查是否有字段映射
+		pbFieldName := modelFieldName
+		if mappedName, ok := bc.fieldMapping[modelFieldName]; ok {
+			pbFieldName = mappedName
+		}
+
 		// 查找对应 PB 字段
-		pbField := pbVal.FieldByName(modelFieldName)
+		pbField := pbVal.FieldByName(pbFieldName)
 		if !pbField.IsValid() || !pbField.CanSet() {
 			continue
 		}
@@ -197,7 +323,7 @@ func (bc *BidiConverter) ConvertModelToPB(model interface{}, pbPtr interface{}) 
 
 		// 执行字段转换
 		if err := convertFieldFast(modelField, pbField, bc); err != nil {
-			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "field %s: %v", modelFieldName, err)
+			return errors.NewErrorf(errors.ErrCodeFieldConversionError, "field %s->%s: %v", modelFieldName, pbFieldName, err)
 		}
 	}
 

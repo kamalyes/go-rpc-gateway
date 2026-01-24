@@ -27,12 +27,12 @@ const (
 )
 
 // AdvancedConverter 提供高级封装的转换器
-// 支持多种性能级别的转换器集成
+// 支持多种性能级别的转换器集成（按需初始化，避免内存浪费）
 type AdvancedConverter struct {
 	performanceLevel   PerformanceLevel
-	basicConverter     *BidiConverter          // 基础转换器
-	optimizedConverter *OptimizedBidiConverter // 优化转换器
-	ultraFastConverter *UltraFastConverter     // 超高性能转换器
+	converter          Converter // 统一的转换器接口（根据性能级别只初始化一个）
+	pbType             interface{}
+	modelType          interface{}
 	validationCfg      *ValidationConfig
 	concurrencyCfg     *ConcurrencyConfig
 	desensitizationCfg *DesensitizationConfig
@@ -124,27 +124,23 @@ func NewAdvancedConverter(pb, model interface{}, opts ...AdvancedOption) *Advanc
 		},
 	}
 
-	// 初始化所有转换器
-	ac.basicConverter = NewBidiConverter(pb, model)
-	ac.optimizedConverter = NewOptimizedBidiConverter(pb, model)
-	ac.ultraFastConverter = NewUltraFastConverter(pb, model)
+	// 保存类型信息（用于后续可能的转换器重建）
+	ac.pbType = pb
+	ac.modelType = model
 
-	// 应用选项
+	// 应用选项（先应用选项，因为可能会设置性能级别）
 	for _, opt := range opts {
 		opt(ac)
 	}
 
+	// 根据性能级别按需初始化转换器（避免内存浪费）
+	ac.initConverter()
+
 	// 自动发现校验规则（应用到当前选定的转换器）
 	if ac.validationCfg.AutoDiscover {
 		ac.autoDiscoverValidationRules(model)
-		// 将规则注册到所有转换器
-		for typeName, rules := range ac.validationCfg.Rules {
-			if len(rules) > 0 {
-				ac.basicConverter.RegisterValidationRules(typeName, rules...)
-				// 优化转换器和超高性能转换器可能有不同的校验机制
-				// 这里可以根据需要进行适配
-			}
-		}
+		// 将规则注册到转换器（如果转换器支持校验）
+		ac.registerValidationRulesToConverter()
 	}
 
 	// 自动发现脱敏规则（检查PB和Model类型）
@@ -156,6 +152,34 @@ func NewAdvancedConverter(pb, model interface{}, opts ...AdvancedOption) *Advanc
 	return ac
 }
 
+// initConverter 根据性能级别初始化转换器（按需初始化）
+func (ac *AdvancedConverter) initConverter() {
+	switch ac.performanceLevel {
+	case OptimizedLevel:
+		ac.converter = NewOptimizedBidiConverter(ac.pbType, ac.modelType)
+	case UltraFastLevel:
+		ac.converter = NewUltraFastConverter(ac.pbType, ac.modelType)
+	default:
+		ac.converter = NewBidiConverter(ac.pbType, ac.modelType)
+	}
+}
+
+// registerValidationRulesToConverter 将校验规则注册到转换器（如果转换器支持）
+func (ac *AdvancedConverter) registerValidationRulesToConverter() {
+	// 尝试类型断言为 ValidatingConverter 接口
+	if validatingConverter, ok := ac.converter.(interface {
+		RegisterValidationRules(typeName string, rules ...FieldRule)
+	}); ok {
+		// 转换器支持校验，注册规则
+		for typeName, rules := range ac.validationCfg.Rules {
+			if len(rules) > 0 {
+				validatingConverter.RegisterValidationRules(typeName, rules...)
+			}
+		}
+	}
+	// 如果不支持校验接口，静默跳过（如 OptimizedBidiConverter）
+}
+
 // WithPerformanceLevel 设置性能级别
 func WithPerformanceLevel(level PerformanceLevel) AdvancedOption {
 	return func(ac *AdvancedConverter) {
@@ -165,26 +189,29 @@ func WithPerformanceLevel(level PerformanceLevel) AdvancedOption {
 
 // ConvertPBToModel 统一的PB到Model转换接口
 func (ac *AdvancedConverter) ConvertPBToModel(pb interface{}, model interface{}) error {
-	switch ac.performanceLevel {
-	case OptimizedLevel:
-		return ac.optimizedConverter.ConvertPBToModel(pb, model)
-	case UltraFastLevel:
-		return ac.ultraFastConverter.ConvertPBToModel(pb, model)
-	default:
-		return ac.basicConverter.ConvertPBToModel(pb, model)
-	}
+	return ac.converter.ConvertPBToModel(pb, model)
+}
+
+// ConvertModelToPB Model到PB转换接口
+func (ac *AdvancedConverter) ConvertModelToPB(model interface{}, pb interface{}) error {
+	return ac.converter.ConvertModelToPB(model, pb)
 }
 
 // getModelType 获取模型类型
 func (ac *AdvancedConverter) getModelType() reflect.Type {
-	switch ac.performanceLevel {
-	case OptimizedLevel:
-		return ac.optimizedConverter.modelType
-	case UltraFastLevel:
-		return ac.ultraFastConverter.modelType
-	default:
-		return ac.basicConverter.modelType
+	// 尝试从 converter 获取（如果支持 GetModelType 方法）
+	if typedConverter, ok := ac.converter.(interface {
+		GetModelType() reflect.Type
+	}); ok {
+		return typedConverter.GetModelType()
 	}
+
+	// 回退：从存储的 modelType 推断
+	modelType := reflect.TypeOf(ac.modelType)
+	if modelType.Kind() == reflect.Ptr {
+		return modelType.Elem()
+	}
+	return modelType
 }
 
 // WithValidation 配置校验

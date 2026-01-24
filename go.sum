@@ -148,10 +148,10 @@ github.com/kamalyes/go-logger v0.4.6-0.20260113073109-516d3a52d3ee h1:48HWtpxykl
 github.com/kamalyes/go-logger v0.4.6-0.20260113073109-516d3a52d3ee/go.mod h1:suA/wX7+e8ef4KiZ1+TgRzbu1XR8t+neIVxyOyoMMuo=
 github.com/kamalyes/go-sqlbuilder v0.3.6-0.20260105051012-7fd1f605db72 h1:rvjAe9o0JhjDXGnGQGbUNpLZc9fca14mk6uZ1ZcajKE=
 github.com/kamalyes/go-sqlbuilder v0.3.6-0.20260105051012-7fd1f605db72/go.mod h1:wFMClx8camBqYKIJAR0GHJBodlZzqdIycJ7Xd5mmc7k=
-github.com/kamalyes/go-toolbox v0.11.87-0.20260122025301-13daf1a6eead h1:Alnf7eYmsoGoKGytKkmMyYRpWtmq27GYR5oL8v5VWMc=
-github.com/kamalyes/go-toolbox v0.11.87-0.20260122025301-13daf1a6eead/go.mod h1:l151q/zt/GaBgKrghaY6eb0EbUMdi9a109kgXXYLV4Q=
-github.com/kamalyes/go-wsc v0.5.7-0.20260123052322-32d1879c451a h1:8mPteen+EYcLImcCDxA0vRm84L7WtRnko7yaLCYE09A=
-github.com/kamalyes/go-wsc v0.5.7-0.20260123052322-32d1879c451a/go.mod h1:KEvYvbBgqYM4hsJdR9LzfdqeabKXxR+8q7ljf3Gkaas=
+github.com/kamalyes/go-toolbox v0.11.87-0.20260123171837-4b97a011027d h1:Zf4R6gmsaJ5iZwEuwaRWlJtWoBZ3HoqX0QRDsBr/FXc=
+github.com/kamalyes/go-toolbox v0.11.87-0.20260123171837-4b97a011027d/go.mod h1:l151q/zt/GaBgKrghaY6eb0EbUMdi9a109kgXXYLV4Q=
+github.com/kamalyes/go-wsc v0.5.7-0.20260123081001-fc6badce6fd1 h1:US8Kv/bRxDxk7GCESYk2B7HHxLRIzBmsKuKQXGQ86nE=
+github.com/kamalyes/go-wsc v0.5.7-0.20260123081001-fc6badce6fd1/go.mod h1:KEvYvbBgqYM4hsJdR9LzfdqeabKXxR+8q7ljf3Gkaas=
 github.com/klauspost/compress v1.17.9 h1:6KIumPrER1LHsvBVuDa0r5xaG0Es51mhhB9BQB2qeMA=
 github.com/klauspost/compress v1.17.9/go.mod h1:Di0epgTjJY877eYKx5yC51cX2A2Vl2ibi7bDH9ttBbw=
 github.com/klauspost/cpuid/v2 v2.0.1/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
