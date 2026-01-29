@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -100,17 +101,17 @@ func (i *I18nManager) loadLanguage(language string) error {
 }
 
 // GetMessage 获取翻译消息
-func (i *I18nManager) GetMessage(language, key string, args ...interface{}) string {
+func (i *I18nManager) GetMessage(language, key string, args ...any) string {
 	return i.getMessageInternal(language, key, args, nil)
 }
 
 // GetMessageWithMap 使用map模板数据获取翻译消息
-func (i *I18nManager) GetMessageWithMap(language, key string, templateData map[string]interface{}) string {
+func (i *I18nManager) GetMessageWithMap(language, key string, templateData map[string]any) string {
 	return i.getMessageInternal(language, key, nil, templateData)
 }
 
 // getMessageInternal 内部获取消息的实现
-func (i *I18nManager) getMessageInternal(language, key string, args []interface{}, templateData map[string]interface{}) string {
+func (i *I18nManager) getMessageInternal(language, key string, args []any, templateData map[string]any) string {
 	i.mutex.RLock()
 	defer i.mutex.RUnlock()
 
@@ -132,16 +133,12 @@ func (i *I18nManager) getMessageInternal(language, key string, args []interface{
 
 // getMessageFromLanguage 从指定语言获取消息
 func (i *I18nManager) getMessageFromLanguage(language, key string) string {
-	// 先尝试直接查找原始语言
-	if message := i.findMessageInLanguage(language, key); message != "" {
-		return message
-	}
+	// 使用 go-config 的 ResolveLanguage 方法进行语言解析
+	resolvedLang := i.config.ResolveLanguage(language)
 
-	// 如果没有找到，尝试语言映射
-	if i.config.LanguageMapping != nil {
-		if message := i.findMessageWithMapping(language, key); message != "" {
-			return message
-		}
+	// 尝试从解析后的语言获取消息
+	if message := i.findMessageInLanguage(resolvedLang, key); message != "" {
+		return message
 	}
 
 	return ""
@@ -157,30 +154,8 @@ func (i *I18nManager) findMessageInLanguage(language, key string) string {
 	return ""
 }
 
-// findMessageWithMapping 使用语言映射查找消息
-func (i *I18nManager) findMessageWithMapping(language, key string) string {
-	// 尝试直接映射
-	if targetLang, exists := i.config.LanguageMapping[language]; exists && targetLang != language {
-		if message := i.findMessageInLanguage(targetLang, key); message != "" {
-			return message
-		}
-	}
-
-	// 尝试基础语言匹配（如 zh-cn -> zh）
-	if idx := strings.Index(language, "-"); idx > 0 {
-		baseLang := language[:idx]
-		if targetLang, exists := i.config.LanguageMapping[baseLang]; exists {
-			if message := i.findMessageInLanguage(targetLang, key); message != "" {
-				return message
-			}
-		}
-	}
-
-	return ""
-}
-
 // formatMessage 格式化消息
-func (i *I18nManager) formatMessage(message string, args []interface{}, templateData map[string]interface{}) string {
+func (i *I18nManager) formatMessage(message string, args []any, templateData map[string]any) string {
 	// 如果有模板数据，使用模板数据格式化
 	if templateData != nil {
 		return i.formatWithTemplateData(message, templateData)
@@ -195,7 +170,7 @@ func (i *I18nManager) formatMessage(message string, args []interface{}, template
 }
 
 // formatWithTemplateData 使用模板数据格式化消息
-func (i *I18nManager) formatWithTemplateData(message string, templateData map[string]interface{}) string {
+func (i *I18nManager) formatWithTemplateData(message string, templateData map[string]any) string {
 	result := message
 	for key, value := range templateData {
 		placeholder := fmt.Sprintf("{{.%s}}", key)
@@ -209,12 +184,7 @@ func (i *I18nManager) formatWithTemplateData(message string, templateData map[st
 
 // IsLanguageSupported 检查语言是否被支持
 func (i *I18nManager) IsLanguageSupported(language string) bool {
-	for _, supported := range i.config.SupportedLanguages {
-		if supported == language {
-			return true
-		}
-	}
-	return false
+	return i.config.IsSupportedLanguage(language)
 }
 
 // I18n 国际化中间件，使用默认配置
@@ -256,19 +226,19 @@ func I18nWithManager(manager *I18nManager) MiddlewareFunc {
 func detectLanguage(r *http.Request, config *goi18n.I18N) string {
 	for _, method := range config.DetectionOrder {
 		switch method {
-		case "header":
+		case goi18n.DetectionHeader:
 			if lang := detectFromHeader(r, config); lang != "" {
 				return lang
 			}
-		case "query":
+		case goi18n.DetectionQuery:
 			if lang := detectFromQuery(r, config); lang != "" {
 				return lang
 			}
-		case "cookie":
+		case goi18n.DetectionCookie:
 			if lang := detectFromCookie(r, config); lang != "" {
 				return lang
 			}
-		case "default":
+		case goi18n.DetectionDefault:
 			return config.DefaultLanguage
 		}
 	}
@@ -282,60 +252,8 @@ func detectFromHeader(r *http.Request, config *goi18n.I18N) string {
 		return ""
 	}
 
-	// 解析Accept-Language头
-	languages := parseAcceptLanguage(acceptLanguage)
-
-	// 按优先级尝试匹配每个语言
-	for _, lang := range languages {
-		// 1. 直接精确匹配（优先级最高）
-		if isLanguageSupported(lang, config.SupportedLanguages) {
-			return lang
-		}
-
-		// 2. 尝试语言映射（en-us -> en）
-		if result := tryMapLanguage(lang, config); result != "" {
-			return result
-		}
-
-		// 3. 尝试基础语言回退（en-us -> en）
-		if idx := strings.Index(lang, "-"); idx > 0 {
-			baseLang := lang[:idx]
-			// 先直接匹配基础语言
-			if isLanguageSupported(baseLang, config.SupportedLanguages) {
-				return baseLang
-			}
-			// 再尝试基础语言的映射
-			if result := tryMapLanguage(baseLang, config); result != "" {
-				return result
-			}
-		}
-	}
-
-	return ""
-}
-
-// tryMapLanguage 尝试通过 language-mapping 映射语言，并验证映射后的语言是否被支持
-func tryMapLanguage(lang string, config *goi18n.I18N) string {
-	if config.LanguageMapping == nil {
-		return ""
-	}
-
-	if mappedLang, exists := config.LanguageMapping[lang]; exists {
-		if isLanguageSupported(mappedLang, config.SupportedLanguages) {
-			return mappedLang
-		}
-	}
-	return ""
-}
-
-// isLanguageSupported 检查语言是否在支持的语言列表中
-func isLanguageSupported(lang string, supportedLanguages []string) bool {
-	for _, supported := range supportedLanguages {
-		if lang == supported {
-			return true
-		}
-	}
-	return false
+	// 使用 go-config 的 ParseAcceptLanguage 方法解析并返回支持的语言
+	return config.ParseAcceptLanguage(acceptLanguage)
 }
 
 // detectFromQuery 从查询参数检测语言
@@ -352,34 +270,6 @@ func detectFromCookie(r *http.Request, config *goi18n.I18N) string {
 	return cookie.Value
 }
 
-// parseAcceptLanguage 解析Accept-Language头
-// 返回按优先级排序的语言代码列表（小写格式，保留完整区域信息）
-// 例如: "en-US,zh-CN;q=0.9" -> ["en-us", "zh-cn"]
-func parseAcceptLanguage(acceptLanguage string) []string {
-	var languages []string
-
-	if acceptLanguage == "" {
-		return []string{}
-	}
-
-	parts := strings.Split(acceptLanguage, ",")
-	for _, part := range parts {
-		// 移除权重信息（如 en;q=0.9）
-		lang := strings.TrimSpace(strings.Split(part, ";")[0])
-		if lang != "" {
-			// 转换为小写，支持大小写不敏感匹配（en-US -> en-us）
-			lang = strings.ToLower(lang)
-			languages = append(languages, lang)
-		}
-	}
-
-	if languages == nil {
-		return []string{}
-	}
-
-	return languages
-}
-
 // I18nContext 国际化上下文
 type I18nContext struct {
 	Language string
@@ -387,12 +277,12 @@ type I18nContext struct {
 }
 
 // T 翻译函数（简化调用）
-func (ctx *I18nContext) T(key string, args ...interface{}) string {
+func (ctx *I18nContext) T(key string, args ...any) string {
 	return ctx.Manager.GetMessage(ctx.Language, key, args...)
 }
 
 // TWithMap 使用map模板数据翻译
-func (ctx *I18nContext) TWithMap(key string, templateData map[string]interface{}) string {
+func (ctx *I18nContext) TWithMap(key string, templateData map[string]any) string {
 	return ctx.Manager.GetMessageWithMap(ctx.Language, key, templateData)
 }
 
@@ -417,7 +307,7 @@ func I18nFromContext(ctx context.Context) *I18nContext {
 }
 
 // T 全局翻译函数
-func T(ctx context.Context, key string, args ...interface{}) string {
+func T(ctx context.Context, key string, args ...any) string {
 	if i18nCtx := I18nFromContext(ctx); i18nCtx != nil {
 		return i18nCtx.T(key, args...)
 	}
@@ -425,7 +315,7 @@ func T(ctx context.Context, key string, args ...interface{}) string {
 }
 
 // TWithMap 全局使用map模板数据翻译函数
-func TWithMap(ctx context.Context, key string, templateData map[string]interface{}) string {
+func TWithMap(ctx context.Context, key string, templateData map[string]any) string {
 	if i18nCtx := I18nFromContext(ctx); i18nCtx != nil {
 		return i18nCtx.TWithMap(key, templateData)
 	}
@@ -438,7 +328,7 @@ func GetMsgByKey(ctx context.Context, key string) string {
 }
 
 // GetMsgWithMap 使用map模板数据获取消息（业务层级函数）
-func GetMsgWithMap(ctx context.Context, key string, maps map[string]interface{}) string {
+func GetMsgWithMap(ctx context.Context, key string, maps map[string]any) string {
 	if maps == nil {
 		return GetMsgByKey(ctx, key)
 	}
@@ -473,7 +363,7 @@ func SetLanguage(ctx context.Context, language string) context.Context {
 // LocalizedError 本地化错误结构
 type LocalizedError struct {
 	Key     string
-	Args    []interface{}
+	Args    []any
 	Context context.Context
 }
 
@@ -483,7 +373,7 @@ func (e *LocalizedError) Error() string {
 }
 
 // NewLocalizedError 创建本地化错误
-func NewLocalizedError(ctx context.Context, key string, args ...interface{}) *LocalizedError {
+func NewLocalizedError(ctx context.Context, key string, args ...any) *LocalizedError {
 	return &LocalizedError{
 		Key:     key,
 		Args:    args,
@@ -545,7 +435,7 @@ func (f *FileMessageLoader) LoadMessages(language string) (map[string]string, er
 	}
 
 	// 先尝试解析为嵌套结构
-	var nested map[string]interface{}
+	var nested map[string]any
 	if err := json.Unmarshal(data, &nested); err != nil {
 		return nil, errors.NewErrorf(errors.ErrCodeJSONParseFailed, "failed to parse language file %s: %v", filePath, err)
 	}
@@ -558,7 +448,7 @@ func (f *FileMessageLoader) LoadMessages(language string) (map[string]string, er
 
 // flattenJSON 递归扁平化嵌套JSON为点号格式
 // 例如: {"error": {"internal": "错误"}} -> {"error.internal": "错误"}
-func flattenJSON(data map[string]interface{}, prefix string) map[string]string {
+func flattenJSON(data map[string]any, prefix string) map[string]string {
 	result := make(map[string]string)
 
 	for key, value := range data {
@@ -571,11 +461,9 @@ func flattenJSON(data map[string]interface{}, prefix string) map[string]string {
 		case string:
 			// 字符串值直接存储
 			result[fullKey] = v
-		case map[string]interface{}:
+		case map[string]any:
 			// 递归处理嵌套对象
-			for k, val := range flattenJSON(v, fullKey) {
-				result[k] = val
-			}
+			maps.Copy(result, flattenJSON(v, fullKey))
 		default:
 			// 其他类型转换为字符串
 			result[fullKey] = fmt.Sprintf("%v", v)

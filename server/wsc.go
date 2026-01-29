@@ -104,11 +104,11 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	}
 
 	// 消息记录仓库 (MySQL GORM)
-	messageRecordRepo := wsc.NewMessageRecordRepository(db)
+	messageRecordRepo := wsc.NewMessageRecordRepository(db, cfg.Database.MessageRecord, hubLogger)
 	hub.SetMessageRecordRepository(messageRecordRepo)
 
 	// 连接记录仓库 (MySQL GORM)
-	connectionRecordRepo := wsc.NewConnectionRecordRepository(db)
+	connectionRecordRepo := wsc.NewConnectionRecordRepository(db, cfg.Database.ConnectionRecord, hubLogger)
 	hub.SetConnectionRecordRepository(connectionRecordRepo)
 
 	// 🔥 离线消息处理器
@@ -132,9 +132,8 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 			"TTL(小时)": cfg.RedisRepository.Stats.TTL.Hours(),
 		},
 		{
-			"仓库类型":    "工作负载",
-			"Key前缀":   cfg.RedisRepository.Workload.KeyPrefix,
-			"TTL(小时)": cfg.RedisRepository.Workload.TTL.Hours(),
+			"仓库类型":  "工作负载",
+			"Key前缀": cfg.RedisRepository.Workload.KeyPrefix,
 		},
 	}
 	cg.Table(redisConfig)
