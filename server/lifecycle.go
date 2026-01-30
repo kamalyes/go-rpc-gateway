@@ -20,6 +20,7 @@ import (
 
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-rpc-gateway/middleware"
 )
 
 // Start 启动服务器
@@ -62,6 +63,15 @@ func (s *Server) Start() error {
 		}
 	}
 
+	// 启动 PProf 服务器（如果配置启用）
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		if err := middleware.StartPProfServer(s.config.Middleware.PProf); err != nil {
+			logger.WithError(err).WarnMsg("PProf server failed to start")
+		}
+	}()
+
 	s.running = true
 
 	// 获取端点信息（配置已通过 safe.MergeWithDefaults 合并默认值）
@@ -73,31 +83,43 @@ func (s *Server) Start() error {
 	// 使用 Console 展示启动信息
 	cg := logger.NewConsoleGroup()
 	cg.Group("🚀 Gateway 启动成功!")
-	
+
 	// 展示端点信息
-	endpoints := []map[string]interface{}{
+	endpoints := []map[string]any{
 		{
 			"服务类型": "HTTP",
-			"地址": fmt.Sprintf("%s:%d", httpHost, httpPort),
-			"URL": fmt.Sprintf("http://%s:%d", httpHost, httpPort),
+			"地址":   fmt.Sprintf("%s:%d", httpHost, httpPort),
+			"URL":  fmt.Sprintf("http://%s:%d", httpHost, httpPort),
 		},
 		{
 			"服务类型": "gRPC",
-			"地址": fmt.Sprintf("%s:%d", grpcHost, grpcPort),
-			"URL": fmt.Sprintf("grpc://%s:%d", grpcHost, grpcPort),
+			"地址":   fmt.Sprintf("%s:%d", grpcHost, grpcPort),
+			"URL":  fmt.Sprintf("grpc://%s:%d", grpcHost, grpcPort),
 		},
 	}
-	
+
 	if s.webSocketService != nil && s.webSocketService.IsRunning() {
 		wsHost := s.webSocketService.GetConfig().NodeIP
 		wsPort := s.webSocketService.GetConfig().NodePort
-		endpoints = append(endpoints, map[string]interface{}{
+		endpoints = append(endpoints, map[string]any{
 			"服务类型": "WebSocket",
-			"地址": fmt.Sprintf("%s:%d", wsHost, wsPort),
-			"URL": fmt.Sprintf("ws://%s:%d", wsHost, wsPort),
+			"地址":   fmt.Sprintf("%s:%d", wsHost, wsPort),
+			"URL":  fmt.Sprintf("ws://%s:%d", wsHost, wsPort),
 		})
 	}
-	
+
+	// 添加 PProf 服务器信息（如果启用）
+	if s.config.Middleware != nil && s.config.Middleware.PProf != nil {
+		pprofCfg := s.config.Middleware.PProf
+		if pprofCfg.Enabled && pprofCfg.Port > 0 {
+			endpoints = append(endpoints, map[string]any{
+				"服务类型": "PProf",
+				"地址":   fmt.Sprintf(":%d", pprofCfg.Port),
+				"URL":  fmt.Sprintf("http://localhost:%d%s", pprofCfg.Port, pprofCfg.PathPrefix),
+			})
+		}
+	}
+
 	cg.Table(endpoints)
 	cg.GroupEnd()
 

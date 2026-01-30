@@ -176,11 +176,6 @@ func (m *Manager) I18nMiddleware() MiddlewareFunc {
 	return I18n() // 回退到默认配置
 }
 
-// PProfMiddleware pprof性能分析中间件
-func (m *Manager) PProfMiddleware() MiddlewareFunc {
-	return MiddlewareFunc(PProfMiddleware(m.cfg.Middleware.PProf))
-}
-
 // BreakerMiddleware 熔断中间件
 func (m *Manager) BreakerMiddleware() MiddlewareFunc {
 	return MiddlewareFunc(BreakerMiddleware(m.cfg.Middleware.CircuitBreaker))
@@ -192,14 +187,6 @@ func (m *Manager) MetricsHandler() http.Handler {
 		return http.NotFoundHandler()
 	}
 	return promhttp.Handler()
-}
-
-// PProfHandler 返回pprof处理器
-func (m *Manager) PProfHandler() http.Handler {
-	if !m.cfg.Middleware.PProf.Enabled {
-		return http.NotFoundHandler()
-	}
-	return CreatePProfHandler(m.cfg.Middleware.PProf)
 }
 
 // SwaggerHandler 返回 Swagger 文档处理器
@@ -277,17 +264,12 @@ func (m *Manager) GetMiddlewares() []MiddlewareFunc {
 		middlewares = append(middlewares, m.SCPMiddleware())
 	}
 
-	// 10. PProf 性能分析（根据配置）
-	if m.cfg.Middleware.PProf.Enabled {
-		middlewares = append(middlewares, m.PProfMiddleware())
-	}
-
-	// 11. CORS 中间件（根据配置）
+	// 10. CORS 中间件（根据配置）
 	if m.cfg.CORS.Enabled {
 		middlewares = append(middlewares, m.CORSMiddleware())
 	}
 
-	// 12. 签名验证中间件
+	// 11. 签名验证中间件
 	if m.cfg.Middleware.Signature.Enabled {
 		middlewares = append(middlewares, m.SignatureMiddleware())
 	}
