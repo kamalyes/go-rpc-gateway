@@ -14,6 +14,7 @@ import (
 	"net/http"
 
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	"github.com/kamalyes/go-config/pkg/ratelimit"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -75,16 +76,16 @@ func NewManager(cfg *gwconfig.Gateway) (*Manager, error) {
 	if cfg.RateLimit.Enabled {
 		// 根据策略选择限流器实现
 		switch cfg.RateLimit.Strategy {
-		case "token-bucket":
+		case ratelimit.StrategyTokenBucket:
 			manager.rateLimiter = NewTokenBucketLimiter(cfg.RateLimit)
-		case "sliding-window":
+		case ratelimit.StrategySlidingWindow:
 			if global.REDIS != nil {
 				manager.rateLimiter = NewSlidingWindowLimiter(cfg.RateLimit)
 			} else {
 				manager.rateLimiter = NewTokenBucketLimiter(cfg.RateLimit) // 降级到令牌桶
 				global.LOGGER.Warn("Redis不可用，限流器降级为令牌桶模式")
 			}
-		case "fixed-window":
+		case ratelimit.StrategyFixedWindow:
 			manager.rateLimiter = NewFixedWindowLimiter(cfg.RateLimit)
 		default:
 			manager.rateLimiter = NewTokenBucketLimiter(cfg.RateLimit)

@@ -37,6 +37,7 @@ const (
 	HeaderXUserID    = "X-User-ID"
 	HeaderXTenantID  = "X-Tenant-ID"
 	HeaderXSessionID = "X-Session-ID"
+	HeaderXTimezone  = "X-Timezone"
 
 	// 设备和应用相关头部
 	HeaderXDeviceID       = "X-Device-Id"

@@ -13,10 +13,10 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-config v0.12.14-0.20260130095810-88e5d76a90c5
-	github.com/kamalyes/go-logger v0.4.6-0.20260113073109-516d3a52d3ee
-	github.com/kamalyes/go-toolbox v0.11.87-0.20260130052916-b1a1dedd2346
-	github.com/kamalyes/go-wsc v0.5.7-0.20260130102858-5171d04208e3
+	github.com/kamalyes/go-config v0.12.14-0.20260203085905-11fc03a76dc2
+	github.com/kamalyes/go-logger v0.4.6-0.20260203085022-0f0923bdc1b1
+	github.com/kamalyes/go-toolbox v0.11.87-0.20260203051032-5f35aa1388aa
+	github.com/kamalyes/go-wsc v0.5.7-0.20260204094951-6f35f920fc48
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/stretchr/testify v1.11.1
@@ -60,7 +60,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/kamalyes/go-jsonpath v0.0.0-20260129163507-0b67ed48bb28 // indirect
-	github.com/kamalyes/go-sqlbuilder v0.3.6-0.20260127075656-79e62023612e // indirect
+	github.com/kamalyes/go-sqlbuilder v0.3.6-0.20260203090730-fcf395c2af15 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/spf13/viper v1.21.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
@@ -81,7 +81,7 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.5.0
-	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
+	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -94,7 +94,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12
-	github.com/kamalyes/go-cachex v0.1.9-0.20260113075842-a052631b57e8
+	github.com/kamalyes/go-cachex v0.1.9-0.20260203155925-76292b3cdf66
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect

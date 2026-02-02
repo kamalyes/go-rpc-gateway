@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/kamalyes/go-cachex"
 	wscconfig "github.com/kamalyes/go-config/pkg/wsc"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -115,6 +116,22 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	offlineHandler := wsc.NewHybridOfflineMessageHandler(redisClient, db, cfg.RedisRepository.OfflineMessage, hubLogger)
 	hub.SetOfflineMessageHandler(offlineHandler)
 
+	// 🌐 初始化 PubSub（分布式消息订阅）
+	if cfg.RedisRepository.PubSub.GetEnabled() {
+		pubsubCfg := cachex.PubSubConfig{
+			Namespace:          cfg.RedisRepository.PubSub.GetNamespace(),
+			MaxRetries:         cfg.RedisRepository.PubSub.GetMaxRetries(),
+			RetryDelay:         cfg.RedisRepository.PubSub.GetRetryDelay(),
+			BufferSize:         cfg.RedisRepository.PubSub.GetBufferSize(),
+			Logger:             hubLogger,
+			PingInterval:       cfg.RedisRepository.PubSub.GetPingInterval(),
+			EnableCompression:  cfg.RedisRepository.PubSub.GetEnableCompression(),
+			CompressionMinSize: cfg.RedisRepository.PubSub.GetCompressionMinSize(),
+		}
+		pubsub := cachex.NewPubSub(redisClient, pubsubCfg)
+		hub.SetPubSub(pubsub)
+	}
+
 	// 使用 Console 展示仓库初始化信息
 	cg := global.LOGGER.NewConsoleGroup()
 	cg.Group("✅ WebSocket Hub 仓库初始化")
@@ -150,6 +167,11 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 
 	cg.Info("✅ MySQL 消息记录仓库已初始化")
 	cg.Info("✅ MySQL 连接记录仓库已初始化")
+	if cfg.RedisRepository.PubSub != nil && cfg.RedisRepository.PubSub.GetEnabled() {
+		cg.Info("✅ 分布式 PubSub 已初始化 (Namespace: %s)", cfg.RedisRepository.PubSub.GetNamespace())
+	} else {
+		cg.Warn("⚠️  分布式 PubSub 未启用，运行在单机模式")
+	}
 	cg.Info("✅ ShortFlake ID 生成器已初始化 (Hub NodeID: %s, WorkerID: %d)", hub.GetNodeID(), hub.GetWorkerID())
 	cg.GroupEnd()
 
@@ -317,7 +339,7 @@ func (ws *WebSocketService) createOriginChecker() func(*http.Request) bool {
 // createClient 创建 WebSocket 客户端
 func (ws *WebSocketService) createClient(r *http.Request, conn *websocket.Conn) *wsc.Client {
 	clientID, userID, userType := ws.extractClientAttributes(r)
-	clientUserType := ws.convertUserType(userType)
+	clientUserType := wsc.UserType(userType)
 
 	// 使用 metadata 提取所有请求元数据
 	requestMeta := metadata.ExtractRequestMetadata(r)
@@ -335,24 +357,6 @@ func (ws *WebSocketService) createClient(r *http.Request, conn *websocket.Conn) 
 		SendChan:   make(chan []byte, ws.config.MessageBufferSize),
 		Context:    context.WithValue(r.Context(), wsc.ContextKeySenderID, userID),
 		Metadata:   metaMap,
-	}
-}
-
-// convertUserType 转换用户类型字符串为 wsc.UserType
-func (ws *WebSocketService) convertUserType(userType string) wsc.UserType {
-	switch userType {
-	case "customer":
-		return wsc.UserTypeCustomer
-	case "agent":
-		return wsc.UserTypeAgent
-	case "admin":
-		return wsc.UserTypeAdmin
-	case "bot":
-		return wsc.UserTypeBot
-	case "vip":
-		return wsc.UserTypeVIP
-	default:
-		return wsc.UserTypeCustomer
 	}
 }
 

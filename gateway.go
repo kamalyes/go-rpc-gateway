@@ -162,7 +162,7 @@ func (b *GatewayBuilder) WithGrpcGatewayMiddleware(mw runtime.Middleware) *Gatew
 
 // Build 构建Gateway (不启动)
 func (b *GatewayBuilder) Build() (*Gateway, error) {
-	// 确保全局日志器被初始化
+	// 首先初始化一个临时 logger，用于记录配置加载过程
 	if err := global.EnsureLoggerInitialized(); err != nil {
 		return nil, errors.NewError(errors.ErrCodeInitializationError, errors.FormatInitError("日志器", err))
 	}

@@ -21,6 +21,7 @@ import (
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	"github.com/kamalyes/go-toolbox/pkg/mathx"
 )
 
 // Initializer 初始化器接口 - 统一初始化流程
@@ -114,8 +115,8 @@ func (c *InitializerChain) InitializeAll(ctx context.Context, cfg *gwconfig.Gate
 		// 展示初始化摘要
 		summary := map[string]interface{}{
 			"已初始化组件": len(c.initialized),
-			"总组件数": len(c.initializers),
-			"初始化状态": "✅ 全部成功",
+			"总组件数":   len(c.initializers),
+			"初始化状态":  "✅ 全部成功",
 		}
 		cg.Table(summary)
 		cg.GroupEnd()
@@ -187,25 +188,42 @@ func (i *LoggerInitializer) Name() string       { return "Logger" }
 func (i *LoggerInitializer) Priority() int      { return 1 } // 最高优先级
 func (i *LoggerInitializer) HealthCheck() error { return nil }
 
+// Initialize 初始化日志器
+// 注意：此方法会根据配置重新创建 logger，替换掉临时 logger
 func (i *LoggerInitializer) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
-	// 检查是否已经初始化,避免重复初始化
 	isFirstInit := LOGGER == nil
 
-	// 确保日志器被初始化
-	if err := EnsureLoggerInitialized(); err != nil {
-		return err
-	}
+	// 检查是否有有效的 Logging 配置
+	if cfg.Middleware.Logging.Enabled {
+		loggingCfg := cfg.Middleware.Logging
 
-	// 根据配置设置日志级别
-	level := logger.INFO
-	if cfg != nil && cfg.Debug {
-		level = logger.DEBUG
-	}
+		// 创建日志配置
+		level, _ := logger.ParseLevel(loggingCfg.Level)
 
-	// 更新日志器级别
-	LOGGER = logger.CreateSimpleLogger(level)
-	if LOGGER == nil {
-		return fmt.Errorf("创建日志器失败")
+		logConfig := logger.DefaultConfig().
+			WithLevel(level).
+			WithTimeFormat(loggingCfg.TimeFormat)
+
+		// 使用 Builder 创建 logger
+		builder := logger.NewLoggerBuilder().
+			WithConfig(logConfig).
+			WithFormatter(loggingCfg.Format)
+
+		// 使用 go-logger 提供的 WriterConfig 和 AddWriterFromConfig
+		writerConfig := &logger.WriterConfig{
+			Type:     loggingCfg.Output,
+			FilePath: loggingCfg.FilePath,
+			MaxSize:  int64(loggingCfg.MaxSize * 1024 * 1024), // MB 转 Bytes
+			MaxFiles: loggingCfg.MaxBackups,
+			MaxAge:   loggingCfg.MaxAge,
+			Compress: loggingCfg.Compress,
+		}
+
+		if err := logger.AddWriterFromConfig(builder, writerConfig); err != nil {
+			return fmt.Errorf("添加 Writer 失败: %w", err)
+		}
+
+		LOGGER = builder.Build()
 	}
 
 	// 配置网关上下文提取器
@@ -215,10 +233,9 @@ func (i *LoggerInitializer) Initialize(ctx context.Context, cfg *gwconfig.Gatewa
 
 	LOG = LOGGER // 兼容别名
 
-	// 只在首次初始化时输出
-	if isFirstInit {
-		LOGGER.InfoContext(ctx, "ℹ️ [INFO] Logger initialized successfully with go-logger")
-	}
+	// 根据初始化状态输出不同日志
+	msg := mathx.IF(isFirstInit, "🔄 Logger reconfigured with settings from config file", "ℹ️ [INFO] Logger initialized successfully with go-logger")
+	LOGGER.InfoContext(ctx, msg)
 	return nil
 }
 

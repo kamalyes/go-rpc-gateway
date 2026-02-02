@@ -22,6 +22,7 @@ const (
 	MetadataUserID    = "x-user-id"
 	MetadataTenantID  = "x-tenant-id"
 	MetadataSessionID = "x-session-id"
+	MetadataTimezone  = "x-timezone"
 )
 
 // ============================================================================
@@ -35,6 +36,7 @@ const (
 	LogFieldUserID    = "user_id"
 	LogFieldTenantID  = "tenant_id"
 	LogFieldSessionID = "session_id"
+	LogFieldTimezone  = "timezone"
 )
 
 // 请求相关字段

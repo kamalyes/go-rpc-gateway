@@ -65,6 +65,9 @@ func ContextTraceMiddleware() HTTPMiddleware {
 			if sessionID := r.Header.Get(constants.HeaderXSessionID); sessionID != "" {
 				ctx = logger.WithSessionID(ctx, sessionID)
 			}
+			if timezone := r.Header.Get(constants.HeaderXTimezone); timezone != "" {
+				ctx = logger.WithTimezone(ctx, timezone)
+			}
 
 			// 5. 设置响应头（便于客户端追踪）
 			w.Header().Set(constants.HeaderXTraceID, traceID)
@@ -153,6 +156,9 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	if sessionID := getFirstMetadataValue(md, constants.MetadataSessionID); sessionID != "" {
 		ctx = logger.WithSessionID(ctx, sessionID)
 	}
+	if timezone := getFirstMetadataValue(md, constants.MetadataTimezone); timezone != "" {
+		ctx = logger.WithTimezone(ctx, timezone)
+	}
 
 	return ctx
 }
@@ -235,6 +241,9 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 	if sessionID := logger.GetSessionID(ctx); sessionID != "" {
 		pairs = append(pairs, constants.MetadataSessionID, sessionID)
 	}
+	if timezone := logger.GetTimezone(ctx); timezone != "" {
+		pairs = append(pairs, constants.MetadataTimezone, timezone)
+	}
 
 	if len(pairs) > 0 {
 		md := metadata.Pairs(pairs...)
@@ -271,6 +280,9 @@ func ExtractAllTraceFields(ctx context.Context) map[string]string {
 	}
 	if v := logger.GetSessionID(ctx); v != "" {
 		fields[constants.LogFieldSessionID] = v
+	}
+	if v := logger.GetTimezone(ctx); v != "" {
+		fields[constants.LogFieldTimezone] = v
 	}
 
 	return fields
@@ -330,6 +342,16 @@ func WithSessionID(ctx context.Context, sessionID string) context.Context {
 	return logger.WithSessionID(ctx, sessionID)
 }
 
+// WithTimezone 将 Timezone 设置到 context
+func WithTimezone(ctx context.Context, timezone string) context.Context {
+	return logger.WithTimezone(ctx, timezone)
+}
+
+// GetTimezone 从 context 获取 Timezone
+func GetTimezone(ctx context.Context) string {
+	return logger.GetTimezone(ctx)
+}
+
 // GenerateTraceID 生成新的 TraceID
 func GenerateTraceID() string {
 	return logger.GenerateTraceID()
@@ -357,6 +379,9 @@ func InjectTraceToHTTPHeader(ctx context.Context, header http.Header) {
 	if sessionID := GetSessionID(ctx); sessionID != "" {
 		header.Set(constants.HeaderXSessionID, sessionID)
 	}
+	if timezone := logger.GetTimezone(ctx); timezone != "" {
+		header.Set(constants.HeaderXTimezone, timezone)
+	}
 }
 
 // ExtractTraceFromHTTPHeader 从 HTTP Header 提取 trace 信息到 context
@@ -375,6 +400,9 @@ func ExtractTraceFromHTTPHeader(ctx context.Context, header http.Header) context
 	}
 	if sessionID := header.Get(constants.HeaderXSessionID); sessionID != "" {
 		ctx = WithSessionID(ctx, sessionID)
+	}
+	if timezone := header.Get(constants.HeaderXTimezone); timezone != "" {
+		ctx = WithTimezone(ctx, timezone)
 	}
 	return ctx
 }

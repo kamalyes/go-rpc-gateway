@@ -495,32 +495,32 @@ func (e *EnhancedRateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit
 	path := r.URL.Path
 	method := r.Method
 
-	global.LOGGER.InfoContext(r.Context(), "[DEBUG] getRuleAndKey: IP=%s, Path=%s, Method=%s", clientIP, path, method)
+	global.LOGGER.DebugContext(r.Context(), "getRuleAndKey: IP=%s, Path=%s, Method=%s", clientIP, path, method)
 
 	// 第一轮: 优先检查白名单和黑名单(最高优先级)
 	for i, routeLimit := range e.config.Routes {
-		global.LOGGER.InfoContext(r.Context(), "[DEBUG] 检查路由[%d]: Path=%s, Methods=%v", i, routeLimit.Path, routeLimit.Methods)
+		global.LOGGER.DebugContext(r.Context(), "检查路由[%d]: Path=%s, Methods=%v", i, routeLimit.Path, routeLimit.Methods)
 
 		// 路径和方法匹配
 		pathMatch := matcher.MatchPathWithMethod(path, method, routeLimit.Path, routeLimit.Methods)
-		global.LOGGER.InfoContext(r.Context(), "[DEBUG] MatchPathWithMethod结果: %v", pathMatch)
+		global.LOGGER.DebugContext(r.Context(), "MatchPathWithMethod结果: %v", pathMatch)
 
 		if !pathMatch {
-			global.LOGGER.InfoContext(r.Context(), "[DEBUG] 路由[%d]不匹配,continue", i)
+			global.LOGGER.DebugContext(r.Context(), "路由[%d]不匹配,continue", i)
 			continue
 		}
 
-		global.LOGGER.InfoContext(r.Context(), "[DEBUG] 路由[%d]匹配成功!", i)
+		global.LOGGER.DebugContext(r.Context(), "路由[%d]匹配成功!", i)
 
 		// 1. 白名单 - 最高优先级,直接放行(仅当白名单非空时检查)
 		if len(routeLimit.Whitelist) > 0 && validator.IsIPAllowed(clientIP, routeLimit.Whitelist) {
-			global.LOGGER.InfoContext(r.Context(), "[DEBUG] IP在白名单,返回nil放行")
+			global.LOGGER.DebugContext(r.Context(), "IP在白名单,返回nil放行")
 			return nil, ""
 		}
 
 		// 2. 黑名单 - 第二优先级,严格限流(仅当黑名单非空时检查)
 		if len(routeLimit.Blacklist) > 0 && validator.IsIPBlocked(clientIP, routeLimit.Blacklist) {
-			global.LOGGER.InfoContext(r.Context(), "[DEBUG] IP在黑名单,返回严格限流规则")
+			global.LOGGER.DebugContext(r.Context(), "IP在黑名单,返回严格限流规则")
 			return &ratelimit.LimitRule{
 				RequestsPerSecond: 1,
 				BurstSize:         1,
