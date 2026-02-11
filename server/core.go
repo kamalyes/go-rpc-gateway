@@ -32,29 +32,5 @@ func (s *Server) initCore() error {
 	s.endpointCollector = NewEndpointCollector()
 	global.LOGGER.InfoMsg("✅ 端点收集器已初始化")
 
-	// 初始化 WebSocket 服务（如果启用）
-	if err := s.initWebSocket(); err != nil {
-		global.LOGGER.WithError(err).WarnMsg("WebSocket 服务初始化失败，将跳过启动")
-		// 注意：不返回错误，允许系统在没有 WebSocket 的情况下继续运行
-	}
-
-	return nil
-}
-
-// initWebSocket 初始化 WebSocket 服务
-func (s *Server) initWebSocket() error {
-	// 检查 WebSocket 是否启用
-	if !s.config.WSC.Enabled {
-		global.LOGGER.DebugMsg("WebSocket 服务未启用，跳过初始化")
-		return nil
-	}
-
-	// 创建 WebSocket 服务
-	wsSvc, err := NewWebSocketService(s.config.WSC)
-	if err != nil {
-		return errors.NewErrorf(errors.ErrCodeInternalServerError, "failed to create WebSocket service: %v", err)
-	}
-
-	s.webSocketService = wsSvc
 	return nil
 }
