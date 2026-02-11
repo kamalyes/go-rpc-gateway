@@ -197,12 +197,8 @@ func (i *LoggerInitializer) Initialize(ctx context.Context, cfg *gwconfig.Gatewa
 	if cfg.Middleware.Logging.Enabled {
 		loggingCfg := cfg.Middleware.Logging
 
-		// 创建日志配置
-		level, _ := logger.ParseLevel(loggingCfg.Level)
-
-		logConfig := logger.DefaultConfig().
-			WithLevel(level).
-			WithTimeFormat(loggingCfg.TimeFormat)
+		// 使用 ToLoggerConfig 转换配置
+		logConfig := loggingCfg.ToLoggerConfig()
 
 		// 使用 Builder 创建 logger
 		builder := logger.NewLoggerBuilder().

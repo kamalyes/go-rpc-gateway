@@ -451,16 +451,23 @@ func (m *Manager) Close() error {
 				errs = append(errs, fmt.Errorf("failed to close database: %w", err))
 			}
 		}
+		m.db = nil
 	}
 
-	// 关闭Redis连接
+	// 关闭 Redis
 	if m.redis != nil {
 		if err := m.redis.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close redis: %w", err))
 		}
+		m.redis = nil
 	}
 
-	// 关闭Storage
+	// 关闭 MinIO
+	if m.minio != nil {
+		m.minio = nil
+	}
+
+	// 关闭 Storage
 	if m.storage != nil {
 		if err := m.storage.Close(); err != nil {
 			m.logger.ErrorKV("Failed to close storage", "error", err)
@@ -468,7 +475,7 @@ func (m *Manager) Close() error {
 		m.storage = nil
 	}
 
-	// 关闭SMTP
+	// 关闭 SMTP
 	if m.smtp != nil {
 		if err := m.smtp.Close(); err != nil {
 			m.logger.ErrorKV("Failed to close SMTP", "error", err)
@@ -476,11 +483,12 @@ func (m *Manager) Close() error {
 		m.smtp = nil
 	}
 
-	// 关闭MQTT连接
+	// 关闭 MQTT
 	if m.mqtt != nil {
 		if m.mqtt.IsConnected() {
 			m.mqtt.Disconnect(250)
 		}
+		m.mqtt = nil
 	}
 
 	// 取消上下文
@@ -491,11 +499,11 @@ func (m *Manager) Close() error {
 	m.initialized = false
 
 	if len(errs) > 0 {
+		m.logger.Error("Errors closing connections", "errors", errs)
 		return fmt.Errorf("errors closing connections: %v", errs)
 	}
 
-	ctx := context.Background()
-	m.logger.InfoContext(ctx, "Connection pool manager closed successfully")
+	m.logger.Info("Connection pool manager closed successfully")
 	return nil
 }
 

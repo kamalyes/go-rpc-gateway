@@ -15,6 +15,12 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -22,11 +28,6 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/protobuf/encoding/protojson"
-	"io"
-	"net"
-	"net/http"
-	"strings"
-	"time"
 )
 
 // buildServeMuxOptions 构建ServeMux选项，支持从配置文件读取JSON序列化配置
@@ -97,15 +98,43 @@ func (s *Server) initHTTPGateway() error {
 	// 创建gRPC-Gateway多路复用器，配置JSON序列化选项
 	opts := s.buildServeMuxOptions()
 
-	// 收集所有中间件（静态 + 动态提供）
+	// 收集所有中间件（静态 + 动态提供）并去重
+	const middlewareWarnThreshold = 100
+	middlewareSet := make(map[string]bool)
 	var allMiddlewares []runtime.Middleware
-	allMiddlewares = append(allMiddlewares, s.grpcGatewayMiddlewares...)
 
-	// 调用中间件提供器获取动态中间件
-	for _, provider := range s.grpcGatewayMiddlewareProviders {
-		if mws := provider(); len(mws) > 0 {
-			allMiddlewares = append(allMiddlewares, mws...)
+	// 添加静态中间件
+	for i, mw := range s.grpcGatewayMiddlewares {
+		key := fmt.Sprintf("static_%d", i)
+		if middlewareSet[key] {
+			continue
 		}
+		allMiddlewares = append(allMiddlewares, mw)
+		middlewareSet[key] = true
+	}
+
+	// 添加动态中间件
+	for providerIdx, provider := range s.grpcGatewayMiddlewareProviders {
+		mws := provider()
+		if len(mws) == 0 {
+			continue
+		}
+
+		for mwIdx, mw := range mws {
+			key := fmt.Sprintf("provider_%d_%d", providerIdx, mwIdx)
+			if middlewareSet[key] {
+				continue
+			}
+			allMiddlewares = append(allMiddlewares, mw)
+			middlewareSet[key] = true
+		}
+	}
+
+	// 中间件数量超过阈值时警告（warn-only 模式，不硬限制）
+	if len(allMiddlewares) > middlewareWarnThreshold {
+		global.LOGGER.WarnContext(s.ctx, "⚠️  中间件数量超过建议值",
+			"count", len(allMiddlewares),
+			"threshold", middlewareWarnThreshold)
 	}
 
 	// 添加所有中间件
@@ -218,6 +247,7 @@ func (s *Server) startHTTPServer() error {
 	if err != nil {
 		return fmt.Errorf("failed to create %s listener: %w", s.config.HTTPServer.Network, err)
 	}
+	defer listener.Close() // Fix 确保 listener 关闭，防止连接泄漏
 
 	return s.httpServer.Serve(listener)
 }

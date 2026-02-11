@@ -36,9 +36,31 @@ func (s *Server) initGRPCServer() error {
 		return nil
 	}
 
+	// 监控消息大小配置（仅警告，不限制）
+	const (
+		minMsgSize = 1024 * 1024       // 1MB
+		maxMsgSize = 100 * 1024 * 1024 // 100MB
+	)
+
+	recvMsgSize := grpcServer.MaxRecvMsgSize
+	if recvMsgSize < minMsgSize || recvMsgSize > maxMsgSize {
+		global.LOGGER.WarnKV("gRPC MaxRecvMsgSize 超出推荐范围",
+			"current", recvMsgSize,
+			"min_recommended", minMsgSize,
+			"max_recommended", maxMsgSize)
+	}
+
+	sendMsgSize := grpcServer.MaxSendMsgSize
+	if sendMsgSize < minMsgSize || sendMsgSize > maxMsgSize {
+		global.LOGGER.WarnKV("gRPC MaxSendMsgSize 超出推荐范围",
+			"current", sendMsgSize,
+			"min_recommended", minMsgSize,
+			"max_recommended", maxMsgSize)
+	}
+
 	opts := []grpc.ServerOption{
-		grpc.MaxRecvMsgSize(grpcServer.MaxRecvMsgSize),
-		grpc.MaxSendMsgSize(grpcServer.MaxSendMsgSize),
+		grpc.MaxRecvMsgSize(recvMsgSize),
+		grpc.MaxSendMsgSize(sendMsgSize),
 	}
 
 	// 添加Keepalive配置

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kamalyes/go-rpc-gateway/errors"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 )
 
@@ -68,6 +69,12 @@ func (s *Server) initServers() error {
 	// 初始化HTTP网关
 	if err := s.initHTTPGateway(); err != nil {
 		return errors.WrapWithContext(err, errors.ErrCodeHTTPGatewayInitFailed)
+	}
+
+	// 初始化 WebSocket 服务（如果启用）
+	if err := s.initWebSocket(); err != nil {
+		global.LOGGER.WithError(err).WarnMsg("WebSocket 服务初始化失败，将跳过启动")
+		// 注意：不返回错误，允许系统在没有 WebSocket 的情况下继续运行
 	}
 
 	return nil

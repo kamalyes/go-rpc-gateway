@@ -13,10 +13,10 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-config v0.12.14-0.20260203085905-11fc03a76dc2
-	github.com/kamalyes/go-logger v0.4.6-0.20260203085022-0f0923bdc1b1
-	github.com/kamalyes/go-toolbox v0.11.87-0.20260203051032-5f35aa1388aa
-	github.com/kamalyes/go-wsc v0.5.7-0.20260204094951-6f35f920fc48
+	github.com/kamalyes/go-config v0.12.14-0.20260211151031-7d53e56682af
+	github.com/kamalyes/go-logger v0.4.6-0.20260210115439-15e24847425f
+	github.com/kamalyes/go-toolbox v0.11.87-0.20260211054056-e72651989762
+	github.com/kamalyes/go-wsc v0.5.7-0.20260211153748-5d20eb1fefbe
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/stretchr/testify v1.11.1
@@ -60,7 +60,8 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/kamalyes/go-jsonpath v0.0.0-20260129163507-0b67ed48bb28 // indirect
-	github.com/kamalyes/go-sqlbuilder v0.3.6-0.20260203090730-fcf395c2af15 // indirect
+	github.com/kamalyes/go-sqlbuilder v0.3.6-0.20260210130159-ae4228ccc5d4 // indirect
+	github.com/lib/pq v1.11.2 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/spf13/viper v1.21.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
@@ -90,11 +91,11 @@ require (
 	github.com/go-playground/validator/v10 v10.30.1
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12
-	github.com/kamalyes/go-cachex v0.1.9-0.20260203155925-76292b3cdf66
+	github.com/kamalyes/go-cachex v0.1.9-0.20260210130507-3ff696cddf33
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
@@ -121,12 +122,12 @@ require (
 	go.opentelemetry.io/proto/otlp v1.7.1 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	go.uber.org/zap v1.27.0
-	golang.org/x/arch v0.23.0 // indirect
-	golang.org/x/crypto v0.47.0 // indirect
-	golang.org/x/net v0.48.0 // indirect
+	golang.org/x/arch v0.24.0 // indirect
+	golang.org/x/crypto v0.48.0 // indirect
+	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20251029180050-ab9386a59fda // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251029180050-ab9386a59fda // indirect
 	gopkg.in/yaml.v3 v3.0.1
