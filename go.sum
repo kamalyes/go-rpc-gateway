@@ -144,6 +144,8 @@ github.com/kamalyes/go-cachex v0.1.9-0.20260225023715-5e4fd3a8137a h1:yyLkfoWS0o
 github.com/kamalyes/go-cachex v0.1.9-0.20260225023715-5e4fd3a8137a/go.mod h1:JanAcRXocswlAqMdVTzUIpUD4Ni4TaegFeROVqV6DbE=
 github.com/kamalyes/go-config v0.12.14-0.20260226094410-b2f21a50eb7c h1:c+NpINCGv+yGAnuM2G8oCvUc3Y3YVtnJrcmNnSh4eJU=
 github.com/kamalyes/go-config v0.12.14-0.20260226094410-b2f21a50eb7c/go.mod h1:hGSSoewRLZDDq+xW8X26PUB4IvszLttZhpxTxDi7ZlQ=
+github.com/kamalyes/go-config v0.12.14-0.20260227031757-21135981090f h1:NiEiv8T4N/nCvOtVX5XGW5cd0+wBJtZSkrLBrlZ0qzs=
+github.com/kamalyes/go-config v0.12.14-0.20260227031757-21135981090f/go.mod h1:hGSSoewRLZDDq+xW8X26PUB4IvszLttZhpxTxDi7ZlQ=
 github.com/kamalyes/go-jsonpath v0.0.0-20260129163507-0b67ed48bb28 h1:mftqfK+BB1eE+aXca1zAMyKUAGPlcKFwQS7og7bq3Qk=
 github.com/kamalyes/go-jsonpath v0.0.0-20260129163507-0b67ed48bb28/go.mod h1:Yu4Vw7F4dOKlhHK5RzBHYDvoSRdeHJgVwAjqXHXu4p4=
 github.com/kamalyes/go-logger v0.4.6-0.20260225023232-4e3265b5f0ad h1:k8iekP7FPu+5bvjMIPhqFsxjdV10LzEIGJl7G6RGyng=
@@ -154,6 +156,8 @@ github.com/kamalyes/go-toolbox v0.11.87-0.20260225023120-3d068cdb1fd5 h1:GM30m0G
 github.com/kamalyes/go-toolbox v0.11.87-0.20260225023120-3d068cdb1fd5/go.mod h1:T0toLZCP952jKKJFo8Rn+sZ9OktxxU7GYWFPpk/c98k=
 github.com/kamalyes/go-wsc v0.5.7-0.20260226105718-23e1ec3494c3 h1:/VQuPnOivC+nrOaTyCpeoetKmLyCA83T1M3Nonlv42A=
 github.com/kamalyes/go-wsc v0.5.7-0.20260226105718-23e1ec3494c3/go.mod h1:uqYtCl3RfIIfs63WckFnCSymc9MfGxGmGMJE3RloauM=
+github.com/kamalyes/go-wsc v0.5.7-0.20260227032023-9d6410d0c420 h1:9NzZLjYM4BLtWoTCPyRgBwm8wrHYGlp8S76KTJtvBAw=
+github.com/kamalyes/go-wsc v0.5.7-0.20260227032023-9d6410d0c420/go.mod h1:ccnH/+3lWwZJkORniMxZ7QuHHxkvUIo2c/VDciCMF/U=
 github.com/klauspost/compress v1.17.9 h1:6KIumPrER1LHsvBVuDa0r5xaG0Es51mhhB9BQB2qeMA=
 github.com/klauspost/compress v1.17.9/go.mod h1:Di0epgTjJY877eYKx5yC51cX2A2Vl2ibi7bDH9ttBbw=
 github.com/klauspost/cpuid/v2 v2.0.1/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
