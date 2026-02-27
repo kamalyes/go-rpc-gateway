@@ -13,6 +13,9 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"time"
+
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/kamalyes/go-config/pkg/monitoring"
 	"github.com/kamalyes/go-rpc-gateway/constants"
@@ -24,8 +27,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"net/http"
-	"time"
 )
 
 // MetricsManager 可观测性管理器 - 统一管理 Prometheus 指标（HTTP + gRPC）
@@ -45,6 +46,7 @@ type HTTPMetrics struct {
 	requestSize     *prometheus.SummaryVec
 	responseSize    *prometheus.SummaryVec
 	activeRequests  prometheus.Gauge
+	pathNormalizer  PathNormalizer // 路径规范化器，减少标签基数
 }
 
 // NewMetricsManager 创建可观测性管理器（支持 gRPC + HTTP 完整指标）
@@ -105,7 +107,7 @@ func NewMetricsManager(cfg *monitoring.Monitoring) *MetricsManager {
 	return mm
 }
 
-// newHTTPMetrics 创建 HTTP 指标
+// newHTTPMetrics 创建 HTTP 指标（智能路径规范化）
 func newHTTPMetrics(registry *prometheus.Registry, buckets []float64) *HTTPMetrics {
 	return &HTTPMetrics{
 		requestsTotal: promauto.With(registry).NewCounterVec(
@@ -143,6 +145,7 @@ func newHTTPMetrics(registry *prometheus.Registry, buckets []float64) *HTTPMetri
 				Help: "Current number of HTTP requests being served",
 			},
 		),
+		pathNormalizer: newSmartPathNormalizer(),
 	}
 }
 
@@ -152,20 +155,23 @@ func (mm *MetricsManager) RecordHTTPRequest(method, path string, statusCode int,
 		return
 	}
 
+	// 规范化路径，减少标签基数
+	normalizedPath := mm.httpMetrics.pathNormalizer.Normalize(path)
+
 	// 记录请求总数
-	mm.httpMetrics.requestsTotal.WithLabelValues(method, path, http.StatusText(statusCode)).Inc()
+	mm.httpMetrics.requestsTotal.WithLabelValues(method, normalizedPath, http.StatusText(statusCode)).Inc()
 
 	// 记录请求持续时间
-	mm.httpMetrics.requestDuration.WithLabelValues(method, path).Observe(duration.Seconds())
+	mm.httpMetrics.requestDuration.WithLabelValues(method, normalizedPath).Observe(duration.Seconds())
 
 	// 记录请求大小
 	if requestSize > 0 {
-		mm.httpMetrics.requestSize.WithLabelValues(method, path).Observe(float64(requestSize))
+		mm.httpMetrics.requestSize.WithLabelValues(method, normalizedPath).Observe(float64(requestSize))
 	}
 
 	// 记录响应大小
 	if responseSize > 0 {
-		mm.httpMetrics.responseSize.WithLabelValues(method, path).Observe(float64(responseSize))
+		mm.httpMetrics.responseSize.WithLabelValues(method, normalizedPath).Observe(float64(responseSize))
 	}
 }
 
@@ -270,9 +276,12 @@ func (mm *MetricsManager) HTTPMiddleware() func(http.Handler) http.Handler {
 			mm.httpMetrics.activeRequests.Inc()
 			defer mm.httpMetrics.activeRequests.Dec()
 
+			// 规范化路径，减少标签基数
+			normalizedPath := mm.httpMetrics.pathNormalizer.Normalize(r.URL.Path)
+
 			// 记录请求大小
 			if r.ContentLength > 0 {
-				mm.httpMetrics.requestSize.WithLabelValues(r.Method, r.URL.Path).Observe(float64(r.ContentLength))
+				mm.httpMetrics.requestSize.WithLabelValues(r.Method, normalizedPath).Observe(float64(r.ContentLength))
 			}
 
 			// 包装 ResponseWriter 以捕获状态码和响应大小
@@ -289,18 +298,18 @@ func (mm *MetricsManager) HTTPMiddleware() func(http.Handler) http.Handler {
 
 			// 记录持续时间
 			duration := time.Since(start).Seconds()
-			mm.httpMetrics.requestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(duration)
+			mm.httpMetrics.requestDuration.WithLabelValues(r.Method, normalizedPath).Observe(duration)
 
 			// 记录请求总数
 			mm.httpMetrics.requestsTotal.WithLabelValues(
 				r.Method,
-				r.URL.Path,
+				normalizedPath,
 				http.StatusText(wrapped.statusCode),
 			).Inc()
 
 			// 记录响应大小
 			if wrapped.bytesWritten > 0 {
-				mm.httpMetrics.responseSize.WithLabelValues(r.Method, r.URL.Path).Observe(float64(wrapped.bytesWritten))
+				mm.httpMetrics.responseSize.WithLabelValues(r.Method, normalizedPath).Observe(float64(wrapped.bytesWritten))
 			}
 		})
 	}
