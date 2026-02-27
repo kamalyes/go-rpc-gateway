@@ -14,19 +14,25 @@ package server
 import (
 	"compress/gzip"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-rpc-gateway/response"
+	"github.com/kamalyes/go-toolbox/pkg/desensitize"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -54,14 +60,77 @@ func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
 	}
 }
 
-// gzipResponseWriter 包装ResponseWriter以支持gzip压缩
-type gzipResponseWriter struct {
-	io.Writer
-	http.ResponseWriter
+// initGzipWriterPool 初始化 Gzip writer 对象池（从配置读取压缩级别）
+func (s *Server) initGzipWriterPool() {
+	compressionLevel := gwconfig.DefaultHTTPServer().GzipCompressionLevel
+
+	// 从配置读取压缩级别
+	if s.config.HTTPServer != nil && s.config.HTTPServer.TLS != nil {
+		if level := s.config.HTTPServer.GzipCompressionLevel; level > 0 && level <= 9 {
+			compressionLevel = level
+		}
+	}
+
+	// 创建对象池（在 Server 初始化时创建一次，供所有请求复用）
+	s.gzipWriterPool = &sync.Pool{
+		New: func() any {
+			w, _ := gzip.NewWriterLevel(io.Discard, compressionLevel)
+			return w
+		},
+	}
+
+	// 预处理跳过路径和扩展名为 map，提升查找性能（O(1) vs O(n)）
+	s.gzipSkipPathsMap = make(map[string]bool, len(s.config.HTTPServer.GzipSkipPaths))
+	for _, path := range s.config.HTTPServer.GzipSkipPaths {
+		s.gzipSkipPathsMap[path] = true
+	}
+
+	s.gzipSkipExtensionsMap = make(map[string]bool, len(s.config.HTTPServer.GzipSkipExtensions))
+	for _, ext := range s.config.HTTPServer.GzipSkipExtensions {
+		s.gzipSkipExtensionsMap[ext] = true
+	}
 }
 
-func (w gzipResponseWriter) Write(b []byte) (int, error) {
-	return w.Writer.Write(b)
+// gzipResponseWriter 包装ResponseWriter以支持gzip压缩
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	gzipWriter *gzip.Writer
+}
+
+// Write 写入压缩数据
+func (w *gzipResponseWriter) Write(b []byte) (int, error) {
+	return w.gzipWriter.Write(b)
+}
+
+// Close 关闭 gzip writer
+func (w *gzipResponseWriter) Close() error {
+	return w.gzipWriter.Close()
+}
+
+// shouldSkipGzip 判断是否跳过 gzip 压缩（使用预处理的 map，O(1) 查找）
+func (s *Server) shouldSkipGzip(r *http.Request) bool {
+	path := r.URL.Path
+
+	// 检查完整路径是否在跳过列表中
+	if s.gzipSkipPathsMap[path] {
+		return true
+	}
+
+	// 检查路径前缀（遍历 map 的 key）
+	for skipPath := range s.gzipSkipPathsMap {
+		if strings.HasPrefix(path, skipPath) {
+			return true
+		}
+	}
+
+	// 检查文件扩展名（直接 map 查找）
+	for ext := range s.gzipSkipExtensionsMap {
+		if strings.HasSuffix(path, ext) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // gzipMiddleware HTTP Gzip压缩中间件
@@ -79,18 +148,41 @@ func (s *Server) gzipMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// 设置响应头
+		// 检查是否应该跳过压缩
+		if s.shouldSkipGzip(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 从对象池获取 gzip writer
+		gzipWriter := s.gzipWriterPool.Get().(*gzip.Writer)
+		defer s.gzipWriterPool.Put(gzipWriter)
+
+		// 设置响应头（必须在 WriteHeader 之前）
 		w.Header().Set("Content-Encoding", "gzip")
 		w.Header().Set("Vary", "Accept-Encoding")
+		w.Header().Del("Content-Length") // 删除原始长度，因为压缩后长度会变
 
-		// 创建gzip writer
-		gzipWriter := gzip.NewWriter(w)
-		defer gzipWriter.Close()
-
+		// 使用标准 gzip writer
+		gzipWriter.Reset(w)
 		// 包装ResponseWriter
-		grw := gzipResponseWriter{Writer: gzipWriter, ResponseWriter: w}
-		next.ServeHTTP(grw, r)
+		gzw := &gzipResponseWriter{ResponseWriter: w, gzipWriter: gzipWriter}
+		defer gzw.Close()
+
+		next.ServeHTTP(gzw, r)
 	})
+}
+
+// initDataMasker 初始化数据脱敏器（从配置读取敏感字段）
+func (s *Server) initDataMasker() {
+	config := &desensitize.MaskerConfig{
+		SensitiveKeys: s.config.Middleware.Logging.SensitiveKeys,
+		SensitiveMask: s.config.Middleware.Logging.SensitiveMask,
+		MaxBodySize:   s.config.Middleware.Logging.MaxBodySize,
+	}
+	// 创建脱敏器（在 Server 初始化时创建一次，供所有请求复用）
+	s.dataMasker = desensitize.NewMasker(config)
+	global.DATAMASKER = s.dataMasker
 }
 
 // initHTTPGateway 初始化HTTP网关
@@ -151,14 +243,14 @@ func (s *Server) initHTTPGateway() error {
 	// 注册网关路由（默认路由到gwMux）
 	s.httpMux.Handle("/", s.gwMux)
 
+	httpEndpoint := fmt.Sprintf("%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port)
+
 	// 注册健康检查
 	if s.config.Health.Enabled {
 		healthPath := s.config.Health.Path
 		s.httpMux.HandleFunc(healthPath, s.healthCheckHandler)
 
-		httpEndpoint := fmt.Sprintf("%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port)
-		global.LOGGER.InfoKV("❤️  健康检查已启用",
-			"url", "http://"+httpEndpoint+healthPath)
+		global.LOGGER.InfoKV("❤️  健康检查已启用", "url", "http://"+httpEndpoint+healthPath)
 
 		// 注册组件级健康检查端点
 		s.registerComponentHealthChecks()
@@ -169,9 +261,7 @@ func (s *Server) initHTTPGateway() error {
 		prometheusPath := s.config.Monitoring.Metrics.Endpoint
 		s.httpMux.Handle(prometheusPath, promhttp.Handler())
 
-		httpEndpoint := fmt.Sprintf("%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port)
-		global.LOGGER.InfoKV("📊 监控指标服务可用",
-			"url", "http://"+httpEndpoint+prometheusPath)
+		global.LOGGER.InfoKV("📊 监控指标服务可用", "url", "http://"+httpEndpoint+prometheusPath)
 	}
 
 	// 应用中间件
@@ -190,14 +280,23 @@ func (s *Server) initHTTPGateway() error {
 		global.LOGGER.InfoMsg("✅ HTTP Gzip压缩已启用")
 	}
 
-	// 创建 HTTP 服务器（配置已通过 safe.MergeWithDefaults 合并默认值）
+	// 根据配置决定是否启用 HTTP/2
+	if s.config.HTTPServer.EnableHTTP2 {
+		h2s := s.buildHTTP2Server()
+		handler = h2c.NewHandler(handler, h2s)
+		global.LOGGER.InfoMsg("✅ HTTP/2 多路复用已启用 (h2c)")
+	}
+
+	// 创建 HTTP 服务器
 	s.httpServer = &http.Server{
-		Addr:           fmt.Sprintf("%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port),
-		Handler:        handler,
-		ReadTimeout:    time.Duration(s.config.HTTPServer.ReadTimeout) * time.Second,
-		WriteTimeout:   time.Duration(s.config.HTTPServer.WriteTimeout) * time.Second,
-		IdleTimeout:    time.Duration(s.config.HTTPServer.IdleTimeout) * time.Second,
-		MaxHeaderBytes: s.config.HTTPServer.MaxHeaderBytes,
+		Addr:              httpEndpoint,
+		Handler:           handler,
+		ReadTimeout:       time.Duration(s.config.HTTPServer.ReadTimeout) * time.Second,
+		ReadHeaderTimeout: time.Duration(s.config.HTTPServer.ReadHeaderTimeout) * time.Second,
+		WriteTimeout:      time.Duration(s.config.HTTPServer.WriteTimeout) * time.Second,
+		IdleTimeout:       time.Duration(s.config.HTTPServer.IdleTimeout) * time.Second,
+		MaxHeaderBytes:    s.config.HTTPServer.MaxHeaderBytes,
+		TLSConfig:         s.buildTLSConfig(),
 	}
 
 	return nil
@@ -317,9 +416,9 @@ func (s *Server) componentHealthCheck(w http.ResponseWriter, r *http.Request, co
 			status.Status, status.Message, status.Latency.Milliseconds(), status.CheckedAt)
 
 		// 安全地处理 details 类型转换
-		var details map[string]interface{}
+		var details map[string]any
 		if status.Details != nil {
-			if d, ok := status.Details.(map[string]interface{}); ok {
+			if d, ok := status.Details.(map[string]any); ok {
 				details = d
 			}
 		}
@@ -352,4 +451,40 @@ func (s *Server) RegisterHTTPHandlerFunc(pattern string, handlerFunc http.Handle
 
 	s.httpMux.HandleFunc(pattern, handlerFunc)
 	global.LOGGER.InfoKV("✅ 注册HTTP处理函数成功", "pattern", pattern)
+}
+
+// buildTLSConfig 构建 TLS 配置（从配置文件读取）
+func (s *Server) buildTLSConfig() *tls.Config {
+	if s.config.HTTPServer.TLS == nil {
+		return nil
+	}
+
+	tlsCfg := s.config.HTTPServer.TLS
+
+	// 构建 TLS 配置（使用枚举类型的转换方法）
+	config := &tls.Config{
+		MinVersion:               tlsCfg.MinVersion.ToUint16(),
+		PreferServerCipherSuites: tlsCfg.PreferServerCiphers,
+		InsecureSkipVerify:       tlsCfg.InsecureSkipVerify,
+		ClientAuth:               tlsCfg.ClientAuth.ToTLSClientAuth(),
+	}
+
+	// 设置 ALPN 协议（用于 HTTP/2 协商）
+	if len(tlsCfg.NextProtos) > 0 {
+		config.NextProtos = tlsCfg.NextProtos
+	}
+
+	return config
+}
+
+// buildHTTP2Server 构建 HTTP/2 服务器配置（从配置文件读取）
+func (s *Server) buildHTTP2Server() *http2.Server {
+	h2cfg := s.config.HTTPServer.HTTP2
+
+	// 从配置读取所有参数
+	return &http2.Server{
+		MaxConcurrentStreams: h2cfg.MaxConcurrentStreams,
+		MaxReadFrameSize:     h2cfg.MaxReadFrameSize,
+		IdleTimeout:          time.Duration(s.config.HTTPServer.IdleTimeout) * time.Second,
+	}
 }

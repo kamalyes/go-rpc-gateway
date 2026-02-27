@@ -223,7 +223,7 @@ func StreamClientContextInterceptor() grpc.StreamClientInterceptor {
 
 // injectTraceToOutgoingContext 将 context 中的 trace 信息注入到 outgoing gRPC metadata
 func injectTraceToOutgoingContext(ctx context.Context) context.Context {
-	pairs := make([]string, 0, 10)
+	pairs := make([]string, 0, 12) // 预分配容量（6个字段 * 2）
 
 	// 提取 trace 信息
 	if traceID := logger.GetTraceID(ctx); traceID != "" {
@@ -245,16 +245,16 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 		pairs = append(pairs, constants.MetadataTimezone, timezone)
 	}
 
-	if len(pairs) > 0 {
-		md := metadata.Pairs(pairs...)
-		// 合并已有的 outgoing metadata
-		if existingMD, ok := metadata.FromOutgoingContext(ctx); ok {
-			md = metadata.Join(existingMD, md)
-		}
-		ctx = metadata.NewOutgoingContext(ctx, md)
+	if len(pairs) == 0 {
+		return ctx
 	}
 
-	return ctx
+	md := metadata.Pairs(pairs...)
+	// 合并已有的 outgoing metadata
+	if existingMD, ok := metadata.FromOutgoingContext(ctx); ok {
+		md = metadata.Join(existingMD, md)
+	}
+	return metadata.NewOutgoingContext(ctx, md)
 }
 
 // GetTraceInfoFromContext 从 context 获取追踪信息（用于构建响应）
@@ -264,7 +264,7 @@ func GetTraceInfoFromContext(ctx context.Context) (traceID, requestID string) {
 
 // ExtractAllTraceFields 从 context 提取所有追踪字段（用于日志或响应）
 func ExtractAllTraceFields(ctx context.Context) map[string]string {
-	fields := make(map[string]string)
+	fields := make(map[string]string, 4) // 预分配容量
 
 	if v := logger.GetTraceID(ctx); v != "" {
 		fields[constants.LogFieldTraceID] = v

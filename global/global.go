@@ -21,6 +21,7 @@ import (
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	"github.com/kamalyes/go-toolbox/pkg/desensitize"
 	gowsc "github.com/kamalyes/go-wsc"
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
@@ -40,6 +41,7 @@ var (
 	DB             *gorm.DB                                  // 数据库连接（暂未初始化）
 	REDIS          *redis.Client                             // Redis连接（暂未初始化）
 	MinIO          *minio.Client                             // MinIO连接（暂未初始化）
+	DATAMASKER     *desensitize.DataMasker                   // 数据脱敏器
 	GPerFix        string                            = "gw_" // 全局表前缀
 )
 

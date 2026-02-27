@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -46,22 +45,22 @@ func NewRequestLogger(ctx context.Context) *RequestLogger {
 
 // LogFields 日志字段构建器
 type LogFields struct {
-	fields []interface{}
+	fields []any
 }
 
 // NewLogFields 创建日志字段构建器
 func NewLogFields() *LogFields {
-	return &LogFields{fields: make([]interface{}, 0, 20)}
+	return &LogFields{fields: make([]any, 0, 20)}
 }
 
 // Add 添加字段
-func (lf *LogFields) Add(key string, value interface{}) *LogFields {
+func (lf *LogFields) Add(key string, value any) *LogFields {
 	lf.fields = append(lf.fields, key, value)
 	return lf
 }
 
 // AddIf 条件添加字段
-func (lf *LogFields) AddIf(condition bool, key string, value interface{}) *LogFields {
+func (lf *LogFields) AddIf(condition bool, key string, value any) *LogFields {
 	if condition {
 		lf.fields = append(lf.fields, key, value)
 	}
@@ -88,7 +87,7 @@ func (lf *LogFields) AddSlow(duration, threshold time.Duration) *LogFields {
 }
 
 // Build 构建字段列表
-func (lf *LogFields) Build() []interface{} {
+func (lf *LogFields) Build() []any {
 	return lf.fields
 }
 
@@ -108,112 +107,6 @@ func (rl *RequestLogger) Log(level string, message string, fields *LogFields) {
 	case "error":
 		global.LOGGER.ErrorContextKV(rl.ctx, message, fieldList...)
 	}
-}
-
-// DataMasker 数据脱敏器
-type DataMasker struct {
-	config *logging.Logging
-}
-
-// NewDataMasker 创建数据脱敏器
-func NewDataMasker(config *logging.Logging) *DataMasker {
-	return &DataMasker{config: config}
-}
-
-// Mask 脱敏数据
-func (dm *DataMasker) Mask(data []byte) string {
-	if len(data) == 0 {
-		return ""
-	}
-
-	// 截断超长数据
-	maxSize := dm.getMaxBodySize()
-	if len(data) > maxSize {
-		data = data[:maxSize]
-	}
-
-	// JSON 脱敏
-	if masked := dm.maskJSON(data); masked != "" {
-		return masked
-	}
-
-	// 文本脱敏
-	return dm.maskText(data)
-}
-
-// maskJSON 脱敏 JSON 数据
-func (dm *DataMasker) maskJSON(data []byte) string {
-	var jsonData map[string]interface{}
-	if err := json.Unmarshal(data, &jsonData); err != nil {
-		return ""
-	}
-
-	dm.maskJSONFields(jsonData)
-
-	masked, err := json.Marshal(jsonData)
-	if err != nil {
-		return ""
-	}
-	return string(masked)
-}
-
-// maskJSONFields 递归脱敏 JSON 字段
-func (dm *DataMasker) maskJSONFields(data interface{}) {
-	switch v := data.(type) {
-	case map[string]interface{}:
-		for key, value := range v {
-			if dm.isSensitive(key) {
-				v[key] = dm.getMask()
-			} else {
-				dm.maskJSONFields(value)
-			}
-		}
-	case []interface{}:
-		for _, item := range v {
-			dm.maskJSONFields(item)
-		}
-	}
-}
-
-// maskText 脱敏文本数据
-func (dm *DataMasker) maskText(data []byte) string {
-	result := string(data)
-	mask := dm.getMask()
-
-	for _, key := range dm.config.SensitiveKeys {
-		pattern := `(?i)"?` + key + `"?\s*[:=]\s*"?[^"&,}\s]+`
-		re := regexp.MustCompile(pattern)
-		result = re.ReplaceAllString(result, key+"="+mask)
-	}
-
-	return result
-}
-
-// isSensitive 检查是否为敏感字段
-func (dm *DataMasker) isSensitive(key string) bool {
-	lowerKey := strings.ToLower(key)
-	for _, sensitive := range dm.config.SensitiveKeys {
-		if strings.Contains(lowerKey, sensitive) {
-			return true
-		}
-	}
-	return false
-}
-
-// getMask 获取掩码
-func (dm *DataMasker) getMask() string {
-	if dm.config.SensitiveMask != "" {
-		return dm.config.SensitiveMask
-	}
-	return "***"
-}
-
-// getMaxBodySize 获取最大 body 大小
-func (dm *DataMasker) getMaxBodySize() int {
-	if dm.config.MaxBodySize > 0 {
-		return dm.config.MaxBodySize
-	}
-	return constants.LoggingDefaultMaxBodySize
 }
 
 // getLoggingConfig 获取日志配置
@@ -277,7 +170,8 @@ func isSkipPath(path string) bool {
 // ============================================================================
 
 // LoggingMiddleware HTTP 日志中间件
-func LoggingMiddleware(config *logging.Logging) HTTPMiddleware {
+func LoggingMiddleware() HTTPMiddleware {
+	config := getLoggingConfig()
 	if !config.Enabled {
 		return func(next http.Handler) http.Handler {
 			return next
@@ -333,7 +227,7 @@ func LoggingMiddleware(config *logging.Logging) HTTPMiddleware {
 // logHTTPRequest 记录 HTTP 请求
 func logHTTPRequest(ctx context.Context, r *http.Request, rw *ResponseWriter, duration time.Duration, config *logging.Logging, reqBody []byte) {
 	logger := NewRequestLogger(ctx)
-	masker := NewDataMasker(config)
+	masker := global.DATAMASKER
 
 	fields := NewLogFields().
 		Add(constants.LogFieldMethod, r.Method).
@@ -393,7 +287,7 @@ func logHTTPError(ctx context.Context, r *http.Request, rw *ResponseWriter, dura
 
 // UnaryServerLoggingInterceptor gRPC 一元调用日志拦截器
 func UnaryServerLoggingInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 		resp, err := handler(ctx, req)
 		logGRPCUnary(ctx, info.FullMethod, req, resp, err, time.Since(start))
@@ -403,7 +297,7 @@ func UnaryServerLoggingInterceptor() grpc.UnaryServerInterceptor {
 
 // StreamServerLoggingInterceptor gRPC 流式调用日志拦截器
 func StreamServerLoggingInterceptor() grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		start := time.Now()
 		err := handler(srv, ss)
 		logGRPCStream(ss.Context(), info, err, time.Since(start))
@@ -412,14 +306,14 @@ func StreamServerLoggingInterceptor() grpc.StreamServerInterceptor {
 }
 
 // logGRPCUnary 记录 gRPC 一元调用
-func logGRPCUnary(ctx context.Context, method string, req, resp interface{}, err error, duration time.Duration) {
+func logGRPCUnary(ctx context.Context, method string, req, resp any, err error, duration time.Duration) {
 	if global.LOGGER == nil {
 		return
 	}
 
 	config := getLoggingConfig()
 	logger := NewRequestLogger(ctx)
-	masker := NewDataMasker(config)
+	masker := global.DATAMASKER
 
 	fields := NewLogFields().
 		Add(constants.LogFieldMethod, method).
@@ -473,7 +367,7 @@ func logGRPCStream(ctx context.Context, info *grpc.StreamServerInfo, err error, 
 }
 
 // marshalProto 序列化 protobuf 消息
-func marshalProto(data interface{}) []byte {
+func marshalProto(data any) []byte {
 	if data == nil {
 		return nil
 	}

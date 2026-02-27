@@ -22,6 +22,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
+	"github.com/kamalyes/go-toolbox/pkg/desensitize"
 	"google.golang.org/grpc"
 )
 
@@ -56,6 +57,16 @@ type Server struct {
 
 	// 端点信息收集器
 	endpointCollector *EndpointCollector
+
+	// Gzip writer 对象池（用于 HTTP 压缩优化）
+	gzipWriterPool *sync.Pool
+
+	// Gzip 跳过路径和扩展名的快速查找表（预处理，避免每次请求遍历切片）
+	gzipSkipPathsMap      map[string]bool
+	gzipSkipExtensionsMap map[string]bool
+
+	// 数据脱敏器（用于日志敏感数据脱敏）
+	dataMasker *desensitize.DataMasker
 
 	// 状态管理
 	ctx    context.Context
@@ -95,6 +106,12 @@ func NewServer() (*Server, error) {
 		cancel:        cancel,
 		bannerManager: NewBannerManager(cfg).WithContext(ctx),
 	}
+
+	// 初始化 Gzip writer 对象池（从配置读取压缩级别）
+	server.initGzipWriterPool()
+
+	// 初始化数据脱敏器（从配置读取敏感字段）
+	server.initDataMasker()
 
 	// 初始化全局配置和核心组件
 	if err := server.initCore(); err != nil {
@@ -145,6 +162,11 @@ func (s *Server) GetWebSocketService() *WebSocketService {
 // GetEndpointCollector 获取端点收集器
 func (s *Server) GetEndpointCollector() *EndpointCollector {
 	return s.endpointCollector
+}
+
+// GetDataMasker 获取数据脱敏器
+func (s *Server) GetDataMasker() *desensitize.DataMasker {
+	return s.dataMasker
 }
 
 // RegisterGRPCService 注册gRPC服务

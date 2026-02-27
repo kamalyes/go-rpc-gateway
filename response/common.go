@@ -14,13 +14,22 @@ package response
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"sync"
 
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
 )
+
+// jsonEncoderPool JSON 编码器对象池
+var jsonEncoderPool = sync.Pool{
+	New: func() any {
+		return json.NewEncoder(io.Discard)
+	},
+}
 
 // HTTPStatus 定义HTTP状态码对应的Result Code
 const (
@@ -48,7 +57,13 @@ func WriteResult(w http.ResponseWriter, httpStatus int, result *commonapis.Resul
 	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
 	w.WriteHeader(httpStatus)
 
-	if err := json.NewEncoder(w).Encode(result); err != nil && global.LOGGER != nil {
+	encoder := jsonEncoderPool.Get().(*json.Encoder)
+	defer jsonEncoderPool.Put(encoder)
+
+	// 创建新的 encoder 指向当前 writer
+	*encoder = *json.NewEncoder(w)
+
+	if err := encoder.Encode(result); err != nil && global.LOGGER != nil {
 		global.LOGGER.WithError(err).ErrorMsg("Failed to encode Result response")
 	}
 }
@@ -125,7 +140,13 @@ func WriteJSONResponse(w http.ResponseWriter, httpStatus int, data interface{}) 
 	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
 	w.WriteHeader(httpStatus)
 
-	if err := json.NewEncoder(w).Encode(data); err != nil && global.LOGGER != nil {
+	encoder := jsonEncoderPool.Get().(*json.Encoder)
+	defer jsonEncoderPool.Put(encoder)
+
+	// 创建新的 encoder 指向当前 writer
+	*encoder = *json.NewEncoder(w)
+
+	if err := encoder.Encode(data); err != nil && global.LOGGER != nil {
 		global.LOGGER.WithError(err).ErrorMsg("Failed to encode JSON response")
 	}
 }
@@ -217,7 +238,7 @@ func WriteErrorResponseWithCode(w http.ResponseWriter, statusCode int, errorCode
 	default:
 		status = commonapis.StatusCode_Internal
 	}
-	
+
 	// 使用标准的错误响应方法
 	WriteErrorResult(w, statusCode, fmt.Sprintf("%s: %s", errorCode, message), status)
 }

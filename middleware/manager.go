@@ -151,7 +151,7 @@ func (m *Manager) RateLimitMiddleware() MiddlewareFunc {
 
 // LoggingMiddleware HTTP日志中间件
 func (m *Manager) LoggingMiddleware() MiddlewareFunc {
-	return MiddlewareFunc(LoggingMiddleware(m.cfg.Middleware.Logging))
+	return MiddlewareFunc(LoggingMiddleware())
 }
 
 // SignatureMiddleware 签名验证中间件

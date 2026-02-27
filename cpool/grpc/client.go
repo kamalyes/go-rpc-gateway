@@ -137,13 +137,18 @@ func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds 
 	maxRecvMsgSize := mathx.IF(clientCfg.MaxRecvMsgSize > 0, clientCfg.MaxRecvMsgSize, 16*1024*1024)
 	maxSendMsgSize := mathx.IF(clientCfg.MaxSendMsgSize > 0, clientCfg.MaxSendMsgSize, 16*1024*1024)
 
+	// HTTP/2 窗口大小配置（从配置文件读取）
+	initialWindowSize := mathx.IF(clientCfg.InitialWindowSize > 0, clientCfg.InitialWindowSize, 1<<20)
+	initialConnWindowSize := mathx.IF(clientCfg.InitialConnWindowSize > 0, clientCfg.InitialConnWindowSize, 1<<21)
+
 	// 准备拨号选项
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
-		// 默认调用超时时间
+		// 默认调用选项
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxRecvMsgSize),
 			grpc.MaxCallSendMsgSize(maxSendMsgSize),
+			grpc.WaitForReady(clientCfg.WaitForReady),
 		),
 		// Keepalive 配置（保持连接活跃）
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -151,6 +156,9 @@ func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds 
 			Timeout:             keepaliveTimeout, // 等待 keepalive ping 响应的超时时间
 			PermitWithoutStream: true,             // 允许在没有活动流时发送 keepalive ping
 		}),
+		// HTTP/2 窗口大小配置
+		grpc.WithInitialWindowSize(initialWindowSize),         // 初始窗口
+		grpc.WithInitialConnWindowSize(initialConnWindowSize), // 连接窗口
 	}
 
 	// 负载均衡配置
@@ -173,12 +181,20 @@ func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds 
 
 	// 如果配置了 Network，添加到拨号选项
 	if clientCfg.Network != "" {
+		// 从配置读取连接超时
+		dialTimeout := mathx.IF(clientCfg.ConnectionTimeout > 0, time.Duration(clientCfg.ConnectionTimeout)*time.Second, 30*time.Second)
+
 		dialOpts = append(dialOpts, grpc.WithContextDialer(
 			func(ctx context.Context, addr string) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, clientCfg.Network, addr)
+				// 优化 TCP 连接参数（从配置读取）
+				dialer := &net.Dialer{
+					Timeout:   dialTimeout,
+					KeepAlive: keepaliveTime,
+				}
+				return dialer.DialContext(ctx, clientCfg.Network, addr)
 			},
 		))
-		gwglobal.LOGGER.Debug("🌐 %s 使用网络类型: %s", serviceName, clientCfg.Network)
+		gwglobal.LOGGER.Debug("🌐 %s 使用网络类型: %s (连接超时: %v)", serviceName, clientCfg.Network, dialTimeout)
 	}
 
 	return dialOpts
