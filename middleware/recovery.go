@@ -19,7 +19,6 @@ import (
 	"runtime"
 
 	"github.com/kamalyes/go-config/pkg/recovery"
-	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
@@ -67,8 +66,8 @@ func handlePanicRecovery(w http.ResponseWriter, r *http.Request, err interface{}
 }
 
 // logPanicError 记录 panic 错误日志
-func logPanicError(ctx context.Context, r *http.Request, err interface{}, stackTrace string, config *recovery.Recovery) {
-	fields := []interface{}{
+func logPanicError(ctx context.Context, r *http.Request, err any, stackTrace string, config *recovery.Recovery) {
+	fields := []any{
 		constants.LogFieldError, err,
 		constants.LogFieldMethod, r.Method,
 		constants.LogFieldPath, r.URL.String(),
@@ -82,19 +81,18 @@ func logPanicError(ctx context.Context, r *http.Request, err interface{}, stackT
 	}
 
 	// 添加用户上下文信息
-	if userID := logger.GetUserID(ctx); userID != "" {
-		fields = append(fields, constants.LogFieldUserID, userID)
+	traceInfo := GetCachedTraceInfo(ctx)
+	if traceInfo.UserID != "" {
+		fields = append(fields, constants.LogFieldUserID, traceInfo.UserID)
 	}
-	if tenantID := logger.GetTenantID(ctx); tenantID != "" {
-		fields = append(fields, constants.LogFieldTenantID, tenantID)
+	if traceInfo.TenantID != "" {
+		fields = append(fields, constants.LogFieldTenantID, traceInfo.TenantID)
 	}
-
-	// 添加 trace 信息
-	if traceID := logger.GetTraceID(ctx); traceID != "" {
-		fields = append(fields, constants.LogFieldTraceID, traceID)
+	if traceInfo.TraceID != "" {
+		fields = append(fields, constants.LogFieldTraceID, traceInfo.TraceID)
 	}
-	if requestID := logger.GetRequestID(ctx); requestID != "" {
-		fields = append(fields, constants.LogFieldRequestID, requestID)
+	if traceInfo.RequestID != "" {
+		fields = append(fields, constants.LogFieldRequestID, traceInfo.RequestID)
 	}
 
 	global.LOGGER.ErrorContextKV(ctx, constants.LogMsgPanicRecovered, fields...)
@@ -137,10 +135,11 @@ func setPanicErrorResponse(w http.ResponseWriter, ctx context.Context, err inter
 
 // setTraceHeaders 设置追踪头信息
 func setTraceHeaders(w http.ResponseWriter, ctx context.Context) {
-	if traceID := logger.GetTraceID(ctx); traceID != "" {
-		w.Header().Set(constants.HeaderXTraceID, traceID)
+	traceInfo := GetCachedTraceInfo(ctx)
+	if traceInfo.TraceID != "" {
+		w.Header().Set(constants.HeaderXTraceID, traceInfo.TraceID)
 	}
-	if requestID := logger.GetRequestID(ctx); requestID != "" {
-		w.Header().Set(constants.HeaderXRequestID, requestID)
+	if traceInfo.RequestID != "" {
+		w.Header().Set(constants.HeaderXRequestID, traceInfo.RequestID)
 	}
 }
