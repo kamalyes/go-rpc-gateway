@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/kamalyes/go-config/pkg/logging"
-	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
@@ -69,11 +68,12 @@ func (lf *LogFields) AddIf(condition bool, key string, value any) *LogFields {
 
 // AddUserContext 添加用户上下文信息
 func (lf *LogFields) AddUserContext(ctx context.Context) *LogFields {
-	if userID := logger.GetUserID(ctx); userID != "" {
-		lf.fields = append(lf.fields, "user_id", userID)
+	traceInfo := GetCachedTraceInfo(ctx)
+	if traceInfo.UserID != "" {
+		lf.fields = append(lf.fields, "user_id", traceInfo.UserID)
 	}
-	if tenantID := logger.GetTenantID(ctx); tenantID != "" {
-		lf.fields = append(lf.fields, "tenant_id", tenantID)
+	if traceInfo.TenantID != "" {
+		lf.fields = append(lf.fields, "tenant_id", traceInfo.TenantID)
 	}
 	return lf
 }
@@ -117,12 +117,6 @@ func getLoggingConfig() *logging.Logging {
 		return global.GATEWAY.Middleware.Logging
 	}
 	return logging.Default()
-}
-
-// isLoggingEnabled 检查日志是否启用
-func isLoggingEnabled() bool {
-	config := getLoggingConfig()
-	return config.Enabled
 }
 
 // shouldCaptureRequest 是否应该捕获请求体

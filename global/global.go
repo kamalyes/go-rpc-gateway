@@ -53,7 +53,7 @@ func EnsureLoggerInitialized() error {
 	}
 
 	// 使用 go-logger 创建一个新的日志器实例
-	newLogger := logger.CreateSimpleLogger(logger.DEBUG)
+	newLogger := logger.New()
 	if newLogger == nil {
 		return fmt.Errorf("failed to create logger instance")
 	}

@@ -193,40 +193,7 @@ func (i *LoggerInitializer) HealthCheck() error { return nil }
 func (i *LoggerInitializer) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
 	isFirstInit := LOGGER == nil
 
-	// 检查是否有有效的 Logging 配置
-	if cfg.Middleware.Logging.Enabled {
-		loggingCfg := cfg.Middleware.Logging
-
-		// 使用 ToLoggerConfig 转换配置
-		logConfig := loggingCfg.ToLoggerConfig()
-
-		// 使用 Builder 创建 logger
-		builder := logger.NewLoggerBuilder().
-			WithConfig(logConfig).
-			WithFormatter(loggingCfg.Format)
-
-		// 使用 go-logger 提供的 WriterConfig 和 AddWriterFromConfig
-		writerConfig := &logger.WriterConfig{
-			Type:     loggingCfg.Output,
-			FilePath: loggingCfg.FilePath,
-			MaxSize:  int64(loggingCfg.MaxSize * 1024 * 1024), // MB 转 Bytes
-			MaxFiles: loggingCfg.MaxBackups,
-			MaxAge:   loggingCfg.MaxAge,
-			Compress: loggingCfg.Compress,
-		}
-
-		if err := logger.AddWriterFromConfig(builder, writerConfig); err != nil {
-			return fmt.Errorf("添加 Writer 失败: %w", err)
-		}
-
-		LOGGER = builder.Build()
-	}
-
-	// 配置网关上下文提取器
-	if ultraLogger, ok := LOGGER.(*logger.UltraFastLogger); ok {
-		ultraLogger.SetContextExtractor(logger.GetPresetExtractor(logger.PresetExtractorGateway))
-	}
-
+	LOGGER = cfg.Middleware.Logging.ToLoggerInstance()
 	LOG = LOGGER // 兼容别名
 
 	// 根据初始化状态输出不同日志

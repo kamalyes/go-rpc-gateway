@@ -22,6 +22,18 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+// TraceInfo 追踪信息缓存结构
+type TraceInfo struct {
+	TraceID   string
+	RequestID string
+	UserID    string
+	TenantID  string
+	SessionID string
+	Timezone  string
+}
+
+type traceInfoKey struct{}
+
 // ContextTraceMiddleware HTTP 层统一的 context 追踪中间件
 // 职责：
 // 1. 从 HTTP Header 提取或生成 trace_id 和 request_id
@@ -32,59 +44,67 @@ func ContextTraceMiddleware() HTTPMiddleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
-			// 1. 提取或生成 TraceID
-			traceID := r.Header.Get(constants.HeaderXTraceID)
-			if traceID == "" {
-				// 尝试从 OpenTelemetry span 获取
-				if spanCtx := trace.SpanContextFromContext(ctx); spanCtx.IsValid() {
-					traceID = spanCtx.TraceID().String()
-				}
-			}
-			if traceID == "" {
-				// 生成新的 TraceID
-				traceID = logger.GenerateTraceID()
-			}
+			// 提取或生成 TraceID 和 RequestID
+			traceID := extractOrGenerateTraceID(ctx, r.Header.Get(constants.HeaderXTraceID))
+			requestID := extractOrGenerateRequestID(r.Header.Get(constants.HeaderXRequestID))
 
-			// 2. 提取或生成 RequestID
-			requestID := r.Header.Get(constants.HeaderXRequestID)
-			if requestID == "" {
-				requestID = logger.GenerateRequestID()
-			}
+			// 将 TraceID 和 RequestID 存入 context（使用 go-logger 的标准方式）
+			ctx = WithTraceID(ctx, traceID)
+			ctx = WithRequestID(ctx, requestID)
 
-			// 3. 将 TraceID 和 RequestID 存入 context（使用 go-logger 的标准方式）
-			ctx = logger.WithTraceID(ctx, traceID)
-			ctx = logger.WithRequestID(ctx, requestID)
+			// 提取其他上下文信息
+			userID := r.Header.Get(constants.HeaderXUserID)
+			tenantID := r.Header.Get(constants.HeaderXTenantID)
+			sessionID := r.Header.Get(constants.HeaderXSessionID)
+			timezone := r.Header.Get(constants.HeaderXTimezone)
 
-			// 4. 可选：提取其他上下文信息
-			if userID := r.Header.Get(constants.HeaderXUserID); userID != "" {
-				ctx = logger.WithUserID(ctx, userID)
-			}
-			if tenantID := r.Header.Get(constants.HeaderXTenantID); tenantID != "" {
-				ctx = logger.WithTenantID(ctx, tenantID)
-			}
-			if sessionID := r.Header.Get(constants.HeaderXSessionID); sessionID != "" {
-				ctx = logger.WithSessionID(ctx, sessionID)
-			}
-			if timezone := r.Header.Get(constants.HeaderXTimezone); timezone != "" {
-				ctx = logger.WithTimezone(ctx, timezone)
-			}
+			ctx = WithUserID(ctx, userID)
+			ctx = WithTenantID(ctx, tenantID)
+			ctx = WithSessionID(ctx, sessionID)
+			ctx = WithTimezone(ctx, timezone)
+
+			// 缓存 TraceInfo（避免后续中间件重复查找）
+			ctx = context.WithValue(ctx, traceInfoKey{}, &TraceInfo{
+				TraceID:   traceID,
+				RequestID: requestID,
+				UserID:    userID,
+				TenantID:  tenantID,
+				SessionID: sessionID,
+				Timezone:  timezone,
+			})
 
 			// 5. 设置响应头（便于客户端追踪）
 			w.Header().Set(constants.HeaderXTraceID, traceID)
 			w.Header().Set(constants.HeaderXRequestID, requestID)
 
-			// 6. 继续处理请求
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// UnaryServerContextInterceptor gRPC Server 一元调用 context 注入拦截器
-// 职责：
-// 1. 从 gRPC metadata 提取 trace_id 和 request_id
-// 2. 将这些值存入 context（使用 go-logger 的标准 ContextKey）
-// 3. 设置响应 metadata 返回 trace_id 和 request_id（与 HTTP 保持一致）
-// 4. 确保后续 Service 和 Repository 层能够获取到这些值
+// GetCachedTraceInfo 获取缓存的追踪信息
+// 优先从 context 中获取已缓存的 TraceInfo，如果不存在则从 logger 中提取并构建
+func GetCachedTraceInfo(ctx context.Context) *TraceInfo {
+	if info, ok := ctx.Value(traceInfoKey{}).(*TraceInfo); ok {
+		return info
+	}
+
+	// 回退：从 logger 提取
+	return &TraceInfo{
+		TraceID:   logger.GetTraceID(ctx),
+		RequestID: logger.GetRequestID(ctx),
+		UserID:    logger.GetUserID(ctx),
+		TenantID:  logger.GetTenantID(ctx),
+		SessionID: logger.GetSessionID(ctx),
+		Timezone:  logger.GetTimezone(ctx),
+	}
+}
+
+// ============================================================================
+// gRPC Server 拦截器
+// ============================================================================
+
+// UnaryServerContextInterceptor gRPC Server 一元调用拦截器
 func UnaryServerContextInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		// 增强 context
@@ -98,7 +118,7 @@ func UnaryServerContextInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-// StreamServerContextInterceptor gRPC Server 流式调用 context 注入拦截器
+// StreamServerContextInterceptor gRPC Server 流式调用拦截器
 func StreamServerContextInterceptor() grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		ctx := ss.Context()
@@ -123,59 +143,38 @@ func StreamServerContextInterceptor() grpc.StreamServerInterceptor {
 func enrichContextFromMetadata(ctx context.Context) context.Context {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return ctx
+		// 没有 metadata 时，生成新的 TraceID 和 RequestID
+		md = metadata.MD{}
 	}
 
-	// 提取 TraceID
-	traceID := getFirstMetadataValue(md, constants.MetadataTraceID)
-	if traceID == "" {
-		// 尝试从 OpenTelemetry span 获取
-		if spanCtx := trace.SpanContextFromContext(ctx); spanCtx.IsValid() {
-			traceID = spanCtx.TraceID().String()
-		}
-	}
-	if traceID == "" {
-		traceID = logger.GenerateTraceID()
-	}
-	ctx = logger.WithTraceID(ctx, traceID)
-
-	// 提取 RequestID
-	requestID := getFirstMetadataValue(md, constants.MetadataRequestID)
-	if requestID == "" {
-		requestID = logger.GenerateRequestID()
-	}
-	ctx = logger.WithRequestID(ctx, requestID)
+	// 提取 TraceID & RequestID
+	traceID := extractOrGenerateTraceID(ctx, getFirstMetadataValue(md, constants.MetadataTraceID))
+	requestID := extractOrGenerateRequestID(getFirstMetadataValue(md, constants.MetadataRequestID))
 
 	// 提取其他可选字段
-	if userID := getFirstMetadataValue(md, constants.MetadataUserID); userID != "" {
-		ctx = logger.WithUserID(ctx, userID)
-	}
-	if tenantID := getFirstMetadataValue(md, constants.MetadataTenantID); tenantID != "" {
-		ctx = logger.WithTenantID(ctx, tenantID)
-	}
-	if sessionID := getFirstMetadataValue(md, constants.MetadataSessionID); sessionID != "" {
-		ctx = logger.WithSessionID(ctx, sessionID)
-	}
-	if timezone := getFirstMetadataValue(md, constants.MetadataTimezone); timezone != "" {
-		ctx = logger.WithTimezone(ctx, timezone)
-	}
+	userID := getFirstMetadataValue(md, constants.MetadataUserID)
+	sessionID := getFirstMetadataValue(md, constants.MetadataSessionID)
+	tenantID := getFirstMetadataValue(md, constants.MetadataTenantID)
+	timezone := getFirstMetadataValue(md, constants.MetadataTimezone)
+
+	ctx = WithRequestID(ctx, requestID)
+	ctx = WithTraceID(ctx, traceID)
+	ctx = WithUserID(ctx, userID)
+	ctx = WithTenantID(ctx, tenantID)
+	ctx = WithSessionID(ctx, sessionID)
+	ctx = WithTimezone(ctx, timezone)
 
 	return ctx
 }
 
 // setResponseMetadata 设置 gRPC 响应 metadata（与 HTTP 的 w.Header().Set 对应）
 func setResponseMetadata(ctx context.Context) {
-	md := metadata.Pairs()
+	traceInfo := GetCachedTraceInfo(ctx)
 
-	// 添加 trace_id
-	if traceID := logger.GetTraceID(ctx); traceID != "" {
-		md.Set(constants.MetadataTraceID, traceID)
-	}
-
-	// 添加 request_id
-	if requestID := logger.GetRequestID(ctx); requestID != "" {
-		md.Set(constants.MetadataRequestID, requestID)
-	}
+	md := metadata.Pairs(
+		constants.MetadataTraceID, traceInfo.TraceID,
+		constants.MetadataRequestID, traceInfo.RequestID,
+	)
 
 	// 发送 metadata（忽略错误，因为可能已经发送过）
 	if len(md) > 0 {
@@ -202,6 +201,10 @@ func (w *contextWrappedServerStream) Context() context.Context {
 	return w.ctx
 }
 
+// ============================================================================
+// gRPC Client 拦截器
+// ============================================================================
+
 // UnaryClientContextInterceptor gRPC Client 一元调用拦截器
 // 职责：将 context 中的 trace 信息传递到 gRPC metadata
 func UnaryClientContextInterceptor() grpc.UnaryClientInterceptor {
@@ -223,33 +226,18 @@ func StreamClientContextInterceptor() grpc.StreamClientInterceptor {
 
 // injectTraceToOutgoingContext 将 context 中的 trace 信息注入到 outgoing gRPC metadata
 func injectTraceToOutgoingContext(ctx context.Context) context.Context {
-	pairs := make([]string, 0, 12) // 预分配容量（6个字段 * 2）
+	traceInfo := GetCachedTraceInfo(ctx)
 
-	// 提取 trace 信息
-	if traceID := logger.GetTraceID(ctx); traceID != "" {
-		pairs = append(pairs, constants.MetadataTraceID, traceID)
-	}
-	if requestID := logger.GetRequestID(ctx); requestID != "" {
-		pairs = append(pairs, constants.MetadataRequestID, requestID)
-	}
-	if userID := logger.GetUserID(ctx); userID != "" {
-		pairs = append(pairs, constants.MetadataUserID, userID)
-	}
-	if tenantID := logger.GetTenantID(ctx); tenantID != "" {
-		pairs = append(pairs, constants.MetadataTenantID, tenantID)
-	}
-	if sessionID := logger.GetSessionID(ctx); sessionID != "" {
-		pairs = append(pairs, constants.MetadataSessionID, sessionID)
-	}
-	if timezone := logger.GetTimezone(ctx); timezone != "" {
-		pairs = append(pairs, constants.MetadataTimezone, timezone)
-	}
+	// 直接注入所有字段，空值也可以传递
+	md := metadata.Pairs(
+		constants.MetadataTraceID, traceInfo.TraceID,
+		constants.MetadataRequestID, traceInfo.RequestID,
+		constants.MetadataUserID, traceInfo.UserID,
+		constants.MetadataTenantID, traceInfo.TenantID,
+		constants.MetadataSessionID, traceInfo.SessionID,
+		constants.MetadataTimezone, traceInfo.Timezone,
+	)
 
-	if len(pairs) == 0 {
-		return ctx
-	}
-
-	md := metadata.Pairs(pairs...)
 	// 合并已有的 outgoing metadata
 	if existingMD, ok := metadata.FromOutgoingContext(ctx); ok {
 		md = metadata.Join(existingMD, md)
@@ -257,35 +245,36 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 	return metadata.NewOutgoingContext(ctx, md)
 }
 
-// GetTraceInfoFromContext 从 context 获取追踪信息（用于构建响应）
-func GetTraceInfoFromContext(ctx context.Context) (traceID, requestID string) {
-	return logger.GetTraceID(ctx), logger.GetRequestID(ctx)
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// extractOrGenerateTraceID 提取或生成 TraceID（优先级：参数 > OpenTelemetry > 生成）
+func extractOrGenerateTraceID(ctx context.Context, traceID string) string {
+	if traceID != "" {
+		return traceID
+	}
+
+	// 尝试从 OpenTelemetry span 获取
+	if spanCtx := trace.SpanContextFromContext(ctx); spanCtx.IsValid() {
+		return spanCtx.TraceID().String()
+	}
+
+	return logger.GenerateTraceID()
 }
 
-// ExtractAllTraceFields 从 context 提取所有追踪字段（用于日志或响应）
-func ExtractAllTraceFields(ctx context.Context) map[string]string {
-	fields := make(map[string]string, 4) // 预分配容量
+// extractOrGenerateRequestID 提取或生成 RequestID
+func extractOrGenerateRequestID(requestID string) string {
+	if requestID != "" {
+		return requestID
+	}
+	return logger.GenerateRequestID()
+}
 
-	if v := logger.GetTraceID(ctx); v != "" {
-		fields[constants.LogFieldTraceID] = v
-	}
-	if v := logger.GetRequestID(ctx); v != "" {
-		fields[constants.LogFieldRequestID] = v
-	}
-	if v := logger.GetUserID(ctx); v != "" {
-		fields[constants.LogFieldUserID] = v
-	}
-	if v := logger.GetTenantID(ctx); v != "" {
-		fields[constants.LogFieldTenantID] = v
-	}
-	if v := logger.GetSessionID(ctx); v != "" {
-		fields[constants.LogFieldSessionID] = v
-	}
-	if v := logger.GetTimezone(ctx); v != "" {
-		fields[constants.LogFieldTimezone] = v
-	}
-
-	return fields
+// GetTraceInfoFromContext 从 context 获取追踪信息（用于构建响应）
+func GetTraceInfoFromContext(ctx context.Context) (traceID, requestID string) {
+	traceInfo := GetCachedTraceInfo(ctx)
+	return traceInfo.TraceID, traceInfo.RequestID
 }
 
 // ============================================================================
@@ -294,27 +283,38 @@ func ExtractAllTraceFields(ctx context.Context) map[string]string {
 
 // GetTraceID 从 context 获取 TraceID
 func GetTraceID(ctx context.Context) string {
-	return logger.GetTraceID(ctx)
+	traceInfo := GetCachedTraceInfo(ctx)
+	return traceInfo.TraceID
 }
 
 // GetRequestID 从 context 获取 RequestID
 func GetRequestID(ctx context.Context) string {
-	return logger.GetRequestID(ctx)
+	traceInfo := GetCachedTraceInfo(ctx)
+	return traceInfo.RequestID
 }
 
 // GetUserID 从 context 获取 UserID
 func GetUserID(ctx context.Context) string {
-	return logger.GetUserID(ctx)
+	traceInfo := GetCachedTraceInfo(ctx)
+	return traceInfo.UserID
 }
 
 // GetTenantID 从 context 获取 TenantID
 func GetTenantID(ctx context.Context) string {
-	return logger.GetTenantID(ctx)
+	traceInfo := GetCachedTraceInfo(ctx)
+	return traceInfo.TenantID
 }
 
 // GetSessionID 从 context 获取 SessionID
 func GetSessionID(ctx context.Context) string {
-	return logger.GetSessionID(ctx)
+	traceInfo := GetCachedTraceInfo(ctx)
+	return traceInfo.SessionID
+}
+
+// GetTimezone 从 context 获取 Timezone
+func GetTimezone(ctx context.Context) string {
+	traceInfo := GetCachedTraceInfo(ctx)
+	return traceInfo.Timezone
 }
 
 // WithTraceID 将 TraceID 设置到 context
@@ -345,64 +345,4 @@ func WithSessionID(ctx context.Context, sessionID string) context.Context {
 // WithTimezone 将 Timezone 设置到 context
 func WithTimezone(ctx context.Context, timezone string) context.Context {
 	return logger.WithTimezone(ctx, timezone)
-}
-
-// GetTimezone 从 context 获取 Timezone
-func GetTimezone(ctx context.Context) string {
-	return logger.GetTimezone(ctx)
-}
-
-// GenerateTraceID 生成新的 TraceID
-func GenerateTraceID() string {
-	return logger.GenerateTraceID()
-}
-
-// GenerateRequestID 生成新的 RequestID
-func GenerateRequestID() string {
-	return logger.GenerateRequestID()
-}
-
-// InjectTraceToHTTPHeader 将 context 中的 trace 信息注入到 HTTP Header
-func InjectTraceToHTTPHeader(ctx context.Context, header http.Header) {
-	if traceID := GetTraceID(ctx); traceID != "" {
-		header.Set(constants.HeaderXTraceID, traceID)
-	}
-	if requestID := GetRequestID(ctx); requestID != "" {
-		header.Set(constants.HeaderXRequestID, requestID)
-	}
-	if userID := GetUserID(ctx); userID != "" {
-		header.Set(constants.HeaderXUserID, userID)
-	}
-	if tenantID := GetTenantID(ctx); tenantID != "" {
-		header.Set(constants.HeaderXTenantID, tenantID)
-	}
-	if sessionID := GetSessionID(ctx); sessionID != "" {
-		header.Set(constants.HeaderXSessionID, sessionID)
-	}
-	if timezone := logger.GetTimezone(ctx); timezone != "" {
-		header.Set(constants.HeaderXTimezone, timezone)
-	}
-}
-
-// ExtractTraceFromHTTPHeader 从 HTTP Header 提取 trace 信息到 context
-func ExtractTraceFromHTTPHeader(ctx context.Context, header http.Header) context.Context {
-	if traceID := header.Get(constants.HeaderXTraceID); traceID != "" {
-		ctx = WithTraceID(ctx, traceID)
-	}
-	if requestID := header.Get(constants.HeaderXRequestID); requestID != "" {
-		ctx = WithRequestID(ctx, requestID)
-	}
-	if userID := header.Get(constants.HeaderXUserID); userID != "" {
-		ctx = WithUserID(ctx, userID)
-	}
-	if tenantID := header.Get(constants.HeaderXTenantID); tenantID != "" {
-		ctx = WithTenantID(ctx, tenantID)
-	}
-	if sessionID := header.Get(constants.HeaderXSessionID); sessionID != "" {
-		ctx = WithSessionID(ctx, sessionID)
-	}
-	if timezone := header.Get(constants.HeaderXTimezone); timezone != "" {
-		ctx = WithTimezone(ctx, timezone)
-	}
-	return ctx
 }
