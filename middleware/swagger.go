@@ -46,6 +46,9 @@ type SwaggerMiddleware struct {
 	lastUpdated     time.Time
 	httpClient      *http.Client
 	refreshInterval time.Duration
+
+	// 文件监听器
+	watcher *SwaggerWatcher
 }
 
 // NewSwaggerMiddleware 创建Swagger中间件 (支持单服务和聚合模式)
@@ -61,6 +64,7 @@ func NewSwaggerMiddleware(config *goswagger.Swagger) *SwaggerMiddleware {
 	// 添加调试信息
 	global.LOGGER.Debug("🔧 Swagger配置调试信息:")
 	global.LOGGER.Debug("  - Enabled: %v", config.Enabled)
+	global.LOGGER.Debug("  - HotReload: %v", config.HotReload)
 	global.LOGGER.Debug("  - Aggregate != nil: %v", config.Aggregate != nil)
 	if config.Aggregate != nil {
 		global.LOGGER.Debug("  - Aggregate.Enabled: %v", config.Aggregate.Enabled)
@@ -85,6 +89,13 @@ func NewSwaggerMiddleware(config *goswagger.Swagger) *SwaggerMiddleware {
 			if err := middleware.loadSwaggerSpec(); err != nil {
 				global.LOGGER.Error("加载Swagger文件失败: %v", err)
 			}
+		}
+	}
+
+	// 启用文件热重载（如果配置了）
+	if config.Enabled && config.HotReload {
+		if err := middleware.EnableFileWatcher(); err != nil {
+			global.LOGGER.Error("❌ 启用Swagger文件热重载失败: %v", err)
 		}
 	}
 
@@ -1689,5 +1700,36 @@ func (s *SwaggerMiddleware) fixReferencesInSlice(slice []interface{}) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// EnableFileWatcher 启用文件监听（热重载）
+func (s *SwaggerMiddleware) EnableFileWatcher() error {
+	if s.watcher != nil {
+		return fmt.Errorf("文件监听器已启动")
+	}
+
+	watcher := NewSwaggerWatcher(s)
+	if err := watcher.Start(); err != nil {
+		return fmt.Errorf("启动文件监听器失败: %w", err)
+	}
+
+	s.watcher = watcher
+	global.LOGGER.Info("✅ Swagger 文件热重载已启用")
+	return nil
+}
+
+// DisableFileWatcher 停用文件监听
+func (s *SwaggerMiddleware) DisableFileWatcher() error {
+	if s.watcher == nil {
+		return nil
+	}
+
+	if err := s.watcher.Stop(); err != nil {
+		return fmt.Errorf("停止文件监听器失败: %w", err)
+	}
+
+	s.watcher = nil
+	global.LOGGER.Info("Swagger 文件监听器已停止")
 	return nil
 }
