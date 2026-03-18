@@ -156,12 +156,17 @@ func (m *Manager) LoggingMiddleware() MiddlewareFunc {
 
 // SignatureMiddleware 签名验证中间件
 func (m *Manager) SignatureMiddleware() MiddlewareFunc {
-	return MiddlewareFunc(SignatureMiddleware(m.cfg.Middleware.Signature, m.signatureValidator))
+	return MiddlewareFunc(SignatureMiddleware(m.cfg.Middleware.Signature))
 }
 
 // TimestampMiddleware 时间戳验证中间件
 func (m *Manager) TimestampMiddleware() MiddlewareFunc {
 	return MiddlewareFunc(TimestampMiddleware(m.cfg.Middleware.Signature))
+}
+
+// NonceMiddleware 防重放验证中间件
+func (m *Manager) NonceMiddleware() MiddlewareFunc {
+	return MiddlewareFunc(NonceMiddleware(m.cfg.Middleware.Signature))
 }
 
 // I18nMiddleware 国际化中间件
@@ -272,6 +277,8 @@ func (m *Manager) GetMiddlewares() []MiddlewareFunc {
 
 	// 11. 签名验证中间件
 	if m.cfg.Middleware.Signature.Enabled {
+		middlewares = append(middlewares, m.TimestampMiddleware())
+		middlewares = append(middlewares, m.NonceMiddleware())
 		middlewares = append(middlewares, m.SignatureMiddleware())
 	}
 

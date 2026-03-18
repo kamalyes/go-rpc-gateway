@@ -91,6 +91,7 @@ const (
 	ContextKeyTenantID   = "tenant_id"
 	ContextKeySessionID  = "session_id"
 	ContextKeyLang       = "lang"
+	ContextKeyNonceID    = "nonce_id"
 	ContextKeyTraceID    = "trace_id"
 	ContextKeySpanID     = "span_id"
 	ContextKeyStartTime  = "start_time"

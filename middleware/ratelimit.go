@@ -19,12 +19,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	gccommon "github.com/kamalyes/go-config/pkg/common"
 	"github.com/kamalyes/go-config/pkg/ratelimit"
-	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/response"
-	"github.com/kamalyes/go-toolbox/pkg/httpx"
 	"github.com/kamalyes/go-toolbox/pkg/matcher"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
@@ -532,7 +531,7 @@ func (e *EnhancedRateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit
 		// 3. 应用路由限流规则
 		if routeLimit.Limit != nil {
 			if routeLimit.PerUser {
-				userID := httpx.GetUserID(r, constants.ContextKeyUserID, constants.HeaderXUserID)
+				userID := gccommon.ExtractAttribute(r, e.config.UserIDSources)
 				return routeLimit.Limit, fmt.Sprintf(keyFormatRouteUser, routeLimit.Path, userID)
 			}
 			if routeLimit.PerIP {
@@ -563,7 +562,7 @@ func (e *EnhancedRateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit
 	}
 
 	// 第三轮: 检查用户级别规则
-	userID := httpx.GetUserID(r, constants.ContextKeyUserID, constants.HeaderXUserID)
+	userID := gccommon.ExtractAttribute(r, e.config.UserIDSources)
 	if userID != "" {
 		for _, userRule := range e.config.UserRules {
 			if e.matchUser(userRule, userID) {
@@ -606,7 +605,7 @@ func (e *EnhancedRateLimitMiddleware) generateKey(r *http.Request, scope ratelim
 	case ratelimit.ScopePerIP:
 		return fmt.Sprintf(keyFormatIP, netx.GetClientIP(r))
 	case ratelimit.ScopePerUser:
-		return fmt.Sprintf(keyFormatUser, httpx.GetUserID(r, constants.ContextKeyUserID, constants.HeaderXUserID))
+		return fmt.Sprintf(keyFormatUser, gccommon.ExtractAttribute(r, e.config.UserIDSources))
 	case ratelimit.ScopePerRoute:
 		return fmt.Sprintf(keyFormatRouteMethod, r.Method, r.URL.Path)
 	default:
