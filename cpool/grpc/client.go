@@ -55,7 +55,7 @@ func InitClient[T any](
 	creds := buildTLSConfig(clientCfg, serviceName)
 
 	// 构建拨号选项
-	dialOpts := buildDialOptions(clientCfg, serviceName, creds)
+	dialOpts := buildDialOptions(clientCfg, serviceName, creds, healthChecker)
 
 	// 创建连接（不等待就绪）
 	conn, err := grpc.NewClient(endpoint, dialOpts...)
@@ -128,7 +128,7 @@ func buildTLSConfig(clientCfg *gwconfig.GRPCClient, serviceName string) credenti
 }
 
 // buildDialOptions 构建 Dial 选项
-func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds credentials.TransportCredentials) []grpc.DialOption {
+func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds credentials.TransportCredentials, healthChecker *HealthChecker) []grpc.DialOption {
 	// Keepalive 配置
 	keepaliveTime := mathx.IF(clientCfg.KeepaliveTime > 0, time.Duration(clientCfg.KeepaliveTime)*time.Second, 10*time.Second)
 	keepaliveTimeout := mathx.IF(clientCfg.KeepaliveTimeout > 0, time.Duration(clientCfg.KeepaliveTimeout)*time.Second, 3*time.Second)
@@ -173,9 +173,11 @@ func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds 
 	dialOpts = append(dialOpts,
 		grpc.WithChainUnaryInterceptor(
 			middleware.UnaryClientContextInterceptor(), // Context 传播
+			UnaryClientHealthInterceptor(serviceName, healthChecker),
 		),
 		grpc.WithChainStreamInterceptor(
 			middleware.StreamClientContextInterceptor(), // Stream Context 传播
+			StreamClientHealthInterceptor(serviceName, healthChecker),
 		),
 	)
 

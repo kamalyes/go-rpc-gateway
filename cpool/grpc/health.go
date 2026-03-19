@@ -12,12 +12,15 @@
 package grpc
 
 import (
+	"context"
 	"net"
 	"sync"
 	"time"
 
 	gwglobal "github.com/kamalyes/go-rpc-gateway/global"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ClientHealth gRPC 客户端健康状态
@@ -53,21 +56,29 @@ func (hc *HealthChecker) Register(serviceName string, conn *grpc.ClientConn, end
 	hc.clients[serviceName] = health
 	hc.mu.Unlock()
 
-	// 异步初始健康检查
-	go hc.checkEndpointHealth(serviceName, endpoint)
+	// 同步执行首次健康检查，避免客户端调用早于首轮检查导致误判不可用
+	hc.checkEndpointHealth(serviceName, endpoint)
 }
 
 // IsHealthy 检查服务是否健康
 func (hc *HealthChecker) IsHealthy(serviceName string) bool {
+	healthy, _ := hc.GetServiceHealth(serviceName)
+	return healthy
+}
+
+// GetServiceHealth 获取服务健康状态及是否已注册
+func (hc *HealthChecker) GetServiceHealth(serviceName string) (healthy bool, exists bool) {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
-	if health, exists := hc.clients[serviceName]; exists {
-		health.mu.RLock()
-		defer health.mu.RUnlock()
-		return health.healthy
+	health, exists := hc.clients[serviceName]
+	if !exists {
+		return false, false
 	}
-	return false
+
+	health.mu.RLock()
+	defer health.mu.RUnlock()
+	return health.healthy, true
 }
 
 // checkEndpointHealth 通过 TCP 连接检查服务端口可达性（类似 telnet）
@@ -167,4 +178,78 @@ func (hc *HealthChecker) Close() error {
 	}
 	hc.clients = make(map[string]*ClientHealth)
 	return nil
+}
+
+// ServiceGuard 服务可用性链式校验器
+type ServiceGuard struct {
+	serviceName string
+	client      any
+	isHealthy   func(string) bool
+}
+
+// NewServiceGuard 创建服务校验器
+func NewServiceGuard(serviceName string) ServiceGuard {
+	return ServiceGuard{
+		serviceName: serviceName,
+	}
+}
+
+// WithServiceName 设置服务名称
+func (g ServiceGuard) WithServiceName(serviceName string) ServiceGuard {
+	g.serviceName = serviceName
+	return g
+}
+
+// WithClient 设置客户端
+func (g ServiceGuard) WithClient(client any) ServiceGuard {
+	g.client = client
+	return g
+}
+
+// WithHealthChecker 设置健康检查函数
+func (g ServiceGuard) WithHealthChecker(isHealthy func(string) bool) ServiceGuard {
+	g.isHealthy = isHealthy
+	return g
+}
+
+// Ensure 执行校验
+func (g ServiceGuard) Ensure() error {
+	return EnsureServiceReady(g.client, g.isHealthy, g.serviceName)
+}
+
+// EnsureServiceReady 校验服务依赖是否可用
+func EnsureServiceReady(client any, isHealthy func(string) bool, serviceName string) error {
+	if client == nil {
+		return status.Errorf(codes.FailedPrecondition, "%s client is not initialized", serviceName)
+	}
+
+	if isHealthy != nil && !isHealthy(serviceName) {
+		return status.Errorf(codes.Unavailable, "%s is unavailable", serviceName)
+	}
+
+	return nil
+}
+
+// UnaryClientHealthInterceptor gRPC Unary 客户端健康检查拦截器
+func UnaryClientHealthInterceptor(serviceName string, checker *HealthChecker) grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		if checker != nil {
+			if healthy, exists := checker.GetServiceHealth(serviceName); exists && !healthy {
+				return status.Errorf(codes.Unavailable, "%s is unavailable", serviceName)
+			}
+		}
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
+}
+
+// StreamClientHealthInterceptor gRPC Stream 客户端健康检查拦截器
+func StreamClientHealthInterceptor(serviceName string, checker *HealthChecker) grpc.StreamClientInterceptor {
+	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+		if checker != nil {
+			if healthy, exists := checker.GetServiceHealth(serviceName); exists && !healthy {
+				return nil, status.Errorf(codes.Unavailable, "%s is unavailable", serviceName)
+			}
+		}
+		return streamer(ctx, desc, cc, method, opts...)
+	}
 }
