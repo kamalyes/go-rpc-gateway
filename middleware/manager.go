@@ -27,7 +27,8 @@ type Manager struct {
 	metricsManager         *MetricsManager
 	tracingManager         *TracingManager
 	rateLimiter            RateLimiter
-	signatureValidator     SignatureValidator
+	dynamicRateLimit       DynamicRateLimitProvider
+	dynamicSignature       DynamicSignatureProvider
 	i18nManager            *I18nManager
 	pbValidationMiddleware *PBValidationMiddleware
 	swaggerMiddleware      *SwaggerMiddleware
@@ -37,8 +38,7 @@ type Manager struct {
 func NewManager(cfg *gwconfig.Gateway) (*Manager, error) {
 	var err error
 	manager := &Manager{
-		cfg:                cfg,
-		signatureValidator: &HMACValidator{},
+		cfg: cfg,
 	}
 
 	// 初始化监控管理器（使用 monitoring 配置）
@@ -133,10 +133,10 @@ func (m *Manager) RecoveryMiddleware() MiddlewareFunc {
 	return MiddlewareFunc(RecoveryMiddleware(m.cfg.Middleware.Recovery))
 }
 
-// ContextTraceMiddlewareFunc 统一的 Context 追踪中间件
+// RequestContextMiddlewareFunc 统一的请求上下文中间件
 // 负责 trace_id、request_id 等的注入，使用 go-logger 的统一管理
-func (m *Manager) ContextTraceMiddlewareFunc() MiddlewareFunc {
-	return MiddlewareFunc(ContextTraceMiddleware())
+func (m *Manager) RequestContextMiddlewareFunc() MiddlewareFunc {
+	return MiddlewareFunc(RequestContextMiddleware())
 }
 
 // SCPMiddleware 安全中间件 - 从配置读取 CSP 策略
@@ -146,7 +146,7 @@ func (m *Manager) SCPMiddleware() MiddlewareFunc {
 
 // RateLimitMiddleware 限流中间件
 func (m *Manager) RateLimitMiddleware() MiddlewareFunc {
-	return MiddlewareFunc(RateLimitMiddleware(m.cfg.RateLimit))
+	return MiddlewareFunc(newRateLimitMiddleware(m.cfg.RateLimit, m.rateLimiter, m.dynamicRateLimit).Middleware())
 }
 
 // LoggingMiddleware HTTP日志中间件
@@ -156,7 +156,17 @@ func (m *Manager) LoggingMiddleware() MiddlewareFunc {
 
 // SignatureMiddleware 签名验证中间件
 func (m *Manager) SignatureMiddleware() MiddlewareFunc {
-	return MiddlewareFunc(SignatureMiddleware(m.cfg.Middleware.Signature))
+	return MiddlewareFunc(SignatureMiddlewareWithProvider(m.cfg.Middleware.Signature, m.dynamicSignature))
+}
+
+// SetDynamicSignatureProvider 设置动态签名提供器
+func (m *Manager) SetDynamicSignatureProvider(provider DynamicSignatureProvider) {
+	m.dynamicSignature = provider
+}
+
+// SetDynamicRateLimitProvider 设置动态限流提供器
+func (m *Manager) SetDynamicRateLimitProvider(provider DynamicRateLimitProvider) {
+	m.dynamicRateLimit = provider
 }
 
 // TimestampMiddleware 时间戳验证中间件
@@ -233,7 +243,7 @@ func (m *Manager) GetMiddlewares() []MiddlewareFunc {
 	middlewares = append(middlewares, m.RecoveryMiddleware())
 
 	// 2. Context 追踪中间件（始终启用）
-	middlewares = append(middlewares, m.ContextTraceMiddlewareFunc())
+	middlewares = append(middlewares, m.RequestContextMiddlewareFunc())
 
 	// 3. 日志中间件（根据配置）
 	if m.cfg.Middleware.Logging.Enabled {

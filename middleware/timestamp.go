@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"time"
 
-	gccommon "github.com/kamalyes/go-config/pkg/common"
 	"github.com/kamalyes/go-config/pkg/signature"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -55,8 +54,8 @@ func TimestampMiddleware(config *signature.Signature) HTTPMiddleware {
 				return
 			}
 
-			// 提取时间戳
-			timestampStr := gccommon.ExtractAttribute(r, config.TimestampSources)
+			// 从 context 提取时间戳
+			timestampStr := GetRequestCommonMeta(r.Context()).Timestamp
 			if timestampStr == "" {
 				response.WriteErrorResponseWithCode(w, http.StatusBadRequest, constants.SignatureErrorCodeTimestampMissing, constants.SignatureErrorTimestampMissing)
 				return

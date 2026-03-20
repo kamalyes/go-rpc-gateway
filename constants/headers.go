@@ -34,17 +34,23 @@ const (
 	HeaderWWWAuthenticate = "WWW-Authenticate"
 
 	// 用户上下文相关头部
+	HeaderXClientID  = "X-Client-ID"
 	HeaderXUserID    = "X-User-ID"
+	HeaderXUserType  = "X-User-Type"
 	HeaderXTenantID  = "X-Tenant-ID"
 	HeaderXSessionID = "X-Session-ID"
 	HeaderXTimezone  = "X-Timezone"
 
 	// 设备和应用相关头部
 	HeaderXDeviceID       = "X-Device-Id"
+	HeaderXDeviceIDLegacy = "X-Device-ID"
+	HeaderXAppID          = "X-App-Id"
 	HeaderXAppVersion     = "X-App-Version"
 	HeaderXPlatform       = "X-Platform"
 	HeaderXTimestamp      = "X-Timestamp"
 	HeaderXSignature      = "X-Signature"
+	HeaderXNonce          = "X-Nonce"
+	HeaderXAccessKey      = "X-Access-Key"
 	HeaderXResponseFormat = "X-Response-Format"
 
 	// 安全相关头部

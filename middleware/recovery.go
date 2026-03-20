@@ -81,18 +81,18 @@ func logPanicError(ctx context.Context, r *http.Request, err any, stackTrace str
 	}
 
 	// 添加用户上下文信息
-	traceInfo := GetCachedTraceInfo(ctx)
-	if traceInfo.UserID != "" {
-		fields = append(fields, constants.LogFieldUserID, traceInfo.UserID)
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	if requestCommonMeta.UserID != "" {
+		fields = append(fields, constants.LogFieldUserID, requestCommonMeta.UserID)
 	}
-	if traceInfo.TenantID != "" {
-		fields = append(fields, constants.LogFieldTenantID, traceInfo.TenantID)
+	if requestCommonMeta.TenantID != "" {
+		fields = append(fields, constants.LogFieldTenantID, requestCommonMeta.TenantID)
 	}
-	if traceInfo.TraceID != "" {
-		fields = append(fields, constants.LogFieldTraceID, traceInfo.TraceID)
+	if requestCommonMeta.TraceID != "" {
+		fields = append(fields, constants.LogFieldTraceID, requestCommonMeta.TraceID)
 	}
-	if traceInfo.RequestID != "" {
-		fields = append(fields, constants.LogFieldRequestID, traceInfo.RequestID)
+	if requestCommonMeta.RequestID != "" {
+		fields = append(fields, constants.LogFieldRequestID, requestCommonMeta.RequestID)
 	}
 
 	global.LOGGER.ErrorContextKV(ctx, constants.LogMsgPanicRecovered, fields...)
@@ -135,11 +135,11 @@ func setPanicErrorResponse(w http.ResponseWriter, ctx context.Context, err inter
 
 // setTraceHeaders 设置追踪头信息
 func setTraceHeaders(w http.ResponseWriter, ctx context.Context) {
-	traceInfo := GetCachedTraceInfo(ctx)
-	if traceInfo.TraceID != "" {
-		w.Header().Set(constants.HeaderXTraceID, traceInfo.TraceID)
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	if requestCommonMeta.TraceID != "" {
+		w.Header().Set(constants.HeaderXTraceID, requestCommonMeta.TraceID)
 	}
-	if traceInfo.RequestID != "" {
-		w.Header().Set(constants.HeaderXRequestID, traceInfo.RequestID)
+	if requestCommonMeta.RequestID != "" {
+		w.Header().Set(constants.HeaderXRequestID, requestCommonMeta.RequestID)
 	}
 }

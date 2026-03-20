@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-config/pkg/ratelimit"
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -48,9 +49,14 @@ var (
 func TestMain(m *testing.M) {
 	// 初始化全局日志
 	global.LOGGER = logger.New()
+	global.GATEWAY = gwconfig.Default()
 
 	// 运行测试
 	os.Exit(m.Run())
+}
+
+func newRateLimitTestHandler(middleware *rateLimitMiddleware, next http.Handler) http.Handler {
+	return RequestContextMiddleware()(middleware.Middleware()(next))
 }
 
 // getTestRedisClient 获取测试用 Redis 客户端（单例模式）
@@ -241,8 +247,8 @@ func TestLimiters(t *testing.T) {
 	})
 }
 
-// TestEnhancedRateLimitMiddleware_RouteLimit 测试路由级别限流
-func TestEnhancedRateLimitMiddleware_RouteLimit(t *testing.T) {
+// TestRateLimitMiddleware_RouteLimit 测试路由级别限流
+func TestRateLimitMiddleware_RouteLimit(t *testing.T) {
 	config := &ratelimit.RateLimit{
 		Enabled:  true,
 		Strategy: ratelimit.StrategyTokenBucket,
@@ -262,8 +268,8 @@ func TestEnhancedRateLimitMiddleware_RouteLimit(t *testing.T) {
 		},
 	}
 
-	middleware := NewEnhancedRateLimitMiddleware(config)
-	handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	middleware := newRateLimitMiddleware(config, nil, nil)
+	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	}))
@@ -334,8 +340,8 @@ func TestEnhancedRateLimitMiddleware_RouteLimit(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w2.Code, "不同用户应该有独立的限流")
 }
 
-// TestEnhancedRateLimitMiddleware_PathGlobMatching 测试路径 Glob 通配符匹配
-func TestEnhancedRateLimitMiddleware_PathGlobMatching(t *testing.T) {
+// TestRateLimitMiddleware_PathGlobMatching 测试路径 Glob 通配符匹配
+func TestRateLimitMiddleware_PathGlobMatching(t *testing.T) {
 	config := &ratelimit.RateLimit{
 		Enabled:  true,
 		Strategy: ratelimit.StrategyTokenBucket,
@@ -357,8 +363,8 @@ func TestEnhancedRateLimitMiddleware_PathGlobMatching(t *testing.T) {
 		},
 	}
 
-	middleware := NewEnhancedRateLimitMiddleware(config)
-	handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	middleware := newRateLimitMiddleware(config, nil, nil)
+	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -412,8 +418,8 @@ func TestEnhancedRateLimitMiddleware_PathGlobMatching(t *testing.T) {
 	})
 }
 
-// TestEnhancedRateLimitMiddleware_PathGlobMatchingPerIP 测试路径通配符 + 按IP限流
-func TestEnhancedRateLimitMiddleware_PathGlobMatchingPerIP(t *testing.T) {
+// TestRateLimitMiddleware_PathGlobMatchingPerIP 测试路径通配符 + 按IP限流
+func TestRateLimitMiddleware_PathGlobMatchingPerIP(t *testing.T) {
 	config := &ratelimit.RateLimit{
 		Enabled:  true,
 		Strategy: ratelimit.StrategyTokenBucket,
@@ -429,8 +435,8 @@ func TestEnhancedRateLimitMiddleware_PathGlobMatchingPerIP(t *testing.T) {
 		},
 	}
 
-	middleware := NewEnhancedRateLimitMiddleware(config)
-	handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	middleware := newRateLimitMiddleware(config, nil, nil)
+	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -485,8 +491,8 @@ func TestEnhancedRateLimitMiddleware_PathGlobMatchingPerIP(t *testing.T) {
 	})
 }
 
-// TestEnhancedRateLimitMiddleware_HTTPMethodMatching 测试 HTTP 方法匹配
-func TestEnhancedRateLimitMiddleware_HTTPMethodMatching(t *testing.T) {
+// TestRateLimitMiddleware_HTTPMethodMatching 测试 HTTP 方法匹配
+func TestRateLimitMiddleware_HTTPMethodMatching(t *testing.T) {
 	config := &ratelimit.RateLimit{
 		Enabled:  true,
 		Strategy: ratelimit.StrategyTokenBucket,
@@ -502,8 +508,8 @@ func TestEnhancedRateLimitMiddleware_HTTPMethodMatching(t *testing.T) {
 		},
 	}
 
-	middleware := NewEnhancedRateLimitMiddleware(config)
-	handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	middleware := newRateLimitMiddleware(config, nil, nil)
+	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -554,8 +560,8 @@ func TestEnhancedRateLimitMiddleware_HTTPMethodMatching(t *testing.T) {
 	})
 }
 
-// TestEnhancedRateLimitMiddleware_IPWhitelist 测试IP白名单功能(表驱动测试)
-func TestEnhancedRateLimitMiddleware_IPWhitelist(t *testing.T) {
+// TestRateLimitMiddleware_IPWhitelist 测试IP白名单功能(表驱动测试)
+func TestRateLimitMiddleware_IPWhitelist(t *testing.T) {
 	testCases := []struct {
 		name           string
 		whitelist      []string
@@ -615,8 +621,8 @@ func TestEnhancedRateLimitMiddleware_IPWhitelist(t *testing.T) {
 				},
 			}
 
-			middleware := NewEnhancedRateLimitMiddleware(config)
-			handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			middleware := newRateLimitMiddleware(config, nil, nil)
+			handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
 
@@ -665,8 +671,8 @@ func TestEnhancedRateLimitMiddleware_IPWhitelist(t *testing.T) {
 	}
 }
 
-// TestEnhancedRateLimitMiddleware_IPBlacklist 测试IP黑名单功能(表驱动测试)
-func TestEnhancedRateLimitMiddleware_IPBlacklist(t *testing.T) {
+// TestRateLimitMiddleware_IPBlacklist 测试IP黑名单功能(表驱动测试)
+func TestRateLimitMiddleware_IPBlacklist(t *testing.T) {
 	tests := []struct {
 		name           string
 		blacklist      []string
@@ -717,8 +723,8 @@ func TestEnhancedRateLimitMiddleware_IPBlacklist(t *testing.T) {
 				},
 			}
 
-			middleware := NewEnhancedRateLimitMiddleware(config)
-			handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			middleware := newRateLimitMiddleware(config, nil, nil)
+			handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
 
@@ -750,35 +756,36 @@ func TestEnhancedRateLimitMiddleware_IPBlacklist(t *testing.T) {
 	}
 }
 
-// TestEnhancedRateLimitMiddleware_UserWildcardMatching 测试用户通配符匹配
-func TestEnhancedRateLimitMiddleware_UserWildcardMatching(t *testing.T) {
+// TestRateLimitMiddleware_UserWildcardMatching 测试用户通配符匹配
+func TestRateLimitMiddleware_UserWildcardMatching(t *testing.T) {
 	config := &ratelimit.RateLimit{
 		Enabled:  true,
 		Strategy: ratelimit.StrategyTokenBucket,
+		// 使用 0 RPS 禁止测试期间的令牌补充，避免顺序请求带来的时间抖动影响断言。
 		UserRules: []ratelimit.UserRule{
 			{
 				UserID: "admin-*", // 匹配所有 admin- 开头的用户
 				Limit: &ratelimit.LimitRule{
-					RequestsPerSecond: 100,
+					RequestsPerSecond: 0,
 					BurstSize:         200,
 				},
 			},
 			{
 				UserID: "vip-*", // 匹配所有 vip- 开头的用户
 				Limit: &ratelimit.LimitRule{
-					RequestsPerSecond: 50,
+					RequestsPerSecond: 0,
 					BurstSize:         100,
 				},
 			},
 		},
 		GlobalLimit: &ratelimit.LimitRule{
-			RequestsPerSecond: 10,
+			RequestsPerSecond: 0,
 			BurstSize:         20,
 		},
 	}
 
-	middleware := NewEnhancedRateLimitMiddleware(config)
-	handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	middleware := newRateLimitMiddleware(config, nil, nil)
+	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -843,8 +850,8 @@ func TestEnhancedRateLimitMiddleware_UserWildcardMatching(t *testing.T) {
 	})
 }
 
-// TestEnhancedRateLimitMiddleware_ComplexScenario 测试复杂场景（组合规则）
-func TestEnhancedRateLimitMiddleware_ComplexScenario(t *testing.T) {
+// TestRateLimitMiddleware_ComplexScenario 测试复杂场景（组合规则）
+func TestRateLimitMiddleware_ComplexScenario(t *testing.T) {
 	config := &ratelimit.RateLimit{
 		Enabled:  true,
 		Strategy: ratelimit.StrategyTokenBucket,
@@ -870,8 +877,8 @@ func TestEnhancedRateLimitMiddleware_ComplexScenario(t *testing.T) {
 		},
 	}
 
-	middleware := NewEnhancedRateLimitMiddleware(config)
-	handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	middleware := newRateLimitMiddleware(config, nil, nil)
+	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -926,8 +933,8 @@ func TestEnhancedRateLimitMiddleware_ComplexScenario(t *testing.T) {
 	})
 }
 
-// TestEnhancedRateLimitMiddleware_GlobalLimit 测试全局限流
-func TestEnhancedRateLimitMiddleware_GlobalLimit(t *testing.T) {
+// TestRateLimitMiddleware_GlobalLimit 测试全局限流
+func TestRateLimitMiddleware_GlobalLimit(t *testing.T) {
 	config := &ratelimit.RateLimit{
 		Enabled:      true,
 		Strategy:     ratelimit.StrategyTokenBucket,
@@ -938,8 +945,8 @@ func TestEnhancedRateLimitMiddleware_GlobalLimit(t *testing.T) {
 		},
 	}
 
-	middleware := NewEnhancedRateLimitMiddleware(config)
-	handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	middleware := newRateLimitMiddleware(config, nil, nil)
+	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -965,8 +972,8 @@ func TestEnhancedRateLimitMiddleware_GlobalLimit(t *testing.T) {
 	assert.LessOrEqual(t, successCount, maxAllowed, fmt.Sprintf("根据耗时%v,应该最多允许%d个请求", elapsed, maxAllowed))
 }
 
-// TestEnhancedRateLimitMiddleware_PerIPLimit 测试按IP限流
-func TestEnhancedRateLimitMiddleware_PerIPLimit(t *testing.T) {
+// TestRateLimitMiddleware_PerIPLimit 测试按IP限流
+func TestRateLimitMiddleware_PerIPLimit(t *testing.T) {
 	config := &ratelimit.RateLimit{
 		Enabled:      true,
 		Strategy:     ratelimit.StrategyTokenBucket,
@@ -977,8 +984,8 @@ func TestEnhancedRateLimitMiddleware_PerIPLimit(t *testing.T) {
 		},
 	}
 
-	middleware := NewEnhancedRateLimitMiddleware(config)
-	handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	middleware := newRateLimitMiddleware(config, nil, nil)
+	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -1006,8 +1013,8 @@ func TestEnhancedRateLimitMiddleware_PerIPLimit(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w2.Code)
 }
 
-// TestEnhancedRateLimitMiddleware_Disabled 测试禁用限流
-func TestEnhancedRateLimitMiddleware_Disabled(t *testing.T) {
+// TestRateLimitMiddleware_Disabled 测试禁用限流
+func TestRateLimitMiddleware_Disabled(t *testing.T) {
 	config := &ratelimit.RateLimit{
 		Enabled: false,
 		GlobalLimit: &ratelimit.LimitRule{
@@ -1016,8 +1023,8 @@ func TestEnhancedRateLimitMiddleware_Disabled(t *testing.T) {
 		},
 	}
 
-	middleware := NewEnhancedRateLimitMiddleware(config)
-	handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	middleware := newRateLimitMiddleware(config, nil, nil)
+	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -1111,8 +1118,8 @@ func TestTokenBucketLimiter_ConcurrentAccess(t *testing.T) {
 	assert.Equal(t, 200, total, "并发情况下应该精确有200次成功(BurstSize=200)")
 }
 
-// TestEnhancedRateLimitMiddleware_CompleteConfig 完整配置测试
-func TestEnhancedRateLimitMiddleware_CompleteConfig(t *testing.T) {
+// TestRateLimitMiddleware_CompleteConfig 完整配置测试
+func TestRateLimitMiddleware_CompleteConfig(t *testing.T) {
 	config := &ratelimit.RateLimit{
 		Enabled:      true,
 		Strategy:     ratelimit.StrategyTokenBucket,
@@ -1142,11 +1149,11 @@ func TestEnhancedRateLimitMiddleware_CompleteConfig(t *testing.T) {
 		},
 	}
 
-	middleware := NewEnhancedRateLimitMiddleware(config)
+	middleware := newRateLimitMiddleware(config, nil, nil)
 	require.NotNil(t, middleware)
 	require.NotNil(t, middleware.limiter)
 
-	handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("success"))
 	}))
@@ -1384,8 +1391,8 @@ func TestSlidingWindowLimiter_ConcurrentAccess(t *testing.T) {
 // Middleware 集成测试（使用 Redis）
 // ============================================================================
 
-// TestEnhancedRateLimitMiddleware_WithRedis 测试使用Redis的中间件
-func TestEnhancedRateLimitMiddleware_WithRedis(t *testing.T) {
+// TestRateLimitMiddleware_WithRedis 测试使用Redis的中间件
+func TestRateLimitMiddleware_WithRedis(t *testing.T) {
 	redisClient := getTestRedisClientWithFlush(t)
 
 	oldRedis := global.REDIS
@@ -1405,8 +1412,8 @@ func TestEnhancedRateLimitMiddleware_WithRedis(t *testing.T) {
 		DefaultScope: ratelimit.ScopeGlobal,
 	}
 
-	middleware := NewEnhancedRateLimitMiddleware(config)
-	handler := middleware.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	middleware := newRateLimitMiddleware(config, nil, nil)
+	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

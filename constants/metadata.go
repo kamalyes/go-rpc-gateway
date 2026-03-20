@@ -31,12 +31,16 @@ const (
 
 // 上下文相关字段
 const (
-	LogFieldTraceID   = "trace_id"
-	LogFieldRequestID = "request_id"
-	LogFieldUserID    = "user_id"
-	LogFieldTenantID  = "tenant_id"
-	LogFieldSessionID = "session_id"
-	LogFieldTimezone  = "timezone"
+	LogFieldTraceID    = "trace_id"
+	LogFieldRequestID  = "request_id"
+	LogFieldUserID     = "user_id"
+	LogFieldTenantID   = "tenant_id"
+	LogFieldSessionID  = "session_id"
+	LogFieldTimezone   = "timezone"
+	LogFieldAppID      = "app_id"
+	LogFieldDeviceID   = "device_id"
+	LogFieldAppVersion = "app_version"
+	LogFieldPlatform   = "platform"
 )
 
 // 请求相关字段

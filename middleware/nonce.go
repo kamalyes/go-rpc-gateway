@@ -16,7 +16,6 @@ import (
 	"net/http"
 	"time"
 
-	gccommon "github.com/kamalyes/go-config/pkg/common"
 	"github.com/kamalyes/go-config/pkg/signature"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -60,8 +59,8 @@ func NonceMiddleware(config *signature.Signature) HTTPMiddleware {
 				return
 			}
 
-			// 提取 Nonce
-			nonceValue := gccommon.ExtractAttribute(r, config.NonceSources)
+			// 从 context 提取 Nonce
+			nonceValue := GetRequestCommonMeta(r.Context()).Nonce
 			if nonceValue == "" {
 				response.WriteErrorResponseWithCode(w, http.StatusBadRequest, constants.SignatureErrorCodeInvalid, "Missing nonce header")
 				return

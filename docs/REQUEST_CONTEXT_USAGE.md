@@ -1,8 +1,8 @@
-# Context Trace 工具方法使用指南
+# Request Context 工具方法使用指南
 
 ## 概述
 
-`context_trace.go` 提供了一组标准的工具方法，供其他组件使用，实现 HTTP → gRPC → Service → Repository 全链路追踪
+`request_context.go` 提供了一组标准的工具方法，供其他组件使用，实现 HTTP → gRPC → Service → Repository 全链路上下文传递
 
 ## 常用方法
 
@@ -58,14 +58,14 @@ ctx = middleware.WithTimezone(ctx, "Asia/Shanghai")
 // 获取 TraceID 和 RequestID (快捷方法)
 traceID, requestID := middleware.GetTraceInfoFromContext(ctx)
 
-// 获取完整的追踪信息（包含所有字段）
-traceInfo := middleware.GetCachedTraceInfo(ctx)
-// traceInfo.TraceID
-// traceInfo.RequestID
-// traceInfo.UserID
-// traceInfo.TenantID
-// traceInfo.SessionID
-// traceInfo.Timezone
+// 获取完整的请求公共信息（包含所有字段）
+requestCommonMeta := middleware.GetRequestCommonMeta(ctx)
+// requestCommonMeta.TraceID
+// requestCommonMeta.RequestID
+// requestCommonMeta.UserID
+// requestCommonMeta.TenantID
+// requestCommonMeta.SessionID
+// requestCommonMeta.Timezone
 ```
 
 ## 使用场景示例
@@ -132,7 +132,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*User, error)
 
 ```go
 // gRPC Client 拦截器已经自动处理，无需手动操作
-// 只需要确保使用了 UnaryClientContextInterceptor 和 StreamClientContextInterceptor
+// 只需要确保使用了 UnaryClientRequestContextInterceptor 和 StreamClientRequestContextInterceptor
 
 import (
 	"google.golang.org/grpc"
@@ -141,8 +141,8 @@ import (
 
 conn, err := grpc.Dial(
 	target,
-	grpc.WithUnaryInterceptor(middleware.UnaryClientContextInterceptor()),
-	grpc.WithStreamInterceptor(middleware.StreamClientContextInterceptor()),
+	grpc.WithUnaryInterceptor(middleware.UnaryClientRequestContextInterceptor()),
+	grpc.WithStreamInterceptor(middleware.StreamClientRequestContextInterceptor()),
 )
 
 // 之后的 gRPC 调用会自动传递 context 中的 trace 信息
@@ -194,7 +194,7 @@ func UserHandler(w http.ResponseWriter, r *http.Request) {
 	
 	// 业务逻辑...
 	
-	// 响应头已由 ContextTraceMiddleware 自动设置
+	// 响应头已由 RequestContextMiddleware 自动设置
 	// 无需手动设置 X-Trace-Id 和 X-Request-Id
 }
 ```
@@ -203,7 +203,7 @@ func UserHandler(w http.ResponseWriter, r *http.Request) {
 
 ### HTTP 中间件
 
-在 HTTP 服务器中使用 `ContextTraceMiddleware`：
+在 HTTP 服务器中使用 `RequestContextMiddleware`：
 
 ```go
 import (
@@ -211,7 +211,7 @@ import (
 )
 
 // 配置中间件
-router.Use(middleware.ContextTraceMiddleware())
+router.Use(middleware.RequestContextMiddleware())
 ```
 
 该中间件会自动：
@@ -230,8 +230,8 @@ import (
 )
 
 server := grpc.NewServer(
-	grpc.UnaryInterceptor(middleware.UnaryServerContextInterceptor()),
-	grpc.StreamInterceptor(middleware.StreamServerContextInterceptor()),
+	grpc.UnaryInterceptor(middleware.UnaryServerRequestContextInterceptor()),
+	grpc.StreamInterceptor(middleware.StreamServerRequestContextInterceptor()),
 )
 ```
 
@@ -252,8 +252,8 @@ import (
 
 conn, err := grpc.Dial(
 	target,
-	grpc.WithUnaryInterceptor(middleware.UnaryClientContextInterceptor()),
-	grpc.WithStreamInterceptor(middleware.StreamClientContextInterceptor()),
+	grpc.WithUnaryInterceptor(middleware.UnaryClientRequestContextInterceptor()),
+	grpc.WithStreamInterceptor(middleware.StreamClientRequestContextInterceptor()),
 )
 ```
 
@@ -312,7 +312,7 @@ constants.LogFieldPath       // "path"
    - 不要创建新的空 context，使用传入的 context
 
 4. **自动化优先**
-   - HTTP 层使用 `ContextTraceMiddleware()` 自动处理
+   - HTTP 层使用 `RequestContextMiddleware()` 自动处理
    - gRPC 层使用拦截器自动处理
    - 避免手动设置响应头或 metadata
 
@@ -326,16 +326,16 @@ constants.LogFieldPath       // "path"
 
 ```
 HTTP Request
-    ↓ (ContextTraceMiddleware 提取/生成 trace_id)
+    ↓ (RequestContextMiddleware 提取/生成 trace_id)
 HTTP Handler
     ↓ (context 传递)
 Service Layer (使用 middleware.GetTraceID 获取)
     ↓ (context 传递)
 Repository Layer (使用 middleware.GetTraceID 获取)
     ↓ (context 传递)
-gRPC Client (UnaryClientContextInterceptor 自动注入)
+gRPC Client (UnaryClientRequestContextInterceptor 自动注入)
     ↓ (metadata 传递)
-gRPC Server (UnaryServerContextInterceptor 自动提取)
+gRPC Server (UnaryServerRequestContextInterceptor 自动提取)
     ↓ (context 传递)
 Downstream Service
 ```
@@ -344,9 +344,9 @@ Downstream Service
 
 追踪信息在 context 中有两层存储：
 
-1. **缓存层**：`TraceInfo` 结构体（通过 `traceInfoKey` 存储）
+1. **缓存层**：`RequestCommonMeta` 结构体（通过 `requestCommonMetaKey` 存储）
    - 优点：一次查询获取所有字段，性能更好
-   - 使用：`GetCachedTraceInfo(ctx)` 获取完整信息
+   - 使用：`GetRequestCommonMeta(ctx)` 获取完整信息
 
 2. **标准层**：使用 `go-logger` 的标准 ContextKey
    - 优点：与日志系统集成，兼容性好
@@ -358,7 +358,7 @@ Downstream Service
 
 ### Q1: 为什么要使用 middleware.GetTraceID 而不是 logger.GetTraceID？
 
-A: `middleware.GetTraceID` 会优先从缓存的 `TraceInfo` 中获取，性能更好同时保持了 API 的一致性，便于后续维护
+A: `middleware.GetTraceID` 会优先从缓存的 `RequestCommonMeta` 中获取，性能更好同时保持了 API 的一致性，便于后续维护
 
 ### Q2: 如何在发起外部 HTTP 请求时传递追踪信息？
 
@@ -370,9 +370,9 @@ req.Header.Set(constants.HeaderXTraceID, middleware.GetTraceID(ctx))
 req.Header.Set(constants.HeaderXRequestID, middleware.GetRequestID(ctx))
 ```
 
-### Q3: TraceInfo 缓存什么时候创建？
+### Q3: RequestCommonMeta 缓存什么时候创建？
 
-A: 在 HTTP 中间件 `ContextTraceMiddleware` 或 gRPC 拦截器中自动创建如果你在这些中间件之外使用，`GetCachedTraceInfo` 会回退到从 logger 中提取
+A: 在 HTTP 中间件 `RequestContextMiddleware` 或 gRPC 拦截器中自动创建如果你在这些中间件之外使用，`GetRequestCommonMeta` 会回退到从 logger 中提取
 
 ### Q4: 如何在单元测试中使用？
 

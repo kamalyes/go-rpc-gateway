@@ -92,8 +92,8 @@ func (s *Server) initGRPCServer() error {
 	if s.middlewareManager != nil {
 		// 构建 Unary 拦截器链
 		unaryInterceptors := []grpc.UnaryServerInterceptor{
-			middleware.UnaryServerContextInterceptor(), // 1. Context 注入（最先执行，注入 trace_id/request_id）
-			middleware.UnaryServerLoggingInterceptor(), // 2. 日志记录
+			middleware.UnaryServerRequestContextInterceptor(), // 1. RequestContext 注入（最先执行，注入 trace_id/request_id）
+			middleware.UnaryServerLoggingInterceptor(),        // 2. 日志记录
 		}
 
 		// 添加监控拦截器（如果启用）
@@ -110,8 +110,8 @@ func (s *Server) initGRPCServer() error {
 
 		// 构建 Stream 拦截器链
 		streamInterceptors := []grpc.StreamServerInterceptor{
-			middleware.StreamServerContextInterceptor(), // 1. Context 注入
-			middleware.StreamServerLoggingInterceptor(), // 2. 日志记录
+			middleware.StreamServerRequestContextInterceptor(), // 1. RequestContext 注入
+			middleware.StreamServerLoggingInterceptor(),        // 2. 日志记录
 		}
 		opts = append(opts, grpc.ChainStreamInterceptor(streamInterceptors...))
 	}

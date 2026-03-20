@@ -172,11 +172,11 @@ func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds 
 	// 添加 Context 传播拦截器（确保 trace_id 在服务调用链中传递）
 	dialOpts = append(dialOpts,
 		grpc.WithChainUnaryInterceptor(
-			middleware.UnaryClientContextInterceptor(), // Context 传播
+			middleware.UnaryClientRequestContextInterceptor(), // RequestContext 传播
 			UnaryClientHealthInterceptor(serviceName, healthChecker),
 		),
 		grpc.WithChainStreamInterceptor(
-			middleware.StreamClientContextInterceptor(), // Stream Context 传播
+			middleware.StreamClientRequestContextInterceptor(), // Stream RequestContext 传播
 			StreamClientHealthInterceptor(serviceName, healthChecker),
 		),
 	)

@@ -19,7 +19,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	gccommon "github.com/kamalyes/go-config/pkg/common"
 	"github.com/kamalyes/go-config/pkg/ratelimit"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -429,40 +428,110 @@ func (f *FixedWindowLimiter) Stop() {
 	})
 }
 
-// EnhancedRateLimitMiddleware 增强的限流中间件
-type EnhancedRateLimitMiddleware struct {
-	config  *ratelimit.RateLimit
-	limiter RateLimiter
+type rateLimiterSet struct {
+	config   *ratelimit.RateLimit
+	mu       sync.RWMutex
+	limiters map[ratelimit.Strategy]RateLimiter
 }
 
-// NewEnhancedRateLimitMiddleware 创建增强限流中间件
-func NewEnhancedRateLimitMiddleware(config *ratelimit.RateLimit) *EnhancedRateLimitMiddleware {
+func newRateLimiterSet(config *ratelimit.RateLimit, defaultLimiter RateLimiter) *rateLimiterSet {
 	config = mathx.IF(config == nil, ratelimit.Default(), config)
 
-	var limiter RateLimiter
-
-	// 根据策略选择限流器
-	switch config.Strategy {
-	case ratelimit.StrategySlidingWindow:
-		if global.REDIS != nil {
-			limiter = NewSlidingWindowLimiter(config)
-		} else {
-			limiter = NewTokenBucketLimiter(config) // 降级到令牌桶
-		}
-	case ratelimit.StrategyFixedWindow:
-		limiter = NewFixedWindowLimiter(config)
-	default:
-		limiter = NewTokenBucketLimiter(config)
+	set := &rateLimiterSet{
+		config:   config,
+		limiters: make(map[ratelimit.Strategy]RateLimiter, 3),
 	}
 
-	return &EnhancedRateLimitMiddleware{
-		config:  config,
-		limiter: limiter,
+	if defaultLimiter != nil {
+		set.limiters[resolveRateLimiterStrategy(config.Strategy)] = defaultLimiter
+	}
+
+	return set
+}
+
+func (s *rateLimiterSet) get(strategy ratelimit.Strategy) RateLimiter {
+	resolved := resolveRateLimiterStrategy(strategy)
+
+	s.mu.RLock()
+	limiter := s.limiters[resolved]
+	s.mu.RUnlock()
+	if limiter != nil {
+		return limiter
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if limiter = s.limiters[resolved]; limiter != nil {
+		return limiter
+	}
+
+	limiter = newRateLimiter(s.config, resolved)
+	if limiter != nil {
+		s.limiters[resolved] = limiter
+	}
+
+	return limiter
+}
+
+func resolveRateLimiterStrategy(strategy ratelimit.Strategy) ratelimit.Strategy {
+	switch strategy {
+	case ratelimit.StrategySlidingWindow:
+		if global.REDIS == nil {
+			global.LOGGER.Warn("Redis不可用,限流器降级为令牌桶模式")
+			return ratelimit.StrategyTokenBucket
+		}
+		return ratelimit.StrategySlidingWindow
+	case ratelimit.StrategyFixedWindow:
+		return ratelimit.StrategyFixedWindow
+	case ratelimit.StrategyTokenBucket:
+		fallthrough
+	default:
+		return ratelimit.StrategyTokenBucket
+	}
+}
+
+func newRateLimiter(config *ratelimit.RateLimit, strategy ratelimit.Strategy) RateLimiter {
+	config = mathx.IF(config == nil, ratelimit.Default(), config)
+
+	switch resolveRateLimiterStrategy(strategy) {
+	case ratelimit.StrategySlidingWindow:
+		return NewSlidingWindowLimiter(config)
+	case ratelimit.StrategyFixedWindow:
+		return NewFixedWindowLimiter(config)
+	case ratelimit.StrategyTokenBucket:
+		fallthrough
+	default:
+		return NewTokenBucketLimiter(config)
+	}
+}
+
+type rateLimitMiddleware struct {
+	config          *ratelimit.RateLimit
+	limiter         RateLimiter
+	limiters        *rateLimiterSet
+	dynamicProvider DynamicRateLimitProvider
+}
+
+func newRateLimitMiddleware(config *ratelimit.RateLimit, defaultLimiter RateLimiter, provider DynamicRateLimitProvider) *rateLimitMiddleware {
+	config = mathx.IF(config == nil, ratelimit.Default(), config)
+
+	limiters := newRateLimiterSet(config, defaultLimiter)
+	limiter := defaultLimiter
+	if limiter == nil {
+		limiter = limiters.get(config.Strategy)
+	}
+
+	return &rateLimitMiddleware{
+		config:          config,
+		limiter:         limiter,
+		limiters:        limiters,
+		dynamicProvider: provider,
 	}
 }
 
 // Middleware 返回 HTTP 中间件
-func (e *EnhancedRateLimitMiddleware) Middleware() HTTPMiddleware {
+func (e *rateLimitMiddleware) Middleware() HTTPMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !e.config.Enabled {
@@ -470,15 +539,17 @@ func (e *EnhancedRateLimitMiddleware) Middleware() HTTPMiddleware {
 				return
 			}
 
-			// 获取限流规则和key(内部已处理白名单)
-			rule, key := e.getRuleAndKey(r)
-			if rule == nil {
-				// nil表示白名单或无需限流
+			decisions, appErr := e.getDecisions(r)
+			if appErr != nil {
+				response.WriteAppError(w, appErr)
+				return
+			}
+			if len(decisions) == 0 {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			if !e.allowRequest(w, r, key, rule) {
+			if !e.allowRequests(w, r, decisions) {
 				return
 			}
 
@@ -487,9 +558,54 @@ func (e *EnhancedRateLimitMiddleware) Middleware() HTTPMiddleware {
 	}
 }
 
+func (e *rateLimitMiddleware) getDecisions(r *http.Request) ([]RateLimitDecision, *errors.AppError) {
+	if e.dynamicProvider != nil {
+		result, appErr := e.dynamicProvider.ResolveRateLimit(r)
+		if appErr != nil {
+			return nil, appErr
+		}
+		if result != nil {
+			if result.Skip {
+				return nil, nil
+			}
+			if len(result.Decisions) > 0 {
+				return e.normalizeDecisions(r, result.Decisions), nil
+			}
+		}
+	}
+
+	rule, key := e.getRuleAndKey(r)
+	if rule == nil {
+		return nil, nil
+	}
+
+	return []RateLimitDecision{{
+		Rule:     rule,
+		Key:      key,
+		Strategy: e.config.Strategy,
+	}}, nil
+}
+
+func (e *rateLimitMiddleware) normalizeDecisions(r *http.Request, decisions []RateLimitDecision) []RateLimitDecision {
+	normalized := make([]RateLimitDecision, 0, len(decisions))
+	for _, decision := range decisions {
+		if decision.Rule == nil {
+			continue
+		}
+		if decision.Key == "" {
+			decision.Key = e.generateKey(r, e.config.DefaultScope)
+		}
+		if decision.Strategy == "" {
+			decision.Strategy = e.config.Strategy
+		}
+		normalized = append(normalized, decision)
+	}
+	return normalized
+}
+
 // getRuleAndKey 获取限流规则和key(统一处理白名单/黑名单/限流规则)
 // 优先级: 白名单 > 黑名单 > 限流规则
-func (e *EnhancedRateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit.LimitRule, string) {
+func (e *rateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit.LimitRule, string) {
 	clientIP := netx.GetClientIP(r)
 	path := r.URL.Path
 	method := r.Method
@@ -531,7 +647,7 @@ func (e *EnhancedRateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit
 		// 3. 应用路由限流规则
 		if routeLimit.Limit != nil {
 			if routeLimit.PerUser {
-				userID := gccommon.ExtractAttribute(r, e.config.UserIDSources)
+				userID := GetRequestCommonMeta(r.Context()).UserID
 				return routeLimit.Limit, fmt.Sprintf(keyFormatRouteUser, routeLimit.Path, userID)
 			}
 			if routeLimit.PerIP {
@@ -562,7 +678,7 @@ func (e *EnhancedRateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit
 	}
 
 	// 第三轮: 检查用户级别规则
-	userID := gccommon.ExtractAttribute(r, e.config.UserIDSources)
+	userID := GetRequestCommonMeta(r.Context()).UserID
 	if userID != "" {
 		for _, userRule := range e.config.UserRules {
 			if e.matchUser(userRule, userID) {
@@ -581,31 +697,46 @@ func (e *EnhancedRateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit
 	return nil, ""
 }
 
-// allowRequest 检查是否允许请求
-func (e *EnhancedRateLimitMiddleware) allowRequest(w http.ResponseWriter, r *http.Request, key string, rule *ratelimit.LimitRule) bool {
-	allowed, err := e.limiter.Allow(r.Context(), key, rule)
-	if err != nil {
-		response.WriteErrorResponse(w, errors.ErrInternalServerError.WithDetails(err.Error()))
-		return false
-	}
+// allowRequests 检查是否允许请求
+func (e *rateLimitMiddleware) allowRequests(w http.ResponseWriter, r *http.Request, decisions []RateLimitDecision) bool {
+	for _, decision := range decisions {
+		limiter := e.getLimiter(decision.Strategy)
+		if limiter == nil {
+			response.WriteAppError(w, errors.NewError(errors.ErrCodeInternalServerError, fmt.Sprintf("unsupported rate limit strategy: %s", decision.Strategy)))
+			return false
+		}
 
-	if !allowed {
-		response.WriteErrorResponse(w, errors.ErrRateLimitExceeded)
-		return false
+		allowed, err := limiter.Allow(r.Context(), decision.Key, decision.Rule)
+		if err != nil {
+			response.WriteAppError(w, errors.NewError(errors.ErrCodeInternalServerError, err.Error()))
+			return false
+		}
+
+		if !allowed {
+			response.WriteErrorResponse(w, errors.ErrRateLimitExceeded)
+			return false
+		}
 	}
 
 	return true
 }
 
+func (e *rateLimitMiddleware) getLimiter(strategy ratelimit.Strategy) RateLimiter {
+	if limiter := e.limiters.get(strategy); limiter != nil {
+		return limiter
+	}
+	return e.limiter
+}
+
 // generateKey 生成限流key
-func (e *EnhancedRateLimitMiddleware) generateKey(r *http.Request, scope ratelimit.Scope) string {
+func (e *rateLimitMiddleware) generateKey(r *http.Request, scope ratelimit.Scope) string {
 	switch scope {
 	case ratelimit.ScopeGlobal:
 		return keyGlobal
 	case ratelimit.ScopePerIP:
 		return fmt.Sprintf(keyFormatIP, netx.GetClientIP(r))
 	case ratelimit.ScopePerUser:
-		return fmt.Sprintf(keyFormatUser, gccommon.ExtractAttribute(r, e.config.UserIDSources))
+		return fmt.Sprintf(keyFormatUser, GetRequestCommonMeta(r.Context()).UserID)
 	case ratelimit.ScopePerRoute:
 		return fmt.Sprintf(keyFormatRouteMethod, r.Method, r.URL.Path)
 	default:
@@ -614,7 +745,7 @@ func (e *EnhancedRateLimitMiddleware) generateKey(r *http.Request, scope ratelim
 }
 
 // matchUser 匹配用户（使用通配符匹配）
-func (e *EnhancedRateLimitMiddleware) matchUser(rule ratelimit.UserRule, userID string) bool {
+func (e *rateLimitMiddleware) matchUser(rule ratelimit.UserRule, userID string) bool {
 	// 空或通配符，匹配所有
 	if rule.UserID == "" || rule.UserID == keyWildcard {
 		return true
@@ -626,5 +757,10 @@ func (e *EnhancedRateLimitMiddleware) matchUser(rule ratelimit.UserRule, userID 
 
 // RateLimitMiddleware 限流中间件
 func RateLimitMiddleware(config *ratelimit.RateLimit) HTTPMiddleware {
-	return NewEnhancedRateLimitMiddleware(config).Middleware()
+	return newRateLimitMiddleware(config, nil, nil).Middleware()
+}
+
+// RateLimitMiddlewareWithProvider 限流中间件（支持动态规则）
+func RateLimitMiddlewareWithProvider(config *ratelimit.RateLimit, provider DynamicRateLimitProvider) HTTPMiddleware {
+	return newRateLimitMiddleware(config, nil, provider).Middleware()
 }

@@ -2,9 +2,9 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-13 18:30:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 18:30:00
+ * @LastEditTime: 2026-03-23 13:20:10
  * @FilePath: \go-rpc-gateway\server\startup.go
- * @Description: 启动状态打印和检测功能
+ * @Description: 启动展示统一模型与渲染入口
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
  */
@@ -12,262 +12,342 @@
 package server
 
 import (
-	"context"
 	"fmt"
+	"runtime"
 	"time"
 
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-toolbox/pkg/mathx"
 )
 
-// StartupReporter 启动状态报告器
-type StartupReporter struct {
-	ctx    context.Context
-	config *gwconfig.Gateway
+type startupField struct {
+	label string
+	value string
 }
 
-// NewStartupReporter 创建启动状态报告器
-func NewStartupReporter(config *gwconfig.Gateway) *StartupReporter {
-	return &StartupReporter{
-		ctx:    context.Background(),
-		config: config,
+type startupService struct {
+	icon    string
+	name    string
+	host    string
+	port    int
+	enabled bool
+}
+
+type startupToggle struct {
+	name    string
+	icon    string
+	label   string
+	enabled bool
+	path    string
+	detail  string
+	note    string
+}
+
+type startupRuntime struct {
+	goVersion  string
+	cpu        int
+	goroutines int
+	osArch     string
+	startedAt  string
+}
+
+type startupSummary struct {
+	enabledCount int
+	totalCount   int
+	startedAt    string
+}
+
+func (s startupService) displayLabel() string {
+	if s.icon == "" {
+		return s.name
 	}
+	return s.icon + " " + s.name
 }
 
-// WithContext 设置上下文
-func (r *StartupReporter) WithContext(ctx context.Context) *StartupReporter {
-	if ctx != nil {
-		r.ctx = ctx
+func (t startupToggle) displayLabel() string {
+	if t.icon == "" {
+		return t.label
 	}
-	return r
+	return t.icon + " " + t.label
 }
 
-// PrintStartupStatus 打印启动状态
-func (r *StartupReporter) PrintStartupStatus() {
-	if r.config == nil {
-		global.LOGGER.WarnContext(r.ctx, "⚠️  配置未初始化，无法打印启动状态")
+func (s startupSummary) rate() string {
+	if s.totalCount == 0 {
+		return "0.0%"
+	}
+	return fmt.Sprintf("%.1f%%", float64(s.enabledCount)/float64(s.totalCount)*100)
+}
+
+type startupReport struct {
+	title          string
+	bannerEnabled  bool
+	bannerTemplate string
+	baseURL        string
+	version        string
+	environment    string
+	debug          bool
+	framework      string
+	buildTime      string
+	buildUser      string
+	buildGoVersion string
+	gitCommit      string
+	gitBranch      string
+	gitTag         string
+	startedAt      string
+	services       []startupService
+	modules        []startupToggle
+	features       []startupToggle
+	middleware     []startupToggle
+	monitoring     []startupToggle
+	runtime        startupRuntime
+	summary        startupSummary
+}
+
+// PrintStartupChecks 打印启动前检查
+func (b *BannerManager) PrintStartupChecks() {
+	if b == nil || b.config == nil {
 		return
 	}
 
-	// 使用 Console 分组展示启动状态
+	report := b.buildStartupReport()
+	b.printStartupTimestamp(report)
+	b.printStartupStatus(report)
+}
+
+// PrintStartupReport 打印启动成功后的完整报告
+func (b *BannerManager) PrintStartupReport() {
+	if b == nil || b.config == nil {
+		return
+	}
+
+	report := b.buildStartupReport()
+	b.printStartupBanner(report)
+	b.printMiddlewareStatus(report)
+	b.printUsageGuide(report)
+	b.printPProfInfo(report)
+	b.printStartupSummary(report)
+}
+
+func (b *BannerManager) buildStartupReport() startupReport {
+	startedAt := time.Now().Format(time.RFC3339)
+	title := mathx.IfEmpty(b.config.Banner.Title, "Gateway")
+
+	baseURL := fmt.Sprintf("http://%s:%d", b.config.HTTPServer.Host, b.config.HTTPServer.Port)
+	metricsURL := fmt.Sprintf("http://%s:%d%s", b.config.HTTPServer.Host, b.config.Monitoring.Prometheus.Port, b.config.Monitoring.Prometheus.Path)
+	pprofURL := fmt.Sprintf("http://%s:%d%s/", b.config.HTTPServer.Host, b.config.Middleware.PProf.Port, b.config.Middleware.PProf.PathPrefix)
+	pprofAuthStatus := "已禁用 (开发模式)"
+	if b.config.Middleware.PProf.Authentication.Enabled {
+		pprofAuthStatus = "已启用"
+	}
+
+	services := []startupService{
+		{icon: "🌐", name: "HTTP", host: b.config.HTTPServer.Host, port: b.config.HTTPServer.Port, enabled: true},
+		{icon: "📡", name: "gRPC", host: b.config.GRPC.Server.Host, port: b.config.GRPC.Server.Port, enabled: b.config.GRPC.Server.Enable},
+	}
+
+	modules := []startupToggle{
+		{name: "health", icon: "🏥", label: "健康检查", enabled: b.config.Health.Enabled, path: b.config.Health.Path, detail: b.config.Health.Path},
+		{name: "swagger", icon: "📚", label: "Swagger文档", enabled: b.config.Swagger.Enabled, path: b.config.Swagger.UIPath, detail: b.config.Swagger.UIPath},
+		{name: "websocket", icon: "🔌", label: "WebSocket", enabled: b.config.WSC.Enabled, path: b.config.WSC.Path, detail: b.config.WSC.Path},
+	}
+
+	features := []startupToggle{
+		{name: "grpc_gateway", icon: "🚪", label: "gRPC-Gateway集成", enabled: true},
+		{name: "middleware_ecosystem", icon: "🧩", label: "中间件生态系统", enabled: true},
+		{name: "config_hot_reload", icon: "♻️", label: "配置热重载", enabled: true},
+		{name: "graceful_shutdown", icon: "🛑", label: "优雅关闭", enabled: true},
+		{name: "i18n", icon: "🌍", label: "I18n国际化支持", enabled: true},
+		{name: "request_id", icon: "🆔", label: "请求ID生成", enabled: true},
+		{name: "recovery", icon: "🛡️", label: "异常恢复", enabled: true},
+		{name: "security_headers", icon: "🔐", label: "安全头设置", enabled: true},
+		{name: "logging", icon: "📝", label: "日志记录与管理", enabled: true},
+		{name: "swagger_support", icon: "📘", label: "Swagger文档支持", enabled: true},
+		{name: "cors", icon: "🌐", label: "CORS跨域支持", enabled: b.config.CORS.AllowedAllOrigins || len(b.config.CORS.AllowedOrigins) > 0},
+		{name: "rate_limit", icon: "🚦", label: "限流控制", enabled: b.config.RateLimit.Enabled},
+		{name: "access_logging", icon: "📋", label: "访问日志记录", enabled: b.config.Middleware.Logging.Enabled},
+		{name: "jwt", icon: "🔑", label: "身份认证 (JWT)", enabled: b.config.Security.JWT.Secret != ""},
+		{name: "prometheus", icon: "📊", label: "Prometheus指标", enabled: b.config.Monitoring.Prometheus.Enabled, detail: metricsURL},
+		{name: "pprof", icon: "🔬", label: "PProf性能分析", enabled: b.config.Middleware.PProf.Enabled, detail: pprofURL, note: "认证: " + pprofAuthStatus},
+		{name: "jaeger", icon: "🕸️", label: "链路追踪", enabled: b.config.Monitoring.Jaeger.Enabled, detail: b.config.Monitoring.Jaeger.ServiceName},
+	}
+
+	for _, feature := range b.features {
+		features = append(features, startupToggle{
+			name:    "custom_feature",
+			icon:    "✨",
+			label:   feature,
+			enabled: true,
+		})
+	}
+
+	middlewareItems := []startupToggle{
+		{name: "recovery", icon: "🛡️", label: "异常恢复", enabled: b.config.Middleware.Recovery.Enabled},
+		{name: "request_id", icon: "🆔", label: "请求ID生成", enabled: true},
+		{name: "i18n", icon: "🌍", label: "国际化支持", enabled: b.config.Middleware.I18N.Enabled},
+		{name: "request_context", icon: "🧭", label: "请求上下文", enabled: true},
+		{name: "cors", icon: "🌐", label: "跨域处理", enabled: b.config.CORS.AllowedAllOrigins || len(b.config.CORS.AllowedOrigins) > 0},
+		{name: "csp", icon: "🔐", label: "内容安全策略", enabled: b.config.Security.CSP.Enabled},
+		{name: "jwt", icon: "🔑", label: "身份认证", enabled: b.config.Security.JWT.Secret != ""},
+		{name: "signature", icon: "✍️", label: "签名验证", enabled: b.config.Middleware.Signature.Enabled},
+		{name: "rate_limit", icon: "🚦", label: "限流控制", enabled: b.config.RateLimit.Enabled},
+		{name: "circuit_breaker", icon: "⚡", label: "熔断保护", enabled: b.config.Middleware.CircuitBreaker.Enabled},
+		{name: "logging", icon: "📝", label: "访问日志", enabled: b.config.Middleware.Logging.Enabled},
+		{name: "metrics", icon: "📈", label: "性能指标", enabled: b.config.Middleware.Metrics.Enabled},
+		{name: "tracing", icon: "🕸️", label: "链路追踪", enabled: b.config.Middleware.Tracing.Enabled},
+		{name: "swagger", icon: "📘", label: "API文档", enabled: b.config.Swagger.Enabled},
+		{name: "pprof", icon: "🔬", label: "性能分析", enabled: b.config.Middleware.PProf.Enabled},
+	}
+
+	monitoring := []startupToggle{
+		{name: "prometheus", icon: "📊", label: "Prometheus指标", enabled: b.config.Monitoring.Prometheus.Enabled, path: b.config.Monitoring.Prometheus.Path, detail: metricsURL},
+		{name: "pprof", icon: "🔬", label: "PProf性能分析", enabled: b.config.Middleware.PProf.Enabled, path: b.config.Middleware.PProf.PathPrefix, detail: pprofURL, note: "认证: " + pprofAuthStatus},
+		{name: "jaeger", icon: "🕸️", label: "Jaeger链路追踪", enabled: b.config.Monitoring.Jaeger.Enabled, detail: b.config.Monitoring.Jaeger.ServiceName},
+	}
+
+	summaryFlags := []bool{
+		b.config.Health.Enabled,
+		b.config.Swagger.Enabled,
+		b.config.Monitoring.Prometheus.Enabled,
+		b.config.Middleware.PProf.Enabled,
+		b.config.Monitoring.Jaeger.Enabled,
+		b.config.WSC.Enabled,
+		b.config.CORS.AllowedAllOrigins || len(b.config.CORS.AllowedOrigins) > 0,
+		b.config.RateLimit.Enabled,
+	}
+
+	enabledCount := 0
+	for _, enabled := range summaryFlags {
+		if enabled {
+			enabledCount++
+		}
+	}
+
+	return startupReport{
+		title:          title,
+		bannerEnabled:  b.config.Banner.Enabled,
+		bannerTemplate: b.config.Banner.Template,
+		baseURL:        baseURL,
+		version:        b.config.Version,
+		environment:    b.config.Environment,
+		debug:          b.config.Debug,
+		framework:      "go-rpc-gateway (基于 go-config & go-logger & go-sqlbuilder & go-toolbox)",
+		buildTime:      b.config.BuildTime,
+		buildUser:      b.config.BuildUser,
+		buildGoVersion: b.config.GoVersion,
+		gitCommit:      b.config.GitCommit,
+		gitBranch:      b.config.GitBranch,
+		gitTag:         b.config.GitTag,
+		startedAt:      startedAt,
+		services:       services,
+		modules:        modules,
+		features:       features,
+		middleware:     middlewareItems,
+		monitoring:     monitoring,
+		runtime: startupRuntime{
+			goVersion:  runtime.Version(),
+			cpu:        runtime.NumCPU(),
+			goroutines: runtime.NumGoroutine(),
+			osArch:     runtime.GOOS + "/" + runtime.GOARCH,
+			startedAt:  startedAt,
+		},
+		summary: startupSummary{
+			enabledCount: enabledCount,
+			totalCount:   len(summaryFlags),
+			startedAt:    startedAt,
+		},
+	}
+}
+
+func (b *BannerManager) printStartupTimestamp(report startupReport) {
+	global.LOGGER.InfoContext(b.ctx, "🕐 服务启动时间: %s", report.startedAt)
+}
+
+func (b *BannerManager) printStartupStatus(report startupReport) {
 	cg := global.LOGGER.NewConsoleGroup()
 	cg.Group("🚀 Gateway 服务启动状态检查")
 
-	// 打印基础信息
-	r.printBasicStatus(cg)
+	cg.Group("📋 基础服务状态")
+	serviceRows := [][]string{{"服务类型", "地址", "端口", "状态"}}
+	for _, service := range report.services {
+		serviceRows = append(serviceRows, []string{
+			service.displayLabel(),
+			service.host,
+			fmt.Sprintf("%d", service.port),
+			b.getStatusIcon(service.enabled),
+		})
+	}
+	cg.Table(serviceRows)
+	cg.Table(map[string]interface{}{
+		"运行环境": report.environment,
+		"调试模式": report.debug,
+	})
+	cg.GroupEnd()
 
-	// 打印功能模块状态
-	r.printFeatureStatus(cg)
+	cg.Group("🔧 功能模块状态")
+	moduleRows := make([]map[string]interface{}, 0, len(report.modules))
+	for _, module := range report.modules {
+		moduleRows = append(moduleRows, map[string]interface{}{
+			"功能名称": module.displayLabel(),
+			"状态":   b.getStatusIcon(module.enabled),
+			"路径":   module.path,
+		})
+	}
+	cg.Table(moduleRows)
+	cg.GroupEnd()
 
-	// 打印中间件状态
-	r.printMiddlewareStatus(cg)
+	cg.Group("🔌 中间件状态")
+	middlewareRows := make([]map[string]interface{}, 0, len(report.middleware))
+	for _, item := range report.middleware {
+		middlewareRows = append(middlewareRows, map[string]interface{}{
+			"中间件": item.displayLabel(),
+			"状态":  b.getStatusIcon(item.enabled),
+		})
+	}
+	cg.Table(middlewareRows)
+	cg.GroupEnd()
 
-	// 打印监控和分析功能状态
-	r.printMonitoringStatus(cg)
+	cg.Group("📊 监控与分析状态")
+	monitoringRows := make([]map[string]interface{}, 0, len(report.monitoring))
+	for _, item := range report.monitoring {
+		detail := item.detail
+		if item.note != "" {
+			if detail != "" {
+				detail += " | " + item.note
+			} else {
+				detail = item.note
+			}
+		}
+		if detail == "" {
+			detail = "-"
+		}
+		monitoringRows = append(monitoringRows, map[string]interface{}{
+			"类型": item.displayLabel(),
+			"状态": b.getStatusIcon(item.enabled),
+			"说明": detail,
+		})
+	}
+	cg.Table(monitoringRows)
+	cg.GroupEnd()
 
-	// 打印启动摘要
-	r.printStartupSummaryInternal(cg)
+	cg.Table(map[string]interface{}{
+		"已启用功能": report.summary.enabledCount,
+		"总功能数":  report.summary.totalCount,
+		"启用率":   report.summary.rate(),
+		"启动时间":  report.summary.startedAt,
+	})
 
 	cg.Info("✅ 启动状态检查完成")
 	cg.GroupEnd()
 }
 
-// printBasicStatus 打印基础状态
-func (r *StartupReporter) printBasicStatus(cg *logger.ConsoleGroup) {
-	cg.Group("📋 基础服务状态")
-
-	basicInfo := [][]string{
-		{"服务类型", "地址", "端口", "状态"},
-		{"HTTP", r.config.HTTPServer.Host, fmt.Sprintf("%d", r.config.HTTPServer.Port), "✅ 运行中"},
-		{"gRPC", r.config.GRPC.Server.Host, fmt.Sprintf("%d", r.config.GRPC.Server.Port), "✅ 运行中"},
-	}
-	cg.Table(basicInfo)
-
-	envInfo := map[string]interface{}{
-		"运行环境": r.config.Environment,
-		"调试模式": r.config.Debug,
-	}
-	cg.Table(envInfo)
-
-	cg.GroupEnd()
+func (b *BannerManager) printStartupSummary(report startupReport) {
+	global.LOGGER.InfoContext(b.ctx, "📋 功能启用摘要: %d/%d 个功能已启用 (%s)",
+		report.summary.enabledCount, report.summary.totalCount, report.summary.rate())
 }
 
-// printFeatureStatus 打印功能状态
-func (r *StartupReporter) printFeatureStatus(cg *logger.ConsoleGroup) {
-	cg.Group("🔧 功能模块状态")
-
-	features := []map[string]interface{}{
-		{
-			"功能名称": "健康检查",
-			"状态":   r.getStatusIcon(r.config.Health.Enabled),
-			"路径":   r.config.Health.Path,
-		},
-		{
-			"功能名称": "Swagger文档",
-			"状态":   r.getStatusIcon(r.config.Swagger.Enabled),
-			"路径":   r.config.Swagger.UIPath,
-		},
-		{
-			"功能名称": "WebSocket",
-			"状态":   r.getStatusIcon(r.config.WSC.Enabled),
-			"路径":   r.config.WSC.Path,
-		},
-	}
-	cg.Table(features)
-
-	cg.GroupEnd()
-}
-
-// printMiddlewareStatus 打印中间件状态
-func (r *StartupReporter) printMiddlewareStatus(cg *logger.ConsoleGroup) {
-	cg.Group("🔌 中间件状态")
-
-	corsEnabled := r.config.CORS.AllowedAllOrigins || len(r.config.CORS.AllowedOrigins) > 0
-	authEnabled := r.config.Security.JWT.Secret != ""
-
-	middlewares := []map[string]interface{}{
-		{"中间件": "CORS跨域", "状态": r.getStatusIcon(corsEnabled)},
-		{"中间件": "限流控制", "状态": r.getStatusIcon(r.config.RateLimit.Enabled)},
-		{"中间件": "请求ID生成", "状态": r.getStatusIcon(r.config.Middleware.RequestID.Enabled)},
-		{"中间件": "异常恢复", "状态": r.getStatusIcon(r.config.Middleware.Recovery.Enabled)},
-		{"中间件": "访问日志", "状态": r.getStatusIcon(r.config.Middleware.Logging.Enabled)},
-		{"中间件": "身份认证(JWT)", "状态": r.getStatusIcon(authEnabled)},
-		{"中间件": "CSP内容安全策略", "状态": r.getStatusIcon(r.config.Security.CSP.Enabled)},
-		{"中间件": "指标收集", "状态": r.getStatusIcon(r.config.Middleware.Metrics.Enabled)},
-		{"中间件": "链路追踪", "状态": r.getStatusIcon(r.config.Middleware.Tracing.Enabled)},
-		{"中间件": "熔断器", "状态": r.getStatusIcon(r.config.Middleware.CircuitBreaker.Enabled)},
-		{"中间件": "签名验证", "状态": r.getStatusIcon(r.config.Middleware.Signature.Enabled)},
-		{"中间件": "国际化", "状态": r.getStatusIcon(r.config.Middleware.I18N.Enabled)},
-	}
-	cg.Table(middlewares)
-
-	cg.GroupEnd()
-}
-
-// printMonitoringStatus 打印监控和分析功能状态
-func (r *StartupReporter) printMonitoringStatus(cg *logger.ConsoleGroup) {
-	cg.Group("📊 监控与分析状态")
-
-	monitoring := []map[string]interface{}{}
-
-	if r.config.Monitoring.Prometheus.Enabled {
-		monitoring = append(monitoring, map[string]interface{}{
-			"类型": "Prometheus指标",
-			"状态": "✅ 已启用",
-			"访问": fmt.Sprintf("http://localhost:%d%s", r.config.Monitoring.Prometheus.Port, r.config.Monitoring.Prometheus.Path),
-		})
-	}
-
-	if r.config.Middleware.PProf.Enabled {
-		authStatus := "⚠️  未启用认证"
-		if r.config.Middleware.PProf.Authentication.Enabled {
-			authStatus = "🔐 已启用认证"
-		}
-		monitoring = append(monitoring, map[string]interface{}{
-			"类型": "PProf性能分析",
-			"状态": "✅ 已启用",
-			"访问": fmt.Sprintf("http://localhost:%d%s/", r.config.Middleware.PProf.Port, r.config.Middleware.PProf.PathPrefix),
-			"认证": authStatus,
-		})
-	}
-
-	if r.config.Monitoring.Jaeger.Enabled {
-		monitoring = append(monitoring, map[string]interface{}{
-			"类型":   "Jaeger链路追踪",
-			"状态":   "✅ 已启用",
-			"服务名称": r.config.Monitoring.Jaeger.ServiceName,
-		})
-	}
-
-	if len(monitoring) > 0 {
-		cg.Table(monitoring)
-	} else {
-		cg.Info("所有监控功能均未启用")
-	}
-
-	cg.GroupEnd()
-}
-
-// printStartupSummaryInternal 打印启动摘要（内部方法，用于 Console 分组）
-func (r *StartupReporter) printStartupSummaryInternal(cg *logger.ConsoleGroup) {
-	if r.config == nil {
-		return
-	}
-
-	enabledCount := 0
-	totalCount := 0
-
-	// 统计功能状态
-	features := []bool{
-		r.config.Health.Enabled,
-		r.config.Swagger.Enabled,
-		r.config.Monitoring.Prometheus.Enabled,
-		r.config.Middleware.PProf.Enabled,
-		r.config.Monitoring.Jaeger.Enabled,
-		r.config.WSC.Enabled,
-		r.config.CORS.AllowedAllOrigins || len(r.config.CORS.AllowedOrigins) > 0,
-		r.config.RateLimit.Enabled,
-	}
-
-	for _, enabled := range features {
-		totalCount++
-		if enabled {
-			enabledCount++
-		}
-	}
-
-	summary := map[string]interface{}{
-		"已启用功能": enabledCount,
-		"总功能数":  totalCount,
-		"启用率":   fmt.Sprintf("%.1f%%", float64(enabledCount)/float64(totalCount)*100),
-		"启动时间":  time.Now().Format("2006-01-02 15:04:05"),
-	}
-	cg.Table(summary)
-}
-
-// getStatusIcon 获取状态图标
-func (r *StartupReporter) getStatusIcon(enabled bool) string {
+func (b *BannerManager) getStatusIcon(enabled bool) string {
 	if enabled {
 		return "✅ 已启用"
 	}
 	return "❌ 已禁用"
-}
-
-// PrintStartupTimestamp 打印启动时间戳
-func (r *StartupReporter) PrintStartupTimestamp() {
-	global.LOGGER.InfoContext(r.ctx, "🕐 服务启动时间: %s",
-		time.Now().Format("2006-01-02 15:04:05"))
-}
-
-// PrintStartupSummary 打印启动摘要
-func (r *StartupReporter) PrintStartupSummary() {
-	if r.config == nil {
-		return
-	}
-
-	enabledCount := 0
-	totalCount := 0
-
-	// 统计功能状态
-	features := []bool{
-		r.config.Health.Enabled,
-		r.config.Swagger.Enabled,
-		r.config.Monitoring.Prometheus.Enabled,
-		r.config.Middleware.PProf.Enabled,
-		r.config.Monitoring.Jaeger.Enabled,
-		r.config.WSC.Enabled,
-		r.config.CORS.AllowedAllOrigins || len(r.config.CORS.AllowedOrigins) > 0,
-		r.config.RateLimit.Enabled,
-	}
-
-	for _, enabled := range features {
-		totalCount++
-		if enabled {
-			enabledCount++
-		}
-	}
-
-	global.LOGGER.InfoContext(r.ctx, "📋 功能启用摘要: %d/%d 个功能已启用 (%.1f%%)",
-		enabledCount, totalCount, float64(enabledCount)/float64(totalCount)*100)
 }

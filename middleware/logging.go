@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-12-11
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-11 15:15:17
+ * @LastEditTime: 2026-03-23 11:57:37
  * @FilePath: \go-rpc-gateway\middleware\logging.go
  * @Description: 统一日志中间件 - 支持 HTTP 和 gRPC
  *
@@ -22,6 +22,7 @@ import (
 	"github.com/kamalyes/go-config/pkg/logging"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
@@ -49,39 +50,49 @@ type LogFields struct {
 
 // NewLogFields 创建日志字段构建器
 func NewLogFields() *LogFields {
-	return &LogFields{fields: make([]any, 0, 20)}
+	return &LogFields{fields: make([]any, 0, 32)}
 }
 
-// Add 添加字段
-func (lf *LogFields) Add(key string, value any) *LogFields {
+// Add 添加字符串字段
+func (lf *LogFields) Add(key, value string) *LogFields {
+	value = mathx.IfEmpty(value, "")
+	if key == "" || value == "" {
+		return lf
+	}
 	lf.fields = append(lf.fields, key, value)
 	return lf
 }
 
-// AddIf 条件添加字段
-func (lf *LogFields) AddIf(condition bool, key string, value any) *LogFields {
-	if condition {
-		lf.fields = append(lf.fields, key, value)
+// AddValue 添加任意类型字段
+func (lf *LogFields) AddValue(key string, value any) *LogFields {
+	if key == "" || value == nil {
+		return lf
 	}
+	lf.fields = append(lf.fields, key, value)
 	return lf
 }
 
-// AddUserContext 添加用户上下文信息
-func (lf *LogFields) AddUserContext(ctx context.Context) *LogFields {
-	traceInfo := GetCachedTraceInfo(ctx)
-	if traceInfo.UserID != "" {
-		lf.fields = append(lf.fields, "user_id", traceInfo.UserID)
-	}
-	if traceInfo.TenantID != "" {
-		lf.fields = append(lf.fields, "tenant_id", traceInfo.TenantID)
-	}
-	return lf
+// AddRequestContext 添加请求上下文信息
+func (lf *LogFields) AddRequestContext(ctx context.Context) *LogFields {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+
+	return lf.
+		Add(constants.LogFieldTraceID, requestCommonMeta.TraceID).
+		Add(constants.LogFieldRequestID, requestCommonMeta.RequestID).
+		Add(constants.LogFieldUserID, requestCommonMeta.UserID).
+		Add(constants.LogFieldTenantID, requestCommonMeta.TenantID).
+		Add(constants.LogFieldSessionID, requestCommonMeta.SessionID).
+		Add(constants.LogFieldTimezone, requestCommonMeta.Timezone).
+		Add(constants.LogFieldAppID, requestCommonMeta.AppID).
+		Add(constants.LogFieldDeviceID, requestCommonMeta.DeviceID).
+		Add(constants.LogFieldAppVersion, requestCommonMeta.AppVersion).
+		Add(constants.LogFieldPlatform, requestCommonMeta.Platform)
 }
 
 // AddSlow 添加慢请求标记 🐌
 func (lf *LogFields) AddSlow(duration, threshold time.Duration) *LogFields {
 	if duration > threshold {
-		lf.fields = append(lf.fields, "slow_request", true)
+		return lf.AddValue(constants.LogFieldSlowRequest, true)
 	}
 	return lf
 }
@@ -226,13 +237,13 @@ func logHTTPRequest(ctx context.Context, r *http.Request, rw *ResponseWriter, du
 	fields := NewLogFields().
 		Add(constants.LogFieldMethod, r.Method).
 		Add(constants.LogFieldPath, r.URL.Path).
-		Add(constants.LogFieldStatus, rw.StatusCode()).
-		Add(constants.LogFieldBytes, rw.BytesWritten()).
-		Add(constants.LogFieldDuration, duration.Milliseconds()).
+		AddValue(constants.LogFieldStatus, rw.StatusCode()).
+		AddValue(constants.LogFieldBytes, rw.BytesWritten()).
+		AddValue(constants.LogFieldDuration, duration.Milliseconds()).
 		Add(constants.LogFieldIP, netx.GetClientIP(r)).
 		Add(constants.LogFieldUserAgent, r.Header.Get(constants.HeaderUserAgent)).
 		AddSlow(duration, time.Duration(config.SlowHTTPThreshold)*time.Millisecond).
-		AddUserContext(ctx)
+		AddRequestContext(ctx)
 
 	// 请求参数
 	if config.EnableRequest && r.URL.RawQuery != "" {
@@ -269,8 +280,9 @@ func logHTTPError(ctx context.Context, r *http.Request, rw *ResponseWriter, dura
 	logger := NewRequestLogger(ctx)
 	fields := NewLogFields().
 		Add(constants.LogFieldPath, r.URL.Path).
-		Add(constants.LogFieldStatus, rw.StatusCode()).
-		Add(constants.LogFieldDuration, duration.Milliseconds())
+		AddValue(constants.LogFieldStatus, rw.StatusCode()).
+		AddValue(constants.LogFieldDuration, duration.Milliseconds()).
+		AddRequestContext(ctx)
 
 	logger.Log(constants.LogLevelWarn, "⚠️ "+constants.LogMsgHTTPRequestSkip, fields)
 }
@@ -311,9 +323,9 @@ func logGRPCUnary(ctx context.Context, method string, req, resp any, err error, 
 
 	fields := NewLogFields().
 		Add(constants.LogFieldMethod, method).
-		Add(constants.LogFieldDuration, duration.Milliseconds()).
+		AddValue(constants.LogFieldDuration, duration.Milliseconds()).
 		AddSlow(duration, time.Duration(config.SlowGRPCThreshold)*time.Millisecond).
-		AddUserContext(ctx)
+		AddRequestContext(ctx)
 
 	if err != nil {
 		st, _ := status.FromError(err)
@@ -344,11 +356,11 @@ func logGRPCStream(ctx context.Context, info *grpc.StreamServerInfo, err error, 
 	logger := NewRequestLogger(ctx)
 	fields := NewLogFields().
 		Add(constants.LogFieldMethod, info.FullMethod).
-		Add(constants.LogFieldDuration, duration.Milliseconds()).
-		Add(constants.LogFieldClientStream, info.IsClientStream).
-		Add(constants.LogFieldServerStream, info.IsServerStream).
+		AddValue(constants.LogFieldDuration, duration.Milliseconds()).
+		AddValue(constants.LogFieldClientStream, info.IsClientStream).
+		AddValue(constants.LogFieldServerStream, info.IsServerStream).
 		AddSlow(duration, time.Duration(config.SlowStreamThreshold)*time.Millisecond).
-		AddUserContext(ctx)
+		AddRequestContext(ctx)
 
 	if err != nil {
 		st, _ := status.FromError(err)

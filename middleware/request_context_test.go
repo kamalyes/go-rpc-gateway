@@ -2,9 +2,9 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-29 12:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-30 20:57:55
- * @FilePath: \go-rpc-gateway\middleware\context_trace_test.go
- * @Description: Context 追踪中间件测试
+ * @LastEditTime: 2026-03-23 11:14:55
+ * @FilePath: \go-rpc-gateway\middleware\request_context_test.go
+ * @Description: 请求上下文中间件测试
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
  */
@@ -22,16 +22,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
 )
 
-// TestContextTraceMiddleware_GeneratesIDs 测试中间件生成 trace_id 和 request_id
-func TestContextTraceMiddleware_GeneratesIDs(t *testing.T) {
-	middleware := ContextTraceMiddleware()
+// TestRequestContextMiddleware_GeneratesIDs 测试中间件生成 trace_id 和 request_id
+func TestRequestContextMiddleware_GeneratesIDs(t *testing.T) {
+	middleware := RequestContextMiddleware()
 
 	var capturedCtx context.Context
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,8 +44,8 @@ func TestContextTraceMiddleware_GeneratesIDs(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	// 验证 context 中有 trace_id 和 request_id
-	traceID := logger.GetTraceID(capturedCtx)
-	requestID := logger.GetRequestID(capturedCtx)
+	traceID := GetTraceID(capturedCtx)
+	requestID := GetRequestID(capturedCtx)
 
 	assert.NotEmpty(t, traceID, "trace_id 应该被生成")
 	assert.NotEmpty(t, requestID, "request_id 应该被生成")
@@ -56,9 +55,9 @@ func TestContextTraceMiddleware_GeneratesIDs(t *testing.T) {
 	assert.Equal(t, requestID, rec.Header().Get(constants.HeaderXRequestID), "响应头应包含 request_id")
 }
 
-// TestContextTraceMiddleware_UsesExistingIDs 测试中间件使用请求中已有的 ID
-func TestContextTraceMiddleware_UsesExistingIDs(t *testing.T) {
-	middleware := ContextTraceMiddleware()
+// TestRequestContextMiddleware_UsesExistingIDs 测试中间件使用请求中已有的 ID
+func TestRequestContextMiddleware_UsesExistingIDs(t *testing.T) {
+	middleware := RequestContextMiddleware()
 
 	existingTraceID := "existing-trace-id-12345"
 	existingRequestID := "existing-request-id-67890"
@@ -77,17 +76,17 @@ func TestContextTraceMiddleware_UsesExistingIDs(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	// 验证使用了已有的 ID
-	assert.Equal(t, existingTraceID, logger.GetTraceID(capturedCtx), "应使用已有的 trace_id")
-	assert.Equal(t, existingRequestID, logger.GetRequestID(capturedCtx), "应使用已有的 request_id")
+	assert.Equal(t, existingTraceID, GetTraceID(capturedCtx), "应使用已有的 trace_id")
+	assert.Equal(t, existingRequestID, GetRequestID(capturedCtx), "应使用已有的 request_id")
 
 	// 验证响应头
 	assert.Equal(t, existingTraceID, rec.Header().Get(constants.HeaderXTraceID))
 	assert.Equal(t, existingRequestID, rec.Header().Get(constants.HeaderXRequestID))
 }
 
-// TestContextTraceMiddleware_ExtractsOptionalFields 测试中间件提取可选字段
-func TestContextTraceMiddleware_ExtractsOptionalFields(t *testing.T) {
-	middleware := ContextTraceMiddleware()
+// TestRequestContextMiddleware_ExtractsOptionalFields 测试中间件提取可选字段
+func TestRequestContextMiddleware_ExtractsOptionalFields(t *testing.T) {
+	middleware := RequestContextMiddleware()
 
 	var capturedCtx context.Context
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -105,10 +104,10 @@ func TestContextTraceMiddleware_ExtractsOptionalFields(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	// 验证可选字段被提取
-	assert.Equal(t, "user-123", logger.GetUserID(capturedCtx), "应提取 user_id")
-	assert.Equal(t, "tenant-456", logger.GetTenantID(capturedCtx), "应提取 tenant_id")
-	assert.Equal(t, "session-789", logger.GetSessionID(capturedCtx), "应提取 session_id")
-	assert.Equal(t, "Asia/Shanghai", logger.GetTimezone(capturedCtx), "应提取 timezone")
+	assert.Equal(t, "user-123", GetUserID(capturedCtx), "应提取 user_id")
+	assert.Equal(t, "tenant-456", GetTenantID(capturedCtx), "应提取 tenant_id")
+	assert.Equal(t, "session-789", GetSessionID(capturedCtx), "应提取 session_id")
+	assert.Equal(t, "Asia/Shanghai", GetTimezone(capturedCtx), "应提取 timezone")
 }
 
 // TestEnrichContextFromMetadata 测试从 gRPC metadata 提取追踪信息
@@ -128,12 +127,12 @@ func TestEnrichContextFromMetadata(t *testing.T) {
 	enrichedCtx := enrichContextFromMetadata(ctx)
 
 	// 验证提取的值
-	assert.Equal(t, "grpc-trace-123", logger.GetTraceID(enrichedCtx))
-	assert.Equal(t, "grpc-request-456", logger.GetRequestID(enrichedCtx))
-	assert.Equal(t, "grpc-user-789", logger.GetUserID(enrichedCtx))
-	assert.Equal(t, "grpc-tenant-456", logger.GetTenantID(enrichedCtx))
-	assert.Equal(t, "grpc-session-999", logger.GetSessionID(enrichedCtx))
-	assert.Equal(t, "UTC", logger.GetTimezone(enrichedCtx))
+	assert.Equal(t, "grpc-trace-123", GetTraceID(enrichedCtx))
+	assert.Equal(t, "grpc-request-456", GetRequestID(enrichedCtx))
+	assert.Equal(t, "grpc-user-789", GetUserID(enrichedCtx))
+	assert.Equal(t, "grpc-tenant-456", GetTenantID(enrichedCtx))
+	assert.Equal(t, "grpc-session-999", GetSessionID(enrichedCtx))
+	assert.Equal(t, "UTC", GetTimezone(enrichedCtx))
 }
 
 // TestEnrichContextFromMetadata_GeneratesIDsWhenMissing 测试缺少 ID 时生成新的
@@ -145,23 +144,23 @@ func TestEnrichContextFromMetadata_GeneratesIDsWhenMissing(t *testing.T) {
 	enrichedCtx := enrichContextFromMetadata(ctx)
 
 	// 验证生成了新的 ID
-	assert.NotEmpty(t, logger.GetTraceID(enrichedCtx), "应生成 trace_id")
-	assert.NotEmpty(t, logger.GetRequestID(enrichedCtx), "应生成 request_id")
+	assert.NotEmpty(t, GetTraceID(enrichedCtx), "应生成 trace_id")
+	assert.NotEmpty(t, GetRequestID(enrichedCtx), "应生成 request_id")
 }
 
 // TestInjectTraceToOutgoingContext 测试将 trace 信息注入到 outgoing metadata
 func TestInjectTraceToOutgoingContext(t *testing.T) {
 	// 创建带有 trace 信息的 context
 	ctx := context.Background()
-	ctx = logger.WithTraceID(ctx, "outgoing-trace-123")
-	ctx = logger.WithRequestID(ctx, "outgoing-request-456")
-	ctx = logger.WithUserID(ctx, "outgoing-user-789")
-	ctx = logger.WithTenantID(ctx, "outgoing-tenant-111")
-	ctx = logger.WithSessionID(ctx, "outgoing-session-222")
-	ctx = logger.WithTimezone(ctx, "America/New_York")
+	ctx = WithTraceID(ctx, "outgoing-trace-123")
+	ctx = WithRequestID(ctx, "outgoing-request-456")
+	ctx = WithUserID(ctx, "outgoing-user-789")
+	ctx = WithTenantID(ctx, "outgoing-tenant-111")
+	ctx = WithSessionID(ctx, "outgoing-session-222")
+	ctx = WithTimezone(ctx, "America/New_York")
 
-	// 缓存 TraceInfo
-	ctx = context.WithValue(ctx, traceInfoKey{}, &TraceInfo{
+	// 缓存 RequestCommonMeta
+	ctx = context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
 		TraceID:   "outgoing-trace-123",
 		RequestID: "outgoing-request-456",
 		UserID:    "outgoing-user-789",
@@ -184,22 +183,10 @@ func TestInjectTraceToOutgoingContext(t *testing.T) {
 	assert.Equal(t, []string{"America/New_York"}, md.Get(constants.MetadataTimezone))
 }
 
-// TestGetTraceInfoFromContext 测试从 context 获取追踪信息
-func TestGetTraceInfoFromContext(t *testing.T) {
-	ctx := context.Background()
-	ctx = logger.WithTraceID(ctx, "test-trace")
-	ctx = logger.WithRequestID(ctx, "test-request")
-
-	traceID, requestID := GetTraceInfoFromContext(ctx)
-
-	assert.Equal(t, "test-trace", traceID)
-	assert.Equal(t, "test-request", requestID)
-}
-
 // TestContextWrappedServerStream 测试 ServerStream 包装器
 func TestContextWrappedServerStream(t *testing.T) {
 	ctx := context.Background()
-	ctx = logger.WithTraceID(ctx, "stream-trace")
+	ctx = WithTraceID(ctx, "stream-trace")
 
 	wrapped := &contextWrappedServerStream{
 		ServerStream: nil, // 测试中不需要真实的 stream
@@ -207,14 +194,14 @@ func TestContextWrappedServerStream(t *testing.T) {
 	}
 
 	// 验证 Context() 返回增强后的 context
-	assert.Equal(t, "stream-trace", logger.GetTraceID(wrapped.Context()))
+	assert.Equal(t, "stream-trace", GetTraceID(wrapped.Context()))
 }
 
-// TestGetCachedTraceInfo 测试缓存的 TraceInfo 获取
-func TestGetCachedTraceInfo(t *testing.T) {
+// TestGetRequestCommonMeta 测试缓存的 RequestCommonMeta 获取
+func TestGetRequestCommonMeta(t *testing.T) {
 	t.Run("从缓存获取", func(t *testing.T) {
 		ctx := context.Background()
-		expectedInfo := &TraceInfo{
+		expectedInfo := &RequestCommonMeta{
 			TraceID:   "cached-trace-123",
 			RequestID: "cached-request-456",
 			UserID:    "cached-user-789",
@@ -222,9 +209,9 @@ func TestGetCachedTraceInfo(t *testing.T) {
 			SessionID: "cached-session-222",
 			Timezone:  "Asia/Tokyo",
 		}
-		ctx = context.WithValue(ctx, traceInfoKey{}, expectedInfo)
+		ctx = context.WithValue(ctx, requestCommonMetaKey{}, expectedInfo)
 
-		info := GetCachedTraceInfo(ctx)
+		info := GetRequestCommonMeta(ctx)
 
 		assert.Equal(t, expectedInfo.TraceID, info.TraceID)
 		assert.Equal(t, expectedInfo.RequestID, info.RequestID)
@@ -236,11 +223,11 @@ func TestGetCachedTraceInfo(t *testing.T) {
 
 	t.Run("回退到logger提取", func(t *testing.T) {
 		ctx := context.Background()
-		ctx = logger.WithTraceID(ctx, "fallback-trace")
-		ctx = logger.WithRequestID(ctx, "fallback-request")
-		ctx = logger.WithUserID(ctx, "fallback-user")
+		ctx = WithTraceID(ctx, "fallback-trace")
+		ctx = WithRequestID(ctx, "fallback-request")
+		ctx = WithUserID(ctx, "fallback-user")
 
-		info := GetCachedTraceInfo(ctx)
+		info := GetRequestCommonMeta(ctx)
 
 		assert.Equal(t, "fallback-trace", info.TraceID)
 		assert.Equal(t, "fallback-request", info.RequestID)
@@ -269,9 +256,9 @@ func TestUtilityFunctions(t *testing.T) {
 	assert.Equal(t, "Europe/London", GetTimezone(ctx))
 }
 
-// TestContextTraceMiddleware_CachesTraceInfo 测试中间件缓存 TraceInfo
-func TestContextTraceMiddleware_CachesTraceInfo(t *testing.T) {
-	middleware := ContextTraceMiddleware()
+// TestRequestContextMiddleware_CachesRequestCommonMeta 测试中间件缓存 RequestCommonMeta
+func TestRequestContextMiddleware_CachesRequestCommonMeta(t *testing.T) {
+	middleware := RequestContextMiddleware()
 
 	var capturedCtx context.Context
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -290,8 +277,8 @@ func TestContextTraceMiddleware_CachesTraceInfo(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 
-	// 验证 TraceInfo 被缓存
-	info := GetCachedTraceInfo(capturedCtx)
+	// 验证 RequestCommonMeta 被缓存
+	info := GetRequestCommonMeta(capturedCtx)
 	assert.NotNil(t, info)
 	assert.Equal(t, "cache-test-trace", info.TraceID)
 	assert.Equal(t, "cache-test-request", info.RequestID)
@@ -304,7 +291,7 @@ func TestContextTraceMiddleware_CachesTraceInfo(t *testing.T) {
 // TestFullChain_HTTPToContext 测试完整链路：HTTP 请求到 context
 func TestFullChain_HTTPToContext(t *testing.T) {
 	// 模拟完整的 HTTP → Service → Repository 链路
-	middleware := ContextTraceMiddleware()
+	middleware := RequestContextMiddleware()
 
 	var serviceCtx context.Context
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -312,8 +299,8 @@ func TestFullChain_HTTPToContext(t *testing.T) {
 		serviceCtx = r.Context()
 
 		// 模拟 Repository 层使用 context 记录日志
-		traceID := logger.GetTraceID(serviceCtx)
-		requestID := logger.GetRequestID(serviceCtx)
+		traceID := GetTraceID(serviceCtx)
+		requestID := GetRequestID(serviceCtx)
 
 		// 验证在整个链路中都能获取到 trace 信息
 		assert.NotEmpty(t, traceID, "Service 层应能获取 trace_id")
@@ -330,8 +317,8 @@ func TestFullChain_HTTPToContext(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	// 最终验证
-	assert.Equal(t, "chain-trace-id", logger.GetTraceID(serviceCtx))
-	assert.Equal(t, "chain-request-id", logger.GetRequestID(serviceCtx))
+	assert.Equal(t, "chain-trace-id", GetTraceID(serviceCtx))
+	assert.Equal(t, "chain-request-id", GetRequestID(serviceCtx))
 }
 
 // TestFullChain_GRPCMetadataToContext 测试完整链路：gRPC metadata 到 context
@@ -351,12 +338,12 @@ func TestFullChain_GRPCMetadataToContext(t *testing.T) {
 	enrichedCtx := enrichContextFromMetadata(ctx)
 
 	// 模拟 Service 层
-	serviceTraceID := logger.GetTraceID(enrichedCtx)
-	serviceRequestID := logger.GetRequestID(enrichedCtx)
-	serviceUserID := logger.GetUserID(enrichedCtx)
-	serviceTenantID := logger.GetTenantID(enrichedCtx)
-	serviceSessionID := logger.GetSessionID(enrichedCtx)
-	serviceTimezone := logger.GetTimezone(enrichedCtx)
+	serviceTraceID := GetTraceID(enrichedCtx)
+	serviceRequestID := GetRequestID(enrichedCtx)
+	serviceUserID := GetUserID(enrichedCtx)
+	serviceTenantID := GetTenantID(enrichedCtx)
+	serviceSessionID := GetSessionID(enrichedCtx)
+	serviceTimezone := GetTimezone(enrichedCtx)
 
 	assert.Equal(t, "grpc-chain-trace", serviceTraceID)
 	assert.Equal(t, "grpc-chain-request", serviceRequestID)
@@ -381,11 +368,11 @@ func TestFullChain_GRPCMetadataToContext(t *testing.T) {
 // TestSetResponseMetadata 测试设置响应 metadata
 func TestSetResponseMetadata(t *testing.T) {
 	ctx := context.Background()
-	ctx = logger.WithTraceID(ctx, "response-trace")
-	ctx = logger.WithRequestID(ctx, "response-request")
+	ctx = WithTraceID(ctx, "response-trace")
+	ctx = WithRequestID(ctx, "response-request")
 
-	// 缓存 TraceInfo
-	ctx = context.WithValue(ctx, traceInfoKey{}, &TraceInfo{
+	// 缓存 RequestCommonMeta
+	ctx = context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
 		TraceID:   "response-trace",
 		RequestID: "response-request",
 	})
@@ -400,27 +387,34 @@ func TestSetResponseMetadata(t *testing.T) {
 	})
 }
 
-// TestGetFirstMetadataValue 测试从 metadata 获取第一个值
-func TestGetFirstMetadataValue(t *testing.T) {
+// TestIncomingMetadataAccess 测试从 metadata 读取值
+func TestIncomingMetadataAccess(t *testing.T) {
 	md := metadata.Pairs(
 		"single-key", "single-value",
 		"multi-key", "value1",
 		"multi-key", "value2",
 	)
 
+	firstMetadataValue := func(key string) string {
+		if values := md.Get(key); len(values) > 0 {
+			return values[0]
+		}
+		return ""
+	}
+
 	// 测试单值
-	assert.Equal(t, "single-value", getFirstMetadataValue(md, "single-key"))
+	assert.Equal(t, "single-value", firstMetadataValue("single-key"))
 
 	// 测试多值（应返回第一个）
-	assert.Equal(t, "value1", getFirstMetadataValue(md, "multi-key"))
+	assert.Equal(t, "value1", firstMetadataValue("multi-key"))
 
 	// 测试不存在的 key
-	assert.Equal(t, "", getFirstMetadataValue(md, "non-existent"))
+	assert.Equal(t, "", firstMetadataValue("non-existent"))
 }
 
-// BenchmarkContextTraceMiddleware 性能测试
-func BenchmarkContextTraceMiddleware(b *testing.B) {
-	middleware := ContextTraceMiddleware()
+// BenchmarkRequestContextMiddleware 性能测试
+func BenchmarkRequestContextMiddleware(b *testing.B) {
+	middleware := RequestContextMiddleware()
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -448,10 +442,10 @@ func BenchmarkEnrichContextFromMetadata(b *testing.B) {
 	}
 }
 
-// BenchmarkGetCachedTraceInfo 性能测试：缓存命中
-func BenchmarkGetCachedTraceInfo(b *testing.B) {
+// BenchmarkGetRequestCommonMeta 性能测试：缓存命中
+func BenchmarkGetRequestCommonMeta(b *testing.B) {
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, traceInfoKey{}, &TraceInfo{
+	ctx = context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
 		TraceID:   "bench-trace",
 		RequestID: "bench-request",
 		UserID:    "bench-user",
@@ -459,29 +453,29 @@ func BenchmarkGetCachedTraceInfo(b *testing.B) {
 
 	b.ResetTimer()
 	for range b.N {
-		_ = GetCachedTraceInfo(ctx)
+		_ = GetRequestCommonMeta(ctx)
 	}
 }
 
-// BenchmarkGetCachedTraceInfo_Fallback 性能测试：缓存未命中回退
-func BenchmarkGetCachedTraceInfo_Fallback(b *testing.B) {
+// BenchmarkGetRequestCommonMetaFallback 性能测试：缓存未命中回退
+func BenchmarkGetRequestCommonMetaFallback(b *testing.B) {
 	ctx := context.Background()
-	ctx = logger.WithTraceID(ctx, "bench-trace")
-	ctx = logger.WithRequestID(ctx, "bench-request")
+	ctx = WithTraceID(ctx, "bench-trace")
+	ctx = WithRequestID(ctx, "bench-request")
 
 	b.ResetTimer()
 	for range b.N {
-		_ = GetCachedTraceInfo(ctx)
+		_ = GetRequestCommonMeta(ctx)
 	}
 }
 
 // BenchmarkInjectTraceToOutgoingContext 性能测试
 func BenchmarkInjectTraceToOutgoingContext(b *testing.B) {
 	ctx := context.Background()
-	ctx = logger.WithTraceID(ctx, "bench-trace")
-	ctx = logger.WithRequestID(ctx, "bench-request")
-	ctx = logger.WithUserID(ctx, "bench-user")
-	ctx = context.WithValue(ctx, traceInfoKey{}, &TraceInfo{
+	ctx = WithTraceID(ctx, "bench-trace")
+	ctx = WithRequestID(ctx, "bench-request")
+	ctx = WithUserID(ctx, "bench-user")
+	ctx = context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
 		TraceID:   "bench-trace",
 		RequestID: "bench-request",
 		UserID:    "bench-user",
@@ -544,8 +538,8 @@ func (r *UserRepository) Create(ctx context.Context, user *User) error {
 	time.Sleep(10 * time.Millisecond)
 
 	// 记录 Repository 层日志（自动包含 trace_id）
-	traceID := logger.GetTraceID(ctx)
-	requestID := logger.GetRequestID(ctx)
+	traceID := GetTraceID(ctx)
+	requestID := GetRequestID(ctx)
 
 	_ = traceID
 	_ = requestID
@@ -582,7 +576,7 @@ func NewUserService(repo *UserRepository) *UserService {
 
 // CreateUser 创建用户（业务逻辑）
 func (s *UserService) CreateUser(ctx context.Context, req *CreateUserRequest) (*User, error) {
-	traceID := logger.GetTraceID(ctx)
+	traceID := GetTraceID(ctx)
 	_ = traceID
 
 	// 1. 业务验证
@@ -652,8 +646,8 @@ func (h *UserHandler) writeSuccessResponse(w http.ResponseWriter, ctx context.Co
 		Code:      200,
 		Message:   "创建成功",
 		Data:      user,
-		TraceID:   logger.GetTraceID(ctx),
-		RequestID: logger.GetRequestID(ctx),
+		TraceID:   GetTraceID(ctx),
+		RequestID: GetRequestID(ctx),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -666,8 +660,8 @@ func (h *UserHandler) writeErrorResponse(w http.ResponseWriter, ctx context.Cont
 	resp := &CreateUserResponse{
 		Code:      statusCode,
 		Message:   message,
-		TraceID:   logger.GetTraceID(ctx),
-		RequestID: logger.GetRequestID(ctx),
+		TraceID:   GetTraceID(ctx),
+		RequestID: GetRequestID(ctx),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -687,7 +681,7 @@ func TestRealWorldScenario_CreateUser(t *testing.T) {
 	handler := NewUserHandler(service)
 
 	// 2. 创建中间件链（模拟真实网关）
-	middleware := ContextTraceMiddleware()
+	middleware := RequestContextMiddleware()
 	router := middleware(http.HandlerFunc(handler.CreateUser))
 
 	// 3. 构造 HTTP 请求
@@ -735,7 +729,7 @@ func TestRealWorldScenario_DuplicateUser(t *testing.T) {
 	service := NewUserService(repo)
 	handler := NewUserHandler(service)
 
-	middleware := ContextTraceMiddleware()
+	middleware := RequestContextMiddleware()
 	router := middleware(http.HandlerFunc(handler.CreateUser))
 
 	// 第一次创建
@@ -783,7 +777,7 @@ func TestRealWorldScenario_ConcurrentRequests(t *testing.T) {
 	service := NewUserService(repo)
 	handler := NewUserHandler(service)
 
-	middleware := ContextTraceMiddleware()
+	middleware := RequestContextMiddleware()
 	router := middleware(http.HandlerFunc(handler.CreateUser))
 
 	// 模拟 3 个并发请求
@@ -844,19 +838,19 @@ func TestRealWorldScenario_TraceIDPropagation(t *testing.T) {
 	// 创建包装器 handler 来捕获 trace_id
 	wrapperHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		handlerTraceID = logger.GetTraceID(ctx)
+		handlerTraceID = GetTraceID(ctx)
 
 		// 在调用前记录 service 层的 trace_id
-		serviceTraceID = logger.GetTraceID(ctx)
+		serviceTraceID = GetTraceID(ctx)
 
 		// 在 repository 操作前记录
-		repositoryTraceID = logger.GetTraceID(ctx)
+		repositoryTraceID = GetTraceID(ctx)
 
 		// 调用真实的 handler
 		handler.CreateUser(w, r)
 	})
 
-	middleware := ContextTraceMiddleware()
+	middleware := RequestContextMiddleware()
 	router := middleware(wrapperHandler)
 
 	// 发送请求
@@ -891,7 +885,7 @@ func TestRealWorldScenario_WithoutTraceID(t *testing.T) {
 	service := NewUserService(repo)
 	handler := NewUserHandler(service)
 
-	middleware := ContextTraceMiddleware()
+	middleware := RequestContextMiddleware()
 	router := middleware(http.HandlerFunc(handler.CreateUser))
 
 	reqBody := &CreateUserRequest{Username: "auto_trace", Email: "auto@example.com"}
@@ -925,7 +919,7 @@ func TestRealWorldScenario_CompleteRequestFlow(t *testing.T) {
 	service := NewUserService(repo)
 	handler := NewUserHandler(service)
 
-	middleware := ContextTraceMiddleware()
+	middleware := RequestContextMiddleware()
 	loggingMiddleware := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -970,8 +964,8 @@ func TestEdgeCases_EmptyMetadata(t *testing.T) {
 	enrichedCtx := enrichContextFromMetadata(ctx)
 
 	// 应该生成新的 ID
-	assert.NotEmpty(t, logger.GetTraceID(enrichedCtx))
-	assert.NotEmpty(t, logger.GetRequestID(enrichedCtx))
+	assert.NotEmpty(t, GetTraceID(enrichedCtx))
+	assert.NotEmpty(t, GetRequestID(enrichedCtx))
 }
 
 // TestEdgeCases_PartialMetadata 测试边界情况：部分 metadata
@@ -985,9 +979,9 @@ func TestEdgeCases_PartialMetadata(t *testing.T) {
 	enrichedCtx := enrichContextFromMetadata(ctx)
 
 	// trace-id 应该使用已有的
-	assert.Equal(t, "partial-trace", logger.GetTraceID(enrichedCtx))
+	assert.Equal(t, "partial-trace", GetTraceID(enrichedCtx))
 	// request-id 应该被生成
-	assert.NotEmpty(t, logger.GetRequestID(enrichedCtx))
+	assert.NotEmpty(t, GetRequestID(enrichedCtx))
 }
 
 // TestEdgeCases_MergeOutgoingMetadata 测试边界情况：合并已有的 outgoing metadata
@@ -997,9 +991,9 @@ func TestEdgeCases_MergeOutgoingMetadata(t *testing.T) {
 	ctx := metadata.NewOutgoingContext(context.Background(), existingMD)
 
 	// 添加 trace 信息
-	ctx = logger.WithTraceID(ctx, "merge-trace")
-	ctx = logger.WithRequestID(ctx, "merge-request")
-	ctx = context.WithValue(ctx, traceInfoKey{}, &TraceInfo{
+	ctx = WithTraceID(ctx, "merge-trace")
+	ctx = WithRequestID(ctx, "merge-request")
+	ctx = context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
 		TraceID:   "merge-trace",
 		RequestID: "merge-request",
 	})
@@ -1015,12 +1009,12 @@ func TestEdgeCases_MergeOutgoingMetadata(t *testing.T) {
 	assert.Equal(t, []string{"merge-request"}, md.Get(constants.MetadataRequestID))
 }
 
-// TestEdgeCases_EmptyTraceInfo 测试边界情况：空的 TraceInfo
-func TestEdgeCases_EmptyTraceInfo(t *testing.T) {
+// TestEdgeCases_EmptyRequestCommonMeta 测试边界情况：空的 RequestCommonMeta
+func TestEdgeCases_EmptyRequestCommonMeta(t *testing.T) {
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, traceInfoKey{}, &TraceInfo{})
+	ctx = context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{})
 
-	info := GetCachedTraceInfo(ctx)
+	info := GetRequestCommonMeta(ctx)
 
 	// 应该返回空字符串，不会 panic
 	assert.Equal(t, "", info.TraceID)
@@ -1031,8 +1025,8 @@ func TestEdgeCases_EmptyTraceInfo(t *testing.T) {
 func TestEdgeCases_GetTraceInfoFromNilCachedContext(t *testing.T) {
 	ctx := context.Background()
 
-	// 没有缓存的 TraceInfo
-	info := GetCachedTraceInfo(ctx)
+	// 没有缓存的 RequestCommonMeta
+	info := GetRequestCommonMeta(ctx)
 
 	// 应该回退到 logger 提取，返回空字符串
 	assert.NotNil(t, info)

@@ -18,10 +18,9 @@ import (
 	"fmt"
 	"net/http"
 
-	gccommon "github.com/kamalyes/go-config/pkg/common"
-	"github.com/kamalyes/go-config/pkg/request"
 	"github.com/kamalyes/go-config/pkg/signature"
 	"github.com/kamalyes/go-rpc-gateway/constants"
+	gwerrors "github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/kamalyes/go-toolbox/pkg/httpx"
@@ -29,12 +28,6 @@ import (
 	"github.com/kamalyes/go-toolbox/pkg/sign"
 	"github.com/kamalyes/go-toolbox/pkg/validator"
 )
-
-// RequestCommon 通用请求结构 - 继承自go-config的BaseRequest
-type RequestCommon struct {
-	request.BaseRequest
-	// 可以在这里添加Gateway特有的字段
-}
 
 // SignatureValidator 签名验证器接口
 type SignatureValidator interface {
@@ -59,8 +52,7 @@ func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) e
 		return nil
 	}
 
-	// 提取请求公共信息
-	reqCommon := extractRequestCommon(r, config)
+	requestCommonMeta := GetRequestCommonMeta(r.Context())
 
 	// 读取请求体
 	body, err := readRequestBody(r, config.SkipBody)
@@ -72,7 +64,7 @@ func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) e
 	queryString := getQueryString(r, config.SkipQuery)
 
 	// 构建签名数据
-	dataToSign := buildSigningData(reqCommon, queryString, body)
+	dataToSign := buildSigningData(requestCommonMeta, queryString, body)
 
 	// 生成期望的签名
 	expectedSign, err := v.generateSignature(dataToSign, config.SecretKey, config.Algorithm)
@@ -81,10 +73,10 @@ func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) e
 	}
 
 	// 验证签名
-	if expectedSign != reqCommon.Signature {
+	if expectedSign != requestCommonMeta.Signature {
 		global.LOGGER.DebugContext(r.Context(), "🔐 HMAC 签名验证失败:")
 		global.LOGGER.DebugContext(r.Context(), "  - 期望签名: %s", expectedSign)
-		global.LOGGER.DebugContext(r.Context(), "  - 实际签名: %s", reqCommon.Signature)
+		global.LOGGER.DebugContext(r.Context(), "  - 实际签名: %s", requestCommonMeta.Signature)
 		return fmt.Errorf(constants.SignatureErrorMismatch)
 	}
 
@@ -137,8 +129,7 @@ func (v *RSAValidator) Validate(r *http.Request, config *signature.Signature) er
 		return nil
 	}
 
-	// 提取请求公共信息
-	reqCommon := extractRequestCommon(r, config)
+	requestCommonMeta := GetRequestCommonMeta(r.Context())
 
 	// 读取请求体
 	body, err := readRequestBody(r, config.SkipBody)
@@ -150,10 +141,10 @@ func (v *RSAValidator) Validate(r *http.Request, config *signature.Signature) er
 	queryString := getQueryString(r, config.SkipQuery)
 
 	// 构建签名数据
-	dataToSign := buildSigningData(reqCommon, queryString, body)
+	dataToSign := buildSigningData(requestCommonMeta, queryString, body)
 
 	// 验证 RSA 签名
-	if err := v.verifySignature(dataToSign, reqCommon.Signature); err != nil {
+	if err := v.verifySignature(dataToSign, requestCommonMeta.Signature); err != nil {
 		global.LOGGER.DebugContext(r.Context(), "🔐 RSA 签名验证失败: %v", err)
 		return fmt.Errorf(constants.SignatureErrorMismatch)
 	}
@@ -187,7 +178,7 @@ func (v *RSAValidator) verifySignature(dataToSign, signatureBase64 string) error
 
 // buildSigningData 构建签名数据（HMAC 和 RSA 使用相同的逻辑）
 // 签名数据格式：timestamp + queryString + body
-func buildSigningData(req *RequestCommon, queryString string, body []byte) string {
+func buildSigningData(req *RequestCommonMeta, queryString string, body []byte) string {
 	var dataToSign string
 
 	// 添加时间戳
@@ -228,19 +219,26 @@ func getQueryString(r *http.Request, skipQuery bool) string {
 	return mathx.IF(skipQuery, "", r.URL.RawQuery)
 }
 
-// extractRequestCommon 提取请求公共信息
-func extractRequestCommon(r *http.Request, config *signature.Signature) *RequestCommon {
-	return &RequestCommon{
-		BaseRequest: request.BaseRequest{
-			Timestamp:     gccommon.ExtractAttribute(r, config.TimestampSources),
-			Signature:     gccommon.ExtractAttribute(r, config.SignatureSources),
-			TraceID:       httpx.GetValueFromHeaderOrQuery(r, constants.HeaderXTraceID, ""),
-			RequestID:     httpx.GetValueFromHeaderOrQuery(r, constants.HeaderXRequestID, ""),
-			Authorization: httpx.GetValueFromHeaderOrQuery(r, constants.HeaderAuthorization, ""),
-			DeviceID:      httpx.GetValueFromHeaderOrQuery(r, constants.HeaderXDeviceID, ""),
-			AppVersion:    httpx.GetValueFromHeaderOrQuery(r, constants.HeaderXAppVersion, ""),
-			Platform:      httpx.GetValueFromHeaderOrQuery(r, constants.HeaderXPlatform, ""),
-		},
+func buildSignatureValidator(config *signature.Signature) (SignatureValidator, *gwerrors.AppError) {
+	if config == nil || !config.Enabled {
+		return nil, nil
+	}
+
+	switch config.Type {
+	case signature.SignatureTypeRSA:
+		if config.PublicKeyPEM == "" {
+			global.LOGGER.Warn("⚠️  RSA 签名已启用但未配置公钥，将跳过签名验证")
+			return nil, nil
+		}
+		validator, err := NewRSAValidator([]byte(config.PublicKeyPEM))
+		if err != nil {
+			return nil, gwerrors.NewError(gwerrors.ErrCodeInternalServerError, fmt.Sprintf("failed to create RSA validator: %v", err))
+		}
+		return validator, nil
+	case signature.SignatureTypeHMAC:
+		fallthrough
+	default:
+		return &HMACValidator{}, nil
 	}
 }
 
@@ -256,7 +254,7 @@ func extractRequestCommon(r *http.Request, config *signature.Signature) *Request
 //
 // 使用示例：
 //
-//	// 自动选择验证器（根据配置）
+//	自动选择验证器（根据配置）
 //	middleware.SignatureMiddleware(config)
 func SignatureMiddleware(config *signature.Signature) HTTPMiddleware {
 	if !config.Enabled {
@@ -265,35 +263,17 @@ func SignatureMiddleware(config *signature.Signature) HTTPMiddleware {
 		}
 	}
 
-	// 声明验证器接口变量
-	var validator SignatureValidator
-
-	// 根据配置自动选择验证器
-	switch config.Type {
-	case signature.SignatureTypeRSA:
-		// RSA 签名：需要公钥
-		if config.PublicKeyPEM == "" {
-			global.LOGGER.Warn("⚠️  RSA 签名已启用但未配置公钥，将跳过签名验证")
-			return func(next http.Handler) http.Handler {
-				return next
-			}
+	validator, appErr := buildSignatureValidator(config)
+	if appErr != nil {
+		global.LOGGER.Error("❌ 创建签名验证器失败: %v", appErr)
+		return func(next http.Handler) http.Handler {
+			return next
 		}
-		var err error
-		validator, err = NewRSAValidator([]byte(config.PublicKeyPEM))
-		if err != nil {
-			global.LOGGER.Error("❌ 创建 RSA 验证器失败: %v", err)
-			return func(next http.Handler) http.Handler {
-				return next
-			}
+	}
+	if validator == nil {
+		return func(next http.Handler) http.Handler {
+			return next
 		}
-		global.LOGGER.Info("🔐 使用 RSA 签名验证")
-
-	case signature.SignatureTypeHMAC:
-		fallthrough
-	default:
-		// HMAC 签名：使用 SecretKey
-		validator = &HMACValidator{}
-		global.LOGGER.Info("🔐 使用 HMAC 签名验证")
 	}
 
 	return func(next http.Handler) http.Handler {
@@ -308,24 +288,9 @@ func SignatureMiddleware(config *signature.Signature) HTTPMiddleware {
 	}
 }
 
-// SignatureMiddlewareWithValidator 签名验证中间件（使用自定义验证器）
-//
-// 适用于需要动态获取公钥的场景（如开放平台根据 AccessKey 查询公钥）
-//
-// 使用示例：
-//
-//	// 使用自定义 RSA 验证器
-//	rsaValidator, _ := middleware.NewRSAValidator([]byte(publicKeyPEM))
-//	middleware.SignatureMiddlewareWithValidator(config, rsaValidator)
-func SignatureMiddlewareWithValidator(config *signature.Signature, validator SignatureValidator) HTTPMiddleware {
+// SignatureMiddlewareWithProvider 签名验证中间件（按请求动态解析配置/验证器）
+func SignatureMiddlewareWithProvider(config *signature.Signature, provider DynamicSignatureProvider) HTTPMiddleware {
 	if !config.Enabled {
-		return func(next http.Handler) http.Handler {
-			return next
-		}
-	}
-
-	if validator == nil {
-		global.LOGGER.Warn("⚠️  签名验证已启用但未提供验证器，将跳过签名验证")
 		return func(next http.Handler) http.Handler {
 			return next
 		}
@@ -333,12 +298,76 @@ func SignatureMiddlewareWithValidator(config *signature.Signature, validator Sig
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 验证签名
-			if err := validator.Validate(r, config); err != nil {
+			resolvedConfig := config
+			var validator SignatureValidator
+
+			if provider != nil {
+				resolved, appErr := provider.ResolveSignature(r)
+				if appErr != nil {
+					response.WriteAppError(w, appErr)
+					return
+				}
+				if resolved != nil {
+					if resolved.Skip {
+						next.ServeHTTP(w, r)
+						return
+					}
+					if resolved.Config != nil {
+						resolvedConfig = resolved.Config
+					}
+					validator = resolved.Validator
+				}
+			}
+
+			if resolvedConfig == nil || !resolvedConfig.Enabled {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if validator == nil {
+				var appErr *gwerrors.AppError
+				validator, appErr = buildSignatureValidator(resolvedConfig)
+				if appErr != nil {
+					response.WriteAppError(w, appErr)
+					return
+				}
+				if validator == nil {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
+			if err := validator.Validate(r, resolvedConfig); err != nil {
 				response.WriteErrorResponseWithCode(w, http.StatusForbidden, constants.SignatureErrorCodeInvalid, err.Error())
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// SignatureMiddlewareWithValidator 签名验证中间件（使用自定义验证器）
+//
+// 适用于需要动态获取公钥的场景（如开放平台根据 AccessKey 查询公钥）
+//
+// 使用示例：
+//
+//	 使用自定义 RSA 验证器
+//		rsaValidator, _ := middleware.NewRSAValidator([]byte(publicKeyPEM))
+//		middleware.SignatureMiddlewareWithValidator(config, rsaValidator)
+func SignatureMiddlewareWithValidator(config *signature.Signature, validator SignatureValidator) HTTPMiddleware {
+	return SignatureMiddlewareWithProvider(config, staticSignatureProvider{validator: validator})
+}
+
+type staticSignatureProvider struct {
+	validator SignatureValidator
+}
+
+// ResolveSignature 返回静态签名配置对应的解析结果。
+func (p staticSignatureProvider) ResolveSignature(_ *http.Request) (*ResolvedSignature, *gwerrors.AppError) {
+	if p.validator == nil {
+		global.LOGGER.Warn("⚠️  签名验证已启用但未提供验证器，将跳过签名验证")
+		return &ResolvedSignature{Skip: true}, nil
+	}
+	return &ResolvedSignature{Validator: p.validator}, nil
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/cpool"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-rpc-gateway/server"
 	"github.com/kamalyes/go-toolbox/pkg/safe"
 	"github.com/minio/minio-go/v7"
@@ -437,6 +438,22 @@ func (g *Gateway) GetConfig() *gwconfig.Gateway {
 	return g.Server.GetConfig()
 }
 
+// SetDynamicSignatureProvider 设置动态签名提供器
+func (g *Gateway) SetDynamicSignatureProvider(provider middleware.DynamicSignatureProvider) {
+	if manager := g.Server.GetMiddlewareManager(); manager != nil {
+		manager.SetDynamicSignatureProvider(provider)
+		global.LOGGER.InfoContext(g.Context(), "✅ 已设置动态签名提供器")
+	}
+}
+
+// SetDynamicRateLimitProvider 设置动态限流提供器
+func (g *Gateway) SetDynamicRateLimitProvider(provider middleware.DynamicRateLimitProvider) {
+	if manager := g.Server.GetMiddlewareManager(); manager != nil {
+		manager.SetDynamicRateLimitProvider(provider)
+		global.LOGGER.InfoContext(g.Context(), "✅ 已设置动态限流提供器")
+	}
+}
+
 // Context 获取 Gateway 的上下文
 func (g *Gateway) Context() context.Context {
 	if g.ctx == nil {
@@ -465,14 +482,11 @@ func (g *Gateway) StartSilent() error {
 
 // StartWithBanner 启动网关服务并显示banner
 func (g *Gateway) StartWithBanner() error {
-	// 创建并使用启动状态报告器
-	startupReporter := server.NewStartupReporter(g.gatewayConfig)
+	bannerManager := g.Server.GetBannerManager()
 
-	// 打印启动时间戳
-	startupReporter.PrintStartupTimestamp()
-
-	// 打印详细的启动状态检查
-	startupReporter.PrintStartupStatus()
+	if bannerManager != nil {
+		bannerManager.PrintStartupChecks()
+	}
 
 	// 默认启用Swagger文档服务
 	if g.gatewayConfig.Swagger.Enabled {
@@ -499,9 +513,6 @@ func (g *Gateway) StartWithBanner() error {
 
 	// 🎯 启动成功后打印完整的 Banner 和配置信息
 	g.PrintStartupInfo()
-
-	// 显示启动摘要
-	startupReporter.PrintStartupSummary()
 
 	return nil
 }
@@ -531,9 +542,7 @@ func (g *Gateway) Stop() error {
 // PrintStartupInfo 打印启动信息
 func (g *Gateway) PrintStartupInfo() {
 	if bannerManager := g.Server.GetBannerManager(); bannerManager != nil {
-		bannerManager.PrintStartupBanner()
-		bannerManager.PrintMiddlewareStatus()
-		bannerManager.PrintUsageGuide()
+		bannerManager.PrintStartupReport()
 	}
 }
 
