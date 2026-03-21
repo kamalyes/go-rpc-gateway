@@ -381,6 +381,42 @@ func NewLocalizedError(ctx context.Context, key string, args ...any) *LocalizedE
 	}
 }
 
+// NewLocalizedAppError 使用 i18n key 构造 AppError
+func NewLocalizedAppError(ctx context.Context, code errors.ErrorCode, key string, args ...any) *errors.AppError {
+	appErr := errors.NewError(code, "")
+	if ctx == nil || key == "" {
+		return appErr
+	}
+
+	localizedMessage := T(ctx, key, args...)
+	if localizedMessage != "" && localizedMessage != key {
+		appErr.WithDetails(localizedMessage)
+	}
+
+	return appErr
+}
+
+// NewLocalizedAppErrorWithMap 使用 map 模板数据构造 AppError
+func NewLocalizedAppErrorWithMap(ctx context.Context, code errors.ErrorCode, key string, templateData map[string]any) *errors.AppError {
+	appErr := errors.NewError(code, "")
+	if ctx == nil || key == "" {
+		return appErr
+	}
+
+	var localizedMessage string
+	if templateData == nil {
+		localizedMessage = GetMsgByKey(ctx, key)
+	} else {
+		localizedMessage = GetMsgWithMap(ctx, key, templateData)
+	}
+
+	if localizedMessage != "" && localizedMessage != key {
+		appErr.WithDetails(localizedMessage)
+	}
+
+	return appErr
+}
+
 // JSONMessageLoader JSON消息加载器，用于从JSON数据加载消息
 type JSONMessageLoader struct {
 	messages map[string]map[string]string

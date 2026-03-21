@@ -17,7 +17,9 @@ import (
 	"testing"
 
 	goi18n "github.com/kamalyes/go-config/pkg/i18n"
+	gwerrors "github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestI18nResolveLanguage(t *testing.T) {
@@ -119,4 +121,80 @@ func TestI18nMessageWithMap(t *testing.T) {
 	manager, _ := NewI18nManager(config)
 	result := manager.GetMessageWithMap("en", "user", map[string]any{"Name": "John", "Age": 30})
 	assert.Equal(t, "User: John, Age: 30", result)
+}
+
+func newLocalizedAppErrorTestContext(t *testing.T, language string) context.Context {
+	t.Helper()
+
+	loader, err := NewJSONMessageLoader(`{
+		"en": {
+			"error.credential_expired": "Credential expired",
+			"error.rate_limit": "Rate limit for {{.Name}}"
+		},
+		"zh": {
+			"error.credential_expired": "凭证已过期",
+			"error.rate_limit": "{{.Name}} 的限流已触发"
+		}
+	}`)
+	require.NoError(t, err)
+
+	manager, err := NewI18nManager(&goi18n.I18N{
+		DefaultLanguage:    "en",
+		SupportedLanguages: []string{"en", "zh"},
+		LanguageHeader:     "Accept-Language",
+		LanguageParam:      "lang",
+		DetectionOrder:     []goi18n.DetectionType{goi18n.DetectionHeader, goi18n.DetectionQuery, goi18n.DetectionDefault},
+		EnableFallback:     true,
+		MessageLoader:      loader,
+	})
+	require.NoError(t, err)
+
+	return context.WithValue(context.Background(), I18nContextKey, &I18nContext{
+		Language: language,
+		Manager:  manager,
+	})
+}
+
+func TestNewLocalizedAppError(t *testing.T) {
+	t.Run("uses localized details when translation exists", func(t *testing.T) {
+		ctx := newLocalizedAppErrorTestContext(t, "zh")
+
+		appErr := NewLocalizedAppError(ctx, gwerrors.ErrCodeInvalidCredentials, "error.credential_expired")
+
+		require.NotNil(t, appErr)
+		assert.Equal(t, gwerrors.ErrCodeInvalidCredentials, appErr.GetCode())
+		assert.Equal(t, "凭证已过期", appErr.GetDetails())
+	})
+
+	t.Run("falls back to gateway default message without i18n context", func(t *testing.T) {
+		appErr := NewLocalizedAppError(context.Background(), gwerrors.ErrCodeInvalidCredentials, "error.credential_expired")
+
+		require.NotNil(t, appErr)
+		assert.Equal(t, gwerrors.ErrCodeInvalidCredentials, appErr.GetCode())
+		assert.Empty(t, appErr.GetDetails())
+		assert.Equal(t, "Invalid credentials", appErr.GetMessage())
+	})
+
+	t.Run("falls back to gateway default message when key is missing", func(t *testing.T) {
+		ctx := newLocalizedAppErrorTestContext(t, "zh")
+
+		appErr := NewLocalizedAppError(ctx, gwerrors.ErrCodeInvalidCredentials, "error.missing")
+
+		require.NotNil(t, appErr)
+		assert.Equal(t, gwerrors.ErrCodeInvalidCredentials, appErr.GetCode())
+		assert.Empty(t, appErr.GetDetails())
+		assert.Equal(t, "Invalid credentials", appErr.GetMessage())
+	})
+}
+
+func TestNewLocalizedAppErrorWithMap(t *testing.T) {
+	ctx := newLocalizedAppErrorTestContext(t, "zh")
+
+	appErr := NewLocalizedAppErrorWithMap(ctx, gwerrors.ErrCodeTooManyRequests, "error.rate_limit", map[string]any{
+		"Name": "open-app",
+	})
+
+	require.NotNil(t, appErr)
+	assert.Equal(t, gwerrors.ErrCodeTooManyRequests, appErr.GetCode())
+	assert.Equal(t, "open-app 的限流已触发", appErr.GetDetails())
 }
