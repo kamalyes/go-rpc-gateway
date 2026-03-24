@@ -116,11 +116,15 @@ func TestI18nGlobalFunctions(t *testing.T) {
 func TestI18nMessageWithMap(t *testing.T) {
 	config := goi18n.Default()
 	config.SupportedLanguages = []string{"en"}
-	config.MessageLoader, _ = NewJSONMessageLoader(`{"en":{"user":"User: {{.Name}}, Age: {{.Age}}"}}`)
+	config.MessageLoader, _ = NewJSONMessageLoader(`{"en":{"legacy":"User: {{Name}}, Age: {{Age}}","mixed":"User: {{.Name}}, Age: {{Age}}"}}`)
 
 	manager, _ := NewI18nManager(config)
-	result := manager.GetMessageWithMap("en", "user", map[string]any{"Name": "John", "Age": 30})
-	assert.Equal(t, "User: John, Age: 30", result)
+
+	legacyResult := manager.GetMessageWithMap("en", "legacy", map[string]any{"Name": "John", "Age": 30})
+	assert.Equal(t, "User: John, Age: 30", legacyResult)
+
+	mixedResult := manager.GetMessageWithMap("en", "mixed", map[string]any{"Name": "John", "Age": 30})
+	assert.Equal(t, "User: John, Age: 30", mixedResult)
 }
 
 func newLocalizedAppErrorTestContext(t *testing.T, language string) context.Context {

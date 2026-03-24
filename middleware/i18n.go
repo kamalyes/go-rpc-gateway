@@ -173,9 +173,9 @@ func (i *I18nManager) formatMessage(message string, args []any, templateData map
 func (i *I18nManager) formatWithTemplateData(message string, templateData map[string]any) string {
 	result := message
 	for key, value := range templateData {
-		placeholder := fmt.Sprintf("{{.%s}}", key)
 		valueStr := fmt.Sprintf("%v", value)
-		result = strings.ReplaceAll(result, placeholder, valueStr)
+		result = strings.ReplaceAll(result, fmt.Sprintf("{{.%s}}", key), valueStr)
+		result = strings.ReplaceAll(result, fmt.Sprintf("{{%s}}", key), valueStr)
 	}
 	// 清理未替换的占位符
 	result = strings.ReplaceAll(result, ": <no value>", "")
