@@ -17,6 +17,7 @@ import "time"
 const (
 	SwaggerJSONPath      = "/swagger.json"
 	SwaggerServicesPath  = "/services"
+	SwaggerDocumentsPath = "/documents"
 	SwaggerAggregatePath = "/aggregate.json"
 	SwaggerDebugPath     = "/debug/services"
 	SwaggerIndexHTML     = "/index.html"
@@ -63,8 +64,10 @@ const (
 	SwaggerFieldProduces         = "produces"
 	SwaggerFieldBasePath         = "basePath"
 	SwaggerFieldXAggregateInfo   = "x-aggregate-info"
+	SwaggerFieldXDocumentInfo    = "x-document-info"
 	SwaggerFieldXServiceSelector = "x-service-selector"
 	SwaggerFieldServices         = "services"
+	SwaggerFieldDocuments        = "documents"
 	SwaggerFieldName             = "name"
 	SwaggerFieldDescription      = "description"
 	SwaggerFieldVersion          = "version"
@@ -99,6 +102,7 @@ const (
 const (
 	SwaggerPathSeparator      = "/"
 	SwaggerPathServicePrefix  = "/services/"
+	SwaggerPathDocumentPrefix = "/documents/"
 	SwaggerPathUnderscoreChar = "_"
 	SwaggerPathHyphenChar     = "-"
 )

@@ -11,9 +11,9 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io"
 	"net/http"
 	"os"
@@ -24,6 +24,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	goconfig "github.com/kamalyes/go-config"
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	goswagger "github.com/kamalyes/go-config/pkg/swagger"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -43,6 +45,7 @@ type SwaggerMiddleware struct {
 	// 聚合功能相关字段
 	aggregatedSpec  map[string]interface{}
 	serviceSpecs    map[string]map[string]interface{}
+	documentSpecs   map[string]map[string]interface{}
 	lastUpdated     time.Time
 	httpClient      *http.Client
 	refreshInterval time.Duration
@@ -51,12 +54,18 @@ type SwaggerMiddleware struct {
 	watcher *SwaggerWatcher
 }
 
+type swaggerUIAction struct {
+	Href  string
+	Label string
+}
+
 // NewSwaggerMiddleware 创建Swagger中间件 (支持单服务和聚合模式)
 // [EN] Create Swagger middleware (supports single service and aggregation modes)
 func NewSwaggerMiddleware(config *goswagger.Swagger) *SwaggerMiddleware {
 	middleware := &SwaggerMiddleware{
 		config:          config,
 		serviceSpecs:    make(map[string]map[string]interface{}),
+		documentSpecs:   make(map[string]map[string]interface{}),
 		httpClient:      &http.Client{Timeout: constants.DefaultSwaggerTimeout},
 		refreshInterval: constants.DefaultSwaggerRefreshInterval,
 	}
@@ -69,6 +78,7 @@ func NewSwaggerMiddleware(config *goswagger.Swagger) *SwaggerMiddleware {
 	if config.Aggregate != nil {
 		global.LOGGER.Debug("  - Aggregate.Enabled: %v", config.Aggregate.Enabled)
 		global.LOGGER.Debug("  - Services count: %d", len(config.Aggregate.Services))
+		global.LOGGER.Debug("  - Documents count: %d", len(config.Aggregate.Documents))
 	}
 	global.LOGGER.Debug("  - IsAggregateEnabled(): %v", config.IsAggregateEnabled())
 
@@ -99,7 +109,41 @@ func NewSwaggerMiddleware(config *goswagger.Swagger) *SwaggerMiddleware {
 		}
 	}
 
+	middleware.registerConfigReloadCallback()
+
 	return middleware
+}
+
+// registerConfigReloadCallback 注册配置热更新回调，使 swagger.aggregate.documents 变更后自动重建
+func (s *SwaggerMiddleware) registerConfigReloadCallback() {
+	if global.CONFIG_MANAGER == nil {
+		return
+	}
+
+	callbackID := fmt.Sprintf("swagger_middleware_config_%p", s)
+	err := global.CONFIG_MANAGER.RegisterConfigCallback(func(ctx context.Context, event goconfig.CallbackEvent) error {
+		gatewayConfig, ok := event.NewValue.(*gwconfig.Gateway)
+		if !ok || gatewayConfig == nil || gatewayConfig.Swagger == nil {
+			return nil
+		}
+
+		if err := s.UpdateConfig(gatewayConfig.Swagger); err != nil {
+			global.LOGGER.ErrorContext(ctx, "❌ Swagger 配置热更新失败: %v", err)
+			return err
+		}
+
+		global.LOGGER.InfoContext(ctx, "✅ Swagger 配置热更新完成")
+		return nil
+	}, goconfig.CallbackOptions{
+		ID:       callbackID,
+		Types:    []goconfig.CallbackType{goconfig.CallbackTypeConfigChanged},
+		Priority: 0,
+		Async:    false,
+		Timeout:  10 * time.Second,
+	})
+	if err != nil {
+		global.LOGGER.Warn("注册 Swagger 配置热更新回调失败: %v", err)
+	}
 }
 
 // Handler 返回Swagger处理中间件
@@ -140,6 +184,7 @@ func (s *SwaggerMiddleware) isSwaggerPath(path string) bool {
 	if s.config.IsAggregateEnabled() {
 		aggregatedPaths := []string{
 			s.config.UIPath + constants.SwaggerServicesPath,
+			s.config.UIPath + constants.SwaggerDocumentsPath,
 			s.config.UIPath + constants.SwaggerAggregatePath,
 			s.config.UIPath + constants.SwaggerDebugPath,
 		}
@@ -147,6 +192,9 @@ func (s *SwaggerMiddleware) isSwaggerPath(path string) bool {
 
 		// 支持单个服务路径: /swagger/services/{serviceName}
 		if strings.HasPrefix(path, s.config.UIPath+constants.SwaggerServicesPath+"/") {
+			return true
+		}
+		if strings.HasPrefix(path, s.config.UIPath+constants.SwaggerDocumentsPath+"/") {
 			return true
 		}
 	}
@@ -167,6 +215,18 @@ func (s *SwaggerMiddleware) handleSwagger(w http.ResponseWriter, r *http.Request
 
 	// 处理聚合相关请求
 	if s.config.IsAggregateEnabled() {
+		// 独立文档JSON
+		if strings.HasPrefix(path, s.config.UIPath+constants.SwaggerDocumentsPath+"/") && strings.HasSuffix(path, constants.SwaggerJSONExt) {
+			s.handleDocumentJSON(w, r)
+			return
+		}
+
+		// 独立文档UI
+		if strings.HasPrefix(path, s.config.UIPath+constants.SwaggerDocumentsPath+"/") && !strings.HasSuffix(path, constants.SwaggerJSONExt) {
+			s.handleDocumentUI(w, r)
+			return
+		}
+
 		// 聚合JSON
 		if strings.HasSuffix(path, constants.SwaggerAggregatePath) {
 			s.handleAggregatedJSON(w, r)
@@ -188,6 +248,12 @@ func (s *SwaggerMiddleware) handleSwagger(w http.ResponseWriter, r *http.Request
 		// 服务列表
 		if strings.HasSuffix(path, constants.SwaggerServicesPath) {
 			s.handleServicesIndex(w, r)
+			return
+		}
+
+		// 独立文档列表
+		if strings.HasSuffix(path, constants.SwaggerDocumentsPath) {
+			s.handleDocumentsIndex(w, r)
 			return
 		}
 
@@ -226,97 +292,15 @@ func (s *SwaggerMiddleware) handleSwagger(w http.ResponseWriter, r *http.Request
 // handleSwaggerUI 处理Swagger UI页面
 // [EN] Handle Swagger UI page
 func (s *SwaggerMiddleware) handleSwaggerUI(w http.ResponseWriter, r *http.Request) {
-	htmlTemplate := `<!-- HTML for static distribution bundle build -->
-<!DOCTYPE html>
-<html lang="` + constants.SwaggerHTMLLangEN + `">
-<head>
-    <meta charset="` + constants.SwaggerHTMLCharset + `">
-    <title>{{.Title}}</title>
-    <link rel="stylesheet" type="text/css" href="{{.CSSURL}}" />
-    <link rel="icon" type="image/png" href="{{.Favicon32}}" sizes="` + constants.HTMLIconSizes32 + `" />
-    <link rel="icon" type="image/png" href="{{.Favicon16}}" sizes="` + constants.HTMLIconSizes16 + `" />
-    <style>
-        html {
-            box-sizing: border-box;
-            overflow: -moz-scrollbars-vertical;
-            overflow-y: scroll;
-        }
-        *, *:before, *:after {
-            box-sizing: inherit;
-        }
-        body {
-            margin: 0;
-            background: #fafafa;
-        }
-    </style>
-</head>
-<body>
-    <div id="` + constants.SwaggerUIDomID[1:] + `"></div>
-    <script src="{{.BundleJS}}" charset="` + constants.SwaggerHTMLCharset + `"></script>
-    <script src="{{.PresetJS}}" charset="` + constants.SwaggerHTMLCharset + `"></script>
-    <script>
-    window.onload = function() {
-        //<editor-fold desc="Changeable Configuration Block">
-        
-        // the following lines will be replaced by docker/configurator, when it runs in a docker-container
-        window.ui = SwaggerUIBundle({
-            url: '{{.UIPath}}/swagger.json',
-            dom_id: '` + constants.SwaggerUIDomID + `',
-            deepLinking: true,
-            presets: [
-                SwaggerUIBundle.presets.apis,
-                SwaggerUIStandalonePreset
-            ],
-            plugins: [
-                SwaggerUIBundle.plugins.DownloadUrl
-            ],
-            layout: "` + constants.SwaggerUILayout + `"
-        });
-
-        //</editor-fold>
-    };
-    </script>
-</body>
-</html>`
-
-	tmpl := template.Must(template.New(constants.SwaggerUITemplateName).Parse(htmlTemplate))
-	w.Header().Set(constants.HeaderContentType, constants.MimeTextHTMLCharset)
-
-	data := struct {
-		Title     string
-		UIPath    string
-		CSSURL    string
-		Favicon32 string
-		Favicon16 string
-		BundleJS  string
-		PresetJS  string
-	}{
-		Title:     s.config.Title,
-		UIPath:    s.config.UIPath,
-		CSSURL:    s.config.GetCDNCSSURL(),
-		Favicon32: s.config.GetCDNFavicon32(),
-		Favicon16: s.config.GetCDNFavicon16(),
-		BundleJS:  s.config.GetCDNBundleJS(),
-		PresetJS:  s.config.GetCDNPresetJS(),
-	}
-
-	if err := tmpl.Execute(w, data); err != nil {
-		global.LOGGER.Error("渲染Swagger UI失败: %v", err)
-		writeSwaggerError(w, http.StatusInternalServerError, commonpb.StatusCode_Internal, "Failed to render Swagger UI")
-		return
-	}
+	writeSwaggerHTMLHeaders(w)
+	_, _ = w.Write([]byte(s.generateRootSwaggerUI()))
 }
 
 // handleSwaggerJSON 处理Swagger JSON请求
 // [EN] Handle Swagger JSON request
 func (s *SwaggerMiddleware) handleSwaggerJSON(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSONCharset)
-	w.Header().Set(constants.HeaderAccessControlAllowOrigin, constants.CORSAllowAll)
-	w.Header().Set(constants.HeaderAccessControlAllowMethods, constants.CORSDefaultMethods)
-	w.Header().Set(constants.HeaderAccessControlAllowHeaders, constants.CORSDefaultHeaders)
-
-	if r.Method == constants.HTTPMethodOptions {
-		w.WriteHeader(http.StatusOK)
+	writeSwaggerJSONHeaders(w)
+	if handleSwaggerOptions(w, r) {
 		return
 	}
 
@@ -342,6 +326,196 @@ func writeSwaggerError(w http.ResponseWriter, httpStatus int, statusCode commonp
 	if err := json.NewEncoder(w).Encode(result); err != nil && global.LOGGER != nil {
 		global.LOGGER.WithError(err).ErrorMsg("Failed to encode Swagger error response")
 	}
+}
+
+func writeSwaggerJSONHeaders(w http.ResponseWriter) {
+	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSONCharset)
+	w.Header().Set(constants.HeaderAccessControlAllowOrigin, constants.CORSAllowAll)
+	w.Header().Set(constants.HeaderAccessControlAllowMethods, constants.CORSDefaultMethods)
+	w.Header().Set(constants.HeaderAccessControlAllowHeaders, constants.CORSDefaultHeaders)
+}
+
+func writeSwaggerHTMLHeaders(w http.ResponseWriter) {
+	w.Header().Set(constants.HeaderContentType, constants.MimeTextHTMLCharset)
+	w.Header().Set(constants.HeaderAccessControlAllowOrigin, constants.CORSAllowAll)
+}
+
+func handleSwaggerOptions(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != constants.HTTPMethodOptions {
+		return false
+	}
+
+	w.WriteHeader(http.StatusOK)
+	return true
+}
+
+func (s *SwaggerMiddleware) extractSwaggerEntityName(path, entityPrefix string) string {
+	entityName := strings.TrimPrefix(path, s.config.UIPath+entityPrefix)
+	entityName = strings.TrimSuffix(entityName, constants.SwaggerJSONExt)
+	return strings.Trim(entityName, constants.SwaggerPathSeparator)
+}
+
+func (s *SwaggerMiddleware) extractServiceName(path string) string {
+	return s.extractSwaggerEntityName(path, constants.SwaggerPathServicePrefix)
+}
+
+func (s *SwaggerMiddleware) resolveSwaggerSpecTitle(spec map[string]interface{}, fallback string) string {
+	info, ok := spec[constants.SwaggerFieldInfo].(map[string]interface{})
+	if !ok {
+		return fallback
+	}
+
+	return mathx.IfNotEmpty(strings.TrimSpace(convert.MustString(info[constants.SwaggerFieldTitle])), fallback)
+}
+
+func (s *SwaggerMiddleware) findNamedSpec(specName, specKind string, specs map[string]map[string]interface{}) (map[string]interface{}, bool) {
+	if spec, exists := specs[specName]; exists {
+		return spec, true
+	}
+
+	for actualName, actualSpec := range specs {
+		matchReason := mathx.IfElse(
+			[]bool{
+				stringx.EqualsIgnoreCase(specName, actualName),
+				s.matchServiceByNormalized(specName, actualName),
+				stringx.ContainsIgnoreCase(specName, actualName),
+			},
+			[]string{"忽略大小写", "标准化名称", "包含"},
+			"",
+		)
+		if matchReason == "" {
+			continue
+		}
+
+		global.LOGGER.Info("通过%s匹配找到%s: %s -> %s", matchReason, specKind, specName, actualName)
+		return actualSpec, true
+	}
+
+	return nil, false
+}
+
+func (s *SwaggerMiddleware) namedSpecNotFoundError(specKind, specName string, specs map[string]map[string]interface{}) error {
+	availableSpecs := make([]string, 0, len(specs))
+	for name := range specs {
+		availableSpecs = append(availableSpecs, name)
+	}
+	sort.Strings(availableSpecs)
+
+	errMsg := fmt.Sprintf("%s %s 不存在。可用%s: [%s]", specKind, specName, specKind, strings.Join(availableSpecs, ", "))
+	global.LOGGER.Error(errMsg)
+	return fmt.Errorf("%s", errMsg)
+}
+
+func (s *SwaggerMiddleware) generateScopedSwaggerUI(title, heading, description, specURL string, links []swaggerUIAction) string {
+	var linksHTML strings.Builder
+	for _, link := range links {
+		linksHTML.WriteString(fmt.Sprintf(`
+        <a href="%s">%s</a>`, link.Href, link.Label))
+	}
+
+	return fmt.Sprintf(`<!-- HTML for static distribution bundle build -->
+<!DOCTYPE html>
+<html lang="`+constants.SwaggerHTMLLangEN+`">
+<head>
+    <meta charset="`+constants.SwaggerHTMLCharset+`">
+    <meta name="viewport" content="`+constants.HTMLMetaViewport+`">
+    <title>%s - API Documentation</title>
+    <link rel="stylesheet" type="text/css" href="`+s.config.GetCDNCSSURL()+`" />
+    <link rel="icon" type="image/png" href="`+s.config.GetCDNFavicon32()+`" sizes="`+constants.HTMLIconSizes32+`" />
+    <link rel="icon" type="image/png" href="`+s.config.GetCDNFavicon16()+`" sizes="`+constants.HTMLIconSizes16+`" />
+    <style>
+        html {
+            box-sizing: border-box;
+            overflow: -moz-scrollbars-vertical;
+            overflow-y: scroll;
+        }
+        *, *:before, *:after {
+            box-sizing: inherit;
+        }
+        body {
+            margin: 0;
+            background: #fafafa;
+        }
+        .scoped-header {
+            background: #fff;
+            border-bottom: 1px solid #e8e8e8;
+            padding: 20px;
+            text-align: center;
+        }
+        .scoped-header h1 {
+            margin: 0 0 10px 0;
+            font-size: 1.8em;
+            color: #3b4151;
+        }
+        .scoped-header p {
+            margin: 5px 0 15px 0;
+            color: #666;
+        }
+        .scoped-header a {
+            display: inline-block;
+            margin: 0 5px;
+            padding: 8px 16px;
+            background: #4990e2;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .scoped-header a:hover {
+            background: #3b7bbf;
+        }
+    </style>
+</head>
+<body>
+    <div class="scoped-header">
+        <h1>%s</h1>
+        <p>%s</p>%s
+    </div>
+
+    <div id="`+constants.SwaggerUIDomID[1:]+`"></div>
+    <script src="`+s.config.GetCDNBundleJS()+`" charset="`+constants.SwaggerHTMLCharset+`"></script>
+    <script src="`+s.config.GetCDNPresetJS()+`" charset="`+constants.SwaggerHTMLCharset+`"></script>
+    <script>
+    window.onload = function() {
+        window.ui = SwaggerUIBundle({
+            url: '%s',
+            dom_id: '`+constants.SwaggerUIDomID+`',
+            deepLinking: true,
+            presets: [
+                SwaggerUIBundle.presets.apis,
+                SwaggerUIStandalonePreset
+            ],
+            plugins: [
+                SwaggerUIBundle.plugins.DownloadUrl
+            ],
+            layout: "`+constants.SwaggerUILayout+`"
+        });
+    };
+    </script>
+</body>
+</html>`, title, heading, description, linksHTML.String(), specURL)
+}
+
+func (s *SwaggerMiddleware) commonSwaggerUIActions() []swaggerUIAction {
+	if !s.IsAggregateEnabled() {
+		return nil
+	}
+
+	return []swaggerUIAction{
+		{Href: s.config.UIPath + "/documents", Label: "返回文档列表"},
+		{Href: s.config.UIPath + "/services", Label: "查看服务列表"},
+		{Href: s.config.UIPath, Label: "查看聚合文档"},
+	}
+}
+
+func (s *SwaggerMiddleware) generateRootSwaggerUI() string {
+	return s.generateScopedSwaggerUI(
+		s.config.Title,
+		s.config.Title,
+		s.config.Description,
+		s.config.UIPath+constants.SwaggerJSONPath,
+		s.commonSwaggerUIActions(),
+	)
 }
 
 // loadSwaggerSpec 加载Swagger规范文件（支持JSON和YAML格式）
@@ -425,15 +599,55 @@ func (s *SwaggerMiddleware) ReloadSwaggerJSON() error {
 	return s.loadSwaggerSpec()
 }
 
+// UpdateConfig 更新 Swagger 配置，并根据最新配置重建文档与 watcher
+func (s *SwaggerMiddleware) UpdateConfig(config *goswagger.Swagger) error {
+	if config == nil {
+		return fmt.Errorf("swagger 配置不能为空")
+	}
+
+	if s.watcher != nil {
+		if err := s.DisableFileWatcher(); err != nil {
+			return err
+		}
+	}
+
+	s.config = config
+
+	if !config.Enabled {
+		s.swaggerJSON = nil
+		s.aggregatedSpec = nil
+		s.serviceSpecs = make(map[string]map[string]interface{})
+		s.documentSpecs = make(map[string]map[string]interface{})
+		s.lastUpdated = time.Now()
+		global.LOGGER.Info("Swagger 已禁用，已清空内存中的文档缓存")
+		return nil
+	}
+
+	if config.IsAggregateEnabled() {
+		if err := s.loadAllServiceSpecs(); err != nil {
+			return fmt.Errorf("重建聚合 Swagger 规范失败: %w", err)
+		}
+	} else {
+		if err := s.loadSwaggerSpec(); err != nil {
+			return fmt.Errorf("重载 Swagger 规范失败: %w", err)
+		}
+	}
+
+	if config.HotReload {
+		if err := s.EnableFileWatcher(); err != nil {
+			return fmt.Errorf("重启 Swagger 文件监听器失败: %w", err)
+		}
+	}
+
+	global.LOGGER.Info("🔄 Swagger 配置已更新: enabled=%v, hot_reload=%v, aggregate=%v",
+		config.Enabled, config.HotReload, config.IsAggregateEnabled())
+	return nil
+}
+
 // handleAggregatedJSON 处理聚合的Swagger JSON请求
 func (s *SwaggerMiddleware) handleAggregatedJSON(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSONCharset)
-	w.Header().Set(constants.HeaderAccessControlAllowOrigin, constants.CORSAllowAll)
-	w.Header().Set(constants.HeaderAccessControlAllowMethods, constants.CORSDefaultMethods)
-	w.Header().Set(constants.HeaderAccessControlAllowHeaders, constants.CORSDefaultHeaders)
-
-	if r.Method == constants.HTTPMethodOptions {
-		w.WriteHeader(http.StatusOK)
+	writeSwaggerJSONHeaders(w)
+	if handleSwaggerOptions(w, r) {
 		return
 	}
 
@@ -454,13 +668,8 @@ func (s *SwaggerMiddleware) handleAggregatedJSON(w http.ResponseWriter, r *http.
 
 // handleServiceJSON 处理单个服务的Swagger JSON请求
 func (s *SwaggerMiddleware) handleServiceJSON(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSONCharset)
-	w.Header().Set(constants.HeaderAccessControlAllowOrigin, constants.CORSAllowAll)
-	w.Header().Set(constants.HeaderAccessControlAllowMethods, constants.CORSDefaultMethods)
-	w.Header().Set(constants.HeaderAccessControlAllowHeaders, constants.CORSDefaultHeaders)
-
-	if r.Method == constants.HTTPMethodOptions {
-		w.WriteHeader(http.StatusOK)
+	writeSwaggerJSONHeaders(w)
+	if handleSwaggerOptions(w, r) {
 		return
 	}
 
@@ -469,10 +678,7 @@ func (s *SwaggerMiddleware) handleServiceJSON(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 从路径中提取服务名称
-	path := r.URL.Path
-	serviceName := strings.TrimPrefix(path, s.config.UIPath+constants.SwaggerPathServicePrefix)
-	serviceName = strings.TrimSuffix(serviceName, constants.SwaggerJSONExt)
+	serviceName := s.extractServiceName(r.URL.Path)
 
 	if serviceName == "" {
 		writeSwaggerError(w, http.StatusBadRequest, commonpb.StatusCode_InvalidArgument, "服务名称不能为空")
@@ -491,11 +697,8 @@ func (s *SwaggerMiddleware) handleServiceJSON(w http.ResponseWriter, r *http.Req
 
 // handleServiceUI 处理单个服务的Swagger UI请求
 func (s *SwaggerMiddleware) handleServiceUI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set(constants.HeaderContentType, constants.MimeTextHTMLCharset)
-	w.Header().Set(constants.HeaderAccessControlAllowOrigin, constants.CORSAllowAll)
-
-	if r.Method == constants.HTTPMethodOptions {
-		w.WriteHeader(http.StatusOK)
+	writeSwaggerHTMLHeaders(w)
+	if handleSwaggerOptions(w, r) {
 		return
 	}
 
@@ -504,9 +707,7 @@ func (s *SwaggerMiddleware) handleServiceUI(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// 从路径中提取服务名称
-	path := r.URL.Path
-	serviceName := strings.TrimPrefix(path, s.config.UIPath+constants.SwaggerPathServicePrefix)
+	serviceName := s.extractServiceName(r.URL.Path)
 
 	if serviceName == "" {
 		http.Error(w, "服务名称不能为空", http.StatusBadRequest)
@@ -527,94 +728,13 @@ func (s *SwaggerMiddleware) handleServiceUI(w http.ResponseWriter, r *http.Reque
 
 // generateServiceSwaggerUI 生成单个服务的Swagger UI HTML页面
 func (s *SwaggerMiddleware) generateServiceSwaggerUI(serviceName string) string {
-	return fmt.Sprintf(`<!-- HTML for static distribution bundle build -->
-<!DOCTYPE html>
-<html lang="`+constants.SwaggerHTMLLangEN+`">
-<head>
-    <meta charset="`+constants.SwaggerHTMLCharset+`">
-    <meta name="viewport" content="`+constants.HTMLMetaViewport+`">
-    <title>%s - API Documentation</title>
-    <link rel="stylesheet" type="text/css" href="`+s.config.GetCDNCSSURL()+`" />
-    <link rel="icon" type="image/png" href="`+s.config.GetCDNFavicon32()+`" sizes="`+constants.HTMLIconSizes32+`" />
-    <link rel="icon" type="image/png" href="`+s.config.GetCDNFavicon16()+`" sizes="`+constants.HTMLIconSizes16+`" />
-    <style>
-        html {
-            box-sizing: border-box;
-            overflow: -moz-scrollbars-vertical;
-            overflow-y: scroll;
-        }
-        *, *:before, *:after {
-            box-sizing: inherit;
-        }
-        body {
-            margin: 0;
-            background: #fafafa;
-        }
-        .service-header {
-            background: #fff;
-            border-bottom: 1px solid #e8e8e8;
-            padding: 20px;
-            text-align: center;
-        }
-        .service-header h1 {
-            margin: 0 0 10px 0;
-            font-size: 1.8em;
-            color: #3b4151;
-        }
-        .service-header p {
-            margin: 5px 0 15px 0;
-            color: #666;
-        }
-        .service-header a {
-            display: inline-block;
-            margin: 0 5px;
-            padding: 8px 16px;
-            background: #4990e2;
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-        .service-header a:hover {
-            background: #3b7bbf;
-        }
-    </style>
-</head>
-<body>
-    <div class="service-header">
-        <h1>📚 %s API</h1>
-        <p>单独服务的 API 文档</p>
-        <a href="%s/services">← 返回服务列表</a>
-        <a href="%s">📖 查看聚合文档</a>
-    </div>
-    
-    <div id="`+constants.SwaggerUIDomID[1:]+`"></div>
-    <script src="`+s.config.GetCDNBundleJS()+`" charset="`+constants.SwaggerHTMLCharset+`"></script>
-    <script src="`+s.config.GetCDNPresetJS()+`" charset="`+constants.SwaggerHTMLCharset+`"></script>
-    <script>
-    window.onload = function() {
-        //<editor-fold desc="Changeable Configuration Block">
-        
-        // the following lines will be replaced by docker/configurator, when it runs in a docker-container
-        window.ui = SwaggerUIBundle({
-            url: '%s/services/%s.json',
-            dom_id: '`+constants.SwaggerUIDomID+`',
-            deepLinking: true,
-            presets: [
-                SwaggerUIBundle.presets.apis,
-                SwaggerUIStandalonePreset
-            ],
-            plugins: [
-                SwaggerUIBundle.plugins.DownloadUrl
-            ],
-            layout: "`+constants.SwaggerUILayout+`"
-        });
-
-        //</editor-fold>
-    };
-    </script>
-</body>
-</html>`, serviceName, serviceName, s.config.UIPath, s.config.UIPath, s.config.UIPath, serviceName)
+	return s.generateScopedSwaggerUI(
+		serviceName,
+		fmt.Sprintf("📚 %s API", serviceName),
+		"单独服务的 API 文档",
+		fmt.Sprintf("%s/services/%s.json", s.config.UIPath, serviceName),
+		s.commonSwaggerUIActions(),
+	)
 }
 
 // handleServicesIndex 处理服务列表页面
@@ -640,7 +760,7 @@ func (s *SwaggerMiddleware) handleServicesIndex(w http.ResponseWriter, _ *http.R
 	// 构建服务列表HTML
 	servicesHTML := s.buildServicesHTML(spec)
 
-	w.Header().Set(constants.HeaderContentType, constants.MimeTextHTMLCharset)
+	writeSwaggerHTMLHeaders(w)
 	w.Write([]byte(servicesHTML))
 }
 
@@ -651,8 +771,7 @@ func (s *SwaggerMiddleware) handleServicesDebug(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSONCharset)
-	w.Header().Set(constants.HeaderAccessControlAllowOrigin, constants.CORSAllowAll)
+	writeSwaggerJSONHeaders(w)
 
 	// 构建调试信息
 	debugInfo := map[string]interface{}{
@@ -890,6 +1009,11 @@ func (s *SwaggerMiddleware) loadAllServiceSpecs() error {
 		return fmt.Errorf("没有配置聚合服务")
 	}
 
+	s.serviceSpecs = make(map[string]map[string]interface{})
+	s.documentSpecs = make(map[string]map[string]interface{})
+	s.aggregatedSpec = nil
+	s.lastUpdated = time.Now()
+
 	global.LOGGER.Info("开始加载所有服务规范，总计 %d 个服务", len(s.config.Aggregate.Services))
 
 	loadedServices := make(map[string]bool)
@@ -902,7 +1026,14 @@ func (s *SwaggerMiddleware) loadAllServiceSpecs() error {
 		return fmt.Errorf("聚合规范失败: %v", err)
 	}
 
-	s.lastUpdated = time.Now()
+	if err := s.buildDocumentSpecs(); err != nil {
+		return fmt.Errorf("构建独立文档失败: %v", err)
+	}
+
+	if s.aggregatedSpec != nil {
+		s.aggregatedSpec[constants.SwaggerFieldXAggregateInfo] = s.buildServicesInfo()
+	}
+
 	global.LOGGER.Info("✅ 所有服务规范加载完成，共 %d 个服务", len(s.serviceSpecs))
 	return nil
 }
@@ -1330,7 +1461,11 @@ func (s *SwaggerMiddleware) mergePathOperations(path string, newOps map[string]i
 
 	mergedAny := false
 	for method, op := range newOps {
-		if method == "parameters" || method == "$ref" {
+		if method == constants.SwaggerFieldParameters || method == constants.SwaggerFieldRef {
+			if _, exists := existingOps[method]; !exists {
+				existingOps[method] = op
+				mergedAny = true
+			}
 			continue
 		}
 
@@ -1554,50 +1689,12 @@ func (s *SwaggerMiddleware) GetServiceSpec(serviceName string) ([]byte, error) {
 		return nil, fmt.Errorf("聚合模式未启用")
 	}
 
-	spec, exists := s.findServiceSpec(serviceName)
+	spec, exists := s.findNamedSpec(serviceName, "服务", s.serviceSpecs)
 	if !exists {
-		return nil, s.serviceNotFoundError(serviceName)
+		return nil, s.namedSpecNotFoundError("服务", serviceName, s.serviceSpecs)
 	}
 
 	return s.serializeServiceSpec(spec)
-}
-
-// findServiceSpec 查找服务规范（支持多种匹配策略）
-func (s *SwaggerMiddleware) findServiceSpec(serviceName string) (map[string]interface{}, bool) {
-	// 尝试直接匹配
-	if spec, exists := s.serviceSpecs[serviceName]; exists {
-		return spec, true
-	}
-
-	// 尝试灵活匹配
-	return s.flexibleMatchService(serviceName)
-}
-
-// flexibleMatchService 灵活匹配服务（忽略大小写、标准化名称、包含匹配）
-func (s *SwaggerMiddleware) flexibleMatchService(serviceName string) (map[string]interface{}, bool) {
-	for actualServiceName, actualSpec := range s.serviceSpecs {
-		if s.matchServiceByCaseInsensitive(serviceName, actualServiceName) {
-			global.LOGGER.Info("通过忽略大小写匹配找到服务: %s -> %s", serviceName, actualServiceName)
-			return actualSpec, true
-		}
-
-		if s.matchServiceByNormalized(serviceName, actualServiceName) {
-			global.LOGGER.Info("通过标准化名称匹配找到服务: %s -> %s", serviceName, actualServiceName)
-			return actualSpec, true
-		}
-
-		if s.matchServiceByContains(serviceName, actualServiceName) {
-			global.LOGGER.Info("通过包含匹配找到服务: %s -> %s", serviceName, actualServiceName)
-			return actualSpec, true
-		}
-	}
-
-	return nil, false
-}
-
-// matchServiceByCaseInsensitive 忽略大小写匹配
-func (s *SwaggerMiddleware) matchServiceByCaseInsensitive(requested, actual string) bool {
-	return stringx.EqualsIgnoreCase(actual, requested)
 }
 
 // matchServiceByNormalized 标准化名称匹配（使用多种命名风格）
@@ -1615,23 +1712,6 @@ func (s *SwaggerMiddleware) matchServiceByNormalized(requested, actual string) b
 		}
 	}
 	return false
-}
-
-// matchServiceByContains 包含匹配
-func (s *SwaggerMiddleware) matchServiceByContains(requested, actual string) bool {
-	return stringx.ContainsIgnoreCase(actual, requested)
-}
-
-// serviceNotFoundError 构建服务未找到错误
-func (s *SwaggerMiddleware) serviceNotFoundError(serviceName string) error {
-	availableServices := make([]string, 0, len(s.serviceSpecs))
-	for name := range s.serviceSpecs {
-		availableServices = append(availableServices, name)
-	}
-	sort.Strings(availableServices) // 排序以便阅读
-	errMsg := fmt.Sprintf("服务 %s 不存在。可用服务: [%s]", serviceName, strings.Join(availableServices, ", "))
-	global.LOGGER.Error(errMsg)
-	return fmt.Errorf("%s", errMsg)
 }
 
 // serializeServiceSpec 序列化服务规范为JSON
