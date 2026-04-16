@@ -313,6 +313,57 @@ func (ws *WebSocketService) OnHeartbeatTimeout(callback wsc.HeartbeatTimeoutCall
 	ws.hub.OnHeartbeatTimeout(callback)
 }
 
+// OnHeartbeatReport 注册心跳上报回调函数
+// 当收到客户端心跳消息时会调用此回调
+//
+// 参数:
+//   - callback: 心跳上报回调函数，接收 client 参数
+//
+// 示例:
+//
+//	ws.OnHeartbeatReport(func(client *wsc.Client) {
+//	    log.Printf("收到客户端 %s 心跳上报", client.ID)
+//	    // 更新业务层在线状态、记录心跳日志等
+//	})
+func (ws *WebSocketService) OnHeartbeatReport(callback wsc.HeartbeatReportCallback) {
+	ws.hub.OnHeartbeatReport(callback)
+}
+
+
+// OnBeforeHeartbeat 注册心跳处理前回调函数
+// 在心跳处理前调用，返回 false 则跳过后续心跳处理流程
+//
+// 参数:
+//   - callback: 心跳处理前回调函数，接收 client 参数，返回 bool
+//
+// 返回:
+//   - bool: true 继续处理心跳，false 跳过
+//
+// 示例:
+//
+//	ws.OnBeforeHeartbeat(func(client *wsc.Client) bool {
+//	    // 校验或预处理
+//	    return true
+//	})
+func (ws *WebSocketService) OnBeforeHeartbeat(callback wsc.BeforeHeartbeatCallback) {
+	ws.hub.OnBeforeHeartbeat(callback)
+}
+
+// OnAfterHeartbeat 注册心跳处理后回调函数
+// 在心跳处理完成后调用
+//
+// 参数:
+//   - callback: 心跳处理后回调函数，接收 client 参数
+//
+// 示例:
+//
+//	ws.OnAfterHeartbeat(func(client *wsc.Client) {
+//	    // 心跳处理完成后逻辑
+//	})
+func (ws *WebSocketService) OnAfterHeartbeat(callback wsc.AfterHeartbeatCallback) {
+	ws.hub.OnAfterHeartbeat(callback)
+}
+
 // OnOfflineMessagePush 注册离线消息推送回调函数
 // 当离线消息推送完成时会调用此回调，由上游决定是否删除消息
 //
