@@ -169,6 +169,32 @@ func (s *Server) GetDataMasker() *desensitize.DataMasker {
 	return s.dataMasker
 }
 
+// GetGRPCServer 获取gRPC服务器实例
+func (s *Server) GetGRPCServer() *grpc.Server {
+	return s.grpcServer
+}
+
+// GetEndpoint 获取gRPC服务端点地址
+func (s *Server) GetEndpoint() string {
+	if s.config == nil || s.config.GRPC == nil || s.config.GRPC.Server == nil {
+		return ""
+	}
+	return s.config.GRPC.Server.GetEndpoint()
+}
+
+// GetContext 获取服务器上下文
+func (s *Server) GetContext() context.Context {
+	if s.ctx == nil {
+		return context.Background()
+	}
+	return s.ctx
+}
+
+// GetDialOptions 获取gRPC客户端拨号选项
+func (s *Server) GetDialOptions() []grpc.DialOption {
+	return []grpc.DialOption{grpc.WithInsecure()}
+}
+
 // RegisterGRPCService 注册gRPC服务
 func (s *Server) RegisterGRPCService(registerFunc func(*grpc.Server)) {
 	if s.grpcServer != nil {

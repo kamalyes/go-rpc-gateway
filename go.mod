@@ -16,8 +16,8 @@ require (
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-config v0.13.1-0.20260325142107-416675f43505
 	github.com/kamalyes/go-logger v0.4.6-0.20260320160038-f1cdda12311b
-	github.com/kamalyes/go-toolbox v0.11.87-0.20260416011949-e35a4e01a90a
-	github.com/kamalyes/go-wsc v0.5.7-0.20260328105516-571d11911a15
+	github.com/kamalyes/go-toolbox v0.11.87
+	github.com/kamalyes/go-wsc v0.5.8-0.20260420015855-3d9c7892eaac
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/stretchr/testify v1.11.1
