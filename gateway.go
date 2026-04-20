@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2024-11-07 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-13 20:07:47
+ * @LastEditTime: 2026-04-20 19:32:31
  * @FilePath: \go-rpc-gateway\gateway.go
  * @Description: Gateway主入口，基于go-config
  *
@@ -16,13 +16,6 @@ package gateway
 
 import (
 	"context"
-	"net/http"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
-
 	"github.com/bwmarrin/snowflake"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	goconfig "github.com/kamalyes/go-config"
@@ -37,6 +30,12 @@ import (
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 )
 
 // Gateway 是主要的网关服务器
@@ -219,18 +218,16 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 	}
 
 	if err != nil {
-		return nil, errors.WrapWithContext(err, errors.ErrCodeInvalidConfiguration)
+		return nil, errors.Wrap(err, errors.ErrCodeInvalidConfiguration)
 	}
 
-	// 初始化全局状态
 	if err := b.initializeGlobalState(manager, &config); err != nil {
-		return nil, errors.WrapWithContext(err, errors.ErrCodeInitializationError)
+		return nil, errors.Wrap(err, errors.ErrCodeInitializationError)
 	}
 
-	// 创建Gateway实例
 	srv, err := server.NewServer()
 	if err != nil {
-		return nil, errors.WrapWithContext(err, errors.ErrCodeServerCreationFailed)
+		return nil, errors.Wrap(err, errors.ErrCodeServerCreationFailed)
 	}
 
 	// 添加构建器中配置的 gRPC-Gateway 中间件

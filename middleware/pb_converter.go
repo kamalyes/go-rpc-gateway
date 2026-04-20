@@ -12,7 +12,7 @@ package middleware
 import (
 	"context"
 	"github.com/kamalyes/go-logger"
-	"github.com/kamalyes/go-rpc-gateway/pbmo"
+	gopbmo "github.com/kamalyes/go-pbmo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -25,7 +25,7 @@ type ConversionMiddleware struct {
 	Enabled        bool
 	LogConversions bool
 	Logger         logger.ILogger
-	pbmo           map[string]*pbmo.BidiConverter
+	pbmo           map[string]*gopbmo.BidiConverter
 	lock           sync.RWMutex
 }
 
@@ -34,12 +34,12 @@ func NewConversionMiddleware(log logger.ILogger, enabled bool) *ConversionMiddle
 	return &ConversionMiddleware{
 		Enabled: enabled,
 		Logger:  log,
-		pbmo:    make(map[string]*pbmo.BidiConverter),
+		pbmo:    make(map[string]*gopbmo.BidiConverter),
 	}
 }
 
 // RegisterConverter 注册类型转换器
-func (cm *ConversionMiddleware) RegisterConverter(key string, converter *pbmo.BidiConverter) {
+func (cm *ConversionMiddleware) RegisterConverter(key string, converter *gopbmo.BidiConverter) {
 	cm.lock.Lock()
 	defer cm.lock.Unlock()
 	cm.pbmo[key] = converter
@@ -111,9 +111,11 @@ func (cm *ConversionMiddleware) ValidatingInterceptor() grpc.UnaryServerIntercep
 			return handler(ctx, req)
 		}
 
-		// 校验请求参数
-		if validator, ok := req.(pbmo.Validator); ok {
-			if err := validator.Validate(); err != nil {
+		cm.lock.RLock()
+		defer cm.lock.RUnlock()
+
+		for _, converter := range cm.pbmo {
+			if err := converter.Validate(req); err != nil {
 				return nil, status.Errorf(codes.InvalidArgument, "validation failed: %v", err)
 			}
 		}
@@ -124,9 +126,8 @@ func (cm *ConversionMiddleware) ValidatingInterceptor() grpc.UnaryServerIntercep
 			return resp, err
 		}
 
-		// 校验响应参数
-		if validator, ok := resp.(pbmo.Validator); ok {
-			if err := validator.Validate(); err != nil {
+		for _, converter := range cm.pbmo {
+			if err := converter.Validate(resp); err != nil {
 				return nil, status.Errorf(codes.Internal, "response validation failed: %v", err)
 			}
 		}

@@ -15,7 +15,9 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-config v0.13.1-0.20260325142107-416675f43505
+	github.com/kamalyes/go-i18n v0.0.0-20260320070028-fea3ef2009b5
 	github.com/kamalyes/go-logger v0.4.6-0.20260320160038-f1cdda12311b
+	github.com/kamalyes/go-pbmo v0.0.0-20260420115656-a6493c549927
 	github.com/kamalyes/go-toolbox v0.11.87
 	github.com/kamalyes/go-wsc v0.5.8-0.20260420015855-3d9c7892eaac
 	github.com/prometheus/client_golang v1.19.1
@@ -53,6 +55,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.40.2 // indirect
 	github.com/aws/smithy-go v1.23.2 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
+	github.com/go-playground/validator/v10 v10.30.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -89,7 +92,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.30.2
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
@@ -146,3 +148,7 @@ require (
 // replace github.com/kamalyes/go-logger => ../go-logger
 
 // replace github.com/kamalyes/go-toolbox => ../go-toolbox
+
+// replace github.com/kamalyes/go-i18n => ./go-i18n
+
+// replace github.com/kamalyes/go-pbmo => ./go-pbmo

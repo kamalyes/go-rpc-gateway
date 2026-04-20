@@ -32,7 +32,7 @@ return errors.NewError(errors.ErrCodeResourceNotFound, userID)
 ```go
 // ✅ 推荐：纯错误码模式（不传消息）
 if err := someOperation(); err != nil {
-    return errors.WrapWithContext(err, errors.ErrCodeOperationFailed)
+    return errors.Wrap(err, errors.ErrCodeOperationFailed)
 }
 
 // ✅ 备选：需要额外上下文时
@@ -92,7 +92,7 @@ errors.ErrCodeMiddlewareInitFailed   // 1104: 中间件初始化失败
 func CreateServer() (*Server, error) {
     baseServer, err := NewServer()
     if err != nil {
-        return nil, errors.WrapWithContext(err, errors.ErrCodeServerCreationFailed)
+        return nil, errors.Wrap(err, errors.ErrCodeServerCreationFailed)
     }
     return baseServer, nil
 }
@@ -200,7 +200,7 @@ var (
        │
        ▼
 ┌─────────────────┐
-│ 使用 WrapWithContext │  ← 推荐：纯错误码
+│ 使用 Wrap │  ← 推荐：纯错误码
 │ 包装为 AppError    │
 └──────┬──────────┘
        │
@@ -247,7 +247,7 @@ func (j *JWT) checkRedisMultipointAuth(claims *CustomClaims, jsonStr string) err
     var clis CustomClaims
     if err := json.Unmarshal([]byte(jsonStr), &clis); err != nil {
         // ✅ 纯错误码：自动使用 "解析Redis中的用户token时出错"
-        return errors.WrapWithContext(err, errors.ErrCodeRedisParseError)
+        return errors.Wrap(err, errors.ErrCodeRedisParseError)
     }
     
     if clis.TokenId != "" && claims.TokenId != clis.TokenId {
@@ -262,7 +262,7 @@ func (j *JWT) checkRedisMultipointAuth(claims *CustomClaims, jsonStr string) err
 ## 📝 总结
 
 - ✅ **使用错误码**，不要硬编码消息
-- ✅ **使用 WrapWithContext**，保留原始错误
+- ✅ **使用 Wrap**，保留原始错误
 - ✅ **使用预定义错误变量**，代码更简洁
 - ✅ **集中管理消息**，便于维护和国际化
 - ❌ **避免 fmt.Errorf**

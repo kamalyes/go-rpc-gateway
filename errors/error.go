@@ -13,11 +13,10 @@ package errors
 
 import (
 	"fmt"
-	"net/http"
-
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"net/http"
 )
 
 // errorMessages 错误消息映射
@@ -393,32 +392,19 @@ func Wrap(err error, code ErrorCode) *AppError {
 
 // Wrapf 包装标准错误并添加额外的详细信息
 // 使用错误码对应的消息，额外信息会添加到Details字段
-func Wrapf(err error, code ErrorCode, details string) *AppError {
+func Wrapf(err error, code ErrorCode, format string, args ...interface{}) *AppError {
 	if err == nil {
 		return nil
 	}
 	if appErr, ok := err.(*AppError); ok {
 		return appErr
 	}
-	// 使用错误码的标准消息，将原始错误和额外信息放入Details
-	fullDetails := details
+	// 使用错误码的标准消息，将原始错误和格式化信息放入Details
+	fullDetails := fmt.Sprintf(format, args...)
 	if err.Error() != "" {
-		fullDetails = fmt.Sprintf("%s: %s", details, err.Error())
+		fullDetails = fmt.Sprintf("%s: %s", fullDetails, err.Error())
 	}
 	return NewError(code, fullDetails)
-}
-
-// WrapWithContext 包装错误并添加上下文信息（纯错误码模式）
-// 只使用错误码，不传递消息
-func WrapWithContext(err error, code ErrorCode) *AppError {
-	if err == nil {
-		return nil
-	}
-	if appErr, ok := err.(*AppError); ok {
-		return appErr
-	}
-	// 只使用错误码，原始错误作为Details
-	return NewError(code, err.Error())
 }
 
 // ToGRPCError 将 AppError 转换为 gRPC status.Error

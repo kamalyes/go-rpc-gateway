@@ -12,11 +12,10 @@
 package server
 
 import (
-	"time"
-
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
+	"time"
 )
 
 // initMiddleware 初始化中间件管理器
@@ -24,13 +23,13 @@ func (s *Server) initMiddleware() error {
 	// 使用统一的配置系统创建中间件管理器
 	manager, err := middleware.NewManager(s.config)
 	if err != nil {
-		return errors.WrapWithContext(err, errors.ErrCodeMiddlewareInitFailed)
+		return errors.Wrap(err, errors.ErrCodeMiddlewareInitFailed)
 	}
 	s.middlewareManager = manager
 
 	// 初始化健康检查管理器
 	if err := s.initHealthManager(); err != nil {
-		return errors.WrapWithContext(err, errors.ErrCodeHealthManagerFailed)
+		return errors.Wrap(err, errors.ErrCodeHealthManagerFailed)
 	}
 
 	return nil
@@ -63,12 +62,12 @@ func (s *Server) initHealthManager() error {
 func (s *Server) initServers() error {
 	// 初始化gRPC服务器
 	if err := s.initGRPCServer(); err != nil {
-		return errors.WrapWithContext(err, errors.ErrCodeGRPCServerInitFailed)
+		return errors.Wrap(err, errors.ErrCodeGRPCServerInitFailed)
 	}
 
 	// 初始化HTTP网关
 	if err := s.initHTTPGateway(); err != nil {
-		return errors.WrapWithContext(err, errors.ErrCodeHTTPGatewayInitFailed)
+		return errors.Wrap(err, errors.ErrCodeHTTPGatewayInitFailed)
 	}
 
 	// 初始化 WebSocket 服务（如果启用）

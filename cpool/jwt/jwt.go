@@ -13,14 +13,12 @@ package jwt
 import (
 	"context"
 	"encoding/json"
-	"time"
-
-	"github.com/redis/go-redis/v9"
-
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"time"
 )
 
 // 定义一些常量
@@ -170,7 +168,7 @@ func (j *JWT) checkMultipointAuth(claims *CustomClaims) error {
 func (j *JWT) checkRedisMultipointAuth(claims *CustomClaims, jsonStr string) error {
 	var clis CustomClaims
 	if err := json.Unmarshal([]byte(jsonStr), &clis); err != nil {
-		return errors.WrapWithContext(err, errors.ErrCodeRedisParseError)
+		return errors.Wrapf(err, errors.ErrCodeRedisParseError, "json.Unmarshal failed: %v", err)
 	}
 
 	if clis.TokenId != "" && claims.TokenId != clis.TokenId {
@@ -184,7 +182,7 @@ func (j *JWT) checkRedisMultipointAuth(claims *CustomClaims, jsonStr string) err
 func (j *JWT) checkDBMultipointAuth(claims *CustomClaims) error {
 	var clis CustomClaims
 	if err := global.DB.Where("user_id = ?", claims.UserId).First(&clis).Error; err != nil && err != gorm.ErrRecordNotFound {
-		return errors.WrapWithContext(err, errors.ErrCodeDBQueryError)
+		return errors.Wrapf(err, errors.ErrCodeDBQueryError, "First failed: %v", err)
 	}
 
 	if claims.TokenId != clis.TokenId {

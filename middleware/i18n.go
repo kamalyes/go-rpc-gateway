@@ -13,183 +13,58 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"maps"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-
-	goi18n "github.com/kamalyes/go-config/pkg/i18n"
+	gci18n "github.com/kamalyes/go-config/pkg/i18n"
+	goi18n "github.com/kamalyes/go-i18n"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/errors"
+	"net/http"
 )
 
-// contextKey 自定义context key类型，避免与其他包冲突
-type contextKey string
+type I18nManager = goi18n.Manager
 
-const (
-	// I18nContextKey i18n上下文键
-	I18nContextKey contextKey = "i18n"
-)
-
-// I18nManager 国际化管理器
-type I18nManager struct {
-	config   *goi18n.I18N
-	messages map[string]map[string]string
-	mutex    sync.RWMutex
+func NewI18nManager(config *gci18n.I18N) (*goi18n.Manager, error) {
+	return goi18n.NewManager(config)
 }
 
-// NewI18nManager 创建国际化管理器
-func NewI18nManager(config *goi18n.I18N) (*I18nManager, error) {
-	if config == nil {
-		config = goi18n.Default()
-	}
-
-	// 如果没有设置 MessageLoader，根据 MessagesPath 自动创建 FileMessageLoader
-	if config.MessageLoader == nil && config.MessagesPath != "" {
-		config.MessageLoader = NewFileMessageLoader(config.MessagesPath)
-	}
-
-	// 如果仍然没有 MessageLoader，返回错误
-	if config.MessageLoader == nil {
-		return nil, errors.NewErrorf(errors.ErrCodeMiddlewareError, "MessageLoader is required for i18n")
-	}
-
-	manager := &I18nManager{
-		config:   config,
-		messages: make(map[string]map[string]string),
-	}
-
-	// 预加载所有支持的语言消息
-	for _, lang := range config.SupportedLanguages {
-		if err := manager.loadLanguage(lang); err != nil {
-			return nil, errors.NewErrorf(errors.ErrCodeLanguageLoadFailed, "language %s: %v", lang, err)
-		}
-	}
-
-	// 预加载语言映射中的目标语言
-	if config.LanguageMapping != nil {
-		for _, targetLang := range config.LanguageMapping {
-			// 如果目标语言还没有加载过，则加载它
-			if _, exists := manager.messages[targetLang]; !exists {
-				if err := manager.loadLanguage(targetLang); err != nil {
-					// 注意：这里不返回错误，因为目标语言文件可能不存在
-					continue
-				}
-			}
-		}
-	}
-
-	return manager, nil
+func NewJSONMessageLoader(messagesJSON string) (*goi18n.JSONLoader, error) {
+	return goi18n.NewJSONLoader(messagesJSON)
 }
 
-// loadLanguage 加载指定语言的消息
-func (i *I18nManager) loadLanguage(language string) error {
-	messages, err := i.config.MessageLoader.LoadMessages(language)
-	if err != nil {
-		return err
-	}
-
-	i.mutex.Lock()
-	defer i.mutex.Unlock()
-	i.messages[language] = messages
-
-	return nil
+func NewFileMessageLoader(localesPath string) *goi18n.FileLoader {
+	return goi18n.NewFileLoader(localesPath)
 }
 
-// GetMessage 获取翻译消息
-func (i *I18nManager) GetMessage(language, key string, args ...any) string {
-	return i.getMessageInternal(language, key, args, nil)
+func I18nFromContext(ctx context.Context) *goi18n.Context {
+	return goi18n.FromContext(ctx)
 }
 
-// GetMessageWithMap 使用map模板数据获取翻译消息
-func (i *I18nManager) GetMessageWithMap(language, key string, templateData map[string]any) string {
-	return i.getMessageInternal(language, key, nil, templateData)
+func T(ctx context.Context, key string, args ...any) string {
+	return goi18n.T(ctx, key, args...)
 }
 
-// getMessageInternal 内部获取消息的实现
-func (i *I18nManager) getMessageInternal(language, key string, args []any, templateData map[string]any) string {
-	i.mutex.RLock()
-	defer i.mutex.RUnlock()
-
-	// 尝试获取指定语言的消息
-	if message := i.getMessageFromLanguage(language, key); message != "" {
-		return i.formatMessage(message, args, templateData)
-	}
-
-	// 如果启用回退，尝试默认语言
-	if i.config.EnableFallback && language != i.config.DefaultLanguage {
-		if message := i.getMessageFromLanguage(i.config.DefaultLanguage, key); message != "" {
-			return i.formatMessage(message, args, templateData)
-		}
-	}
-
-	// 如果都没有找到，返回key本身
-	return key
+func TWithMap(ctx context.Context, key string, templateData map[string]any) string {
+	return goi18n.TWithMap(ctx, key, templateData)
 }
 
-// getMessageFromLanguage 从指定语言获取消息
-func (i *I18nManager) getMessageFromLanguage(language, key string) string {
-	// 使用 go-config 的 ResolveLanguage 方法进行语言解析
-	resolvedLang := i.config.ResolveLanguage(language)
-
-	// 尝试从解析后的语言获取消息
-	if message := i.findMessageInLanguage(resolvedLang, key); message != "" {
-		return message
-	}
-
-	return ""
+func GetMsgByKey(ctx context.Context, key string) string {
+	return goi18n.GetMsgByKey(ctx, key)
 }
 
-// findMessageInLanguage 在指定语言中查找消息
-func (i *I18nManager) findMessageInLanguage(language, key string) string {
-	if langMessages, exists := i.messages[language]; exists {
-		if message, exists := langMessages[key]; exists {
-			return message
-		}
-	}
-	return ""
+func GetMsgWithMap(ctx context.Context, key string, maps map[string]any) string {
+	return goi18n.GetMsgWithMap(ctx, key, maps)
 }
 
-// formatMessage 格式化消息
-func (i *I18nManager) formatMessage(message string, args []any, templateData map[string]any) string {
-	// 如果有模板数据，使用模板数据格式化
-	if templateData != nil {
-		return i.formatWithTemplateData(message, templateData)
-	}
-
-	// 如果有参数，使用printf风格格式化
-	if len(args) > 0 {
-		return fmt.Sprintf(message, args...)
-	}
-
-	return message
+func GetLanguage(ctx context.Context) string {
+	return goi18n.GetLanguage(ctx)
 }
 
-// formatWithTemplateData 使用模板数据格式化消息
-func (i *I18nManager) formatWithTemplateData(message string, templateData map[string]any) string {
-	result := message
-	for key, value := range templateData {
-		valueStr := fmt.Sprintf("%v", value)
-		result = strings.ReplaceAll(result, fmt.Sprintf("{{.%s}}", key), valueStr)
-		result = strings.ReplaceAll(result, fmt.Sprintf("{{%s}}", key), valueStr)
-	}
-	// 清理未替换的占位符
-	result = strings.ReplaceAll(result, ": <no value>", "")
-	return result
+func SetLanguage(ctx context.Context, language string) context.Context {
+	return goi18n.SetLanguage(ctx, language)
 }
 
-// IsLanguageSupported 检查语言是否被支持
-func (i *I18nManager) IsLanguageSupported(language string) bool {
-	return i.config.IsSupportedLanguage(language)
-}
-
-// I18n 国际化中间件，使用默认配置
 func I18n() MiddlewareFunc {
-	manager, err := NewI18nManager(goi18n.Default())
+	manager, err := goi18n.NewManager(gci18n.Default())
 	if err != nil {
 		panic(fmt.Sprintf("failed to create i18n manager: %v", err))
 	}
@@ -197,72 +72,60 @@ func I18n() MiddlewareFunc {
 	return I18nWithManager(manager)
 }
 
-// I18nWithManager 带管理器的国际化中间件
-func I18nWithManager(manager *I18nManager) MiddlewareFunc {
+func I18nWithManager(manager *goi18n.Manager) MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			language := detectLanguage(r, manager.config)
+			language := detectLanguage(r, manager.GetConfig())
 
-			// 验证语言是否被支持
 			if !manager.IsLanguageSupported(language) {
-				language = manager.config.DefaultLanguage
+				language = manager.GetDefaultLanguage()
 			}
 
-			// 设置响应头
 			w.Header().Set(constants.HeaderContentLanguage, language)
 
-			// 创建带有i18n上下文的新请求
-			ctx := context.WithValue(r.Context(), I18nContextKey, &I18nContext{
-				Language: language,
-				Manager:  manager,
-			})
+			ctx := goi18n.NewContext(r.Context(), language, manager)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// detectLanguage 检测用户语言偏好
-func detectLanguage(r *http.Request, config *goi18n.I18N) string {
+func detectLanguage(r *http.Request, config *gci18n.I18N) string {
 	for _, method := range config.DetectionOrder {
 		switch method {
-		case goi18n.DetectionHeader:
+		case gci18n.DetectionHeader:
 			if lang := detectFromHeader(r, config); lang != "" {
 				return lang
 			}
-		case goi18n.DetectionQuery:
+		case gci18n.DetectionQuery:
 			if lang := detectFromQuery(r, config); lang != "" {
 				return lang
 			}
-		case goi18n.DetectionCookie:
+		case gci18n.DetectionCookie:
 			if lang := detectFromCookie(r, config); lang != "" {
 				return lang
 			}
-		case goi18n.DetectionDefault:
+		case gci18n.DetectionDefault:
 			return config.DefaultLanguage
 		}
 	}
 	return config.DefaultLanguage
 }
 
-// detectFromHeader 从HTTP头检测语言
-func detectFromHeader(r *http.Request, config *goi18n.I18N) string {
+func detectFromHeader(r *http.Request, config *gci18n.I18N) string {
 	acceptLanguage := r.Header.Get(config.LanguageHeader)
 	if acceptLanguage == "" {
 		return ""
 	}
 
-	// 使用 go-config 的 ParseAcceptLanguage 方法解析并返回支持的语言
 	return config.ParseAcceptLanguage(acceptLanguage)
 }
 
-// detectFromQuery 从查询参数检测语言
-func detectFromQuery(r *http.Request, config *goi18n.I18N) string {
+func detectFromQuery(r *http.Request, config *gci18n.I18N) string {
 	return r.URL.Query().Get(config.LanguageParam)
 }
 
-// detectFromCookie 从Cookie检测语言
-func detectFromCookie(r *http.Request, config *goi18n.I18N) string {
+func detectFromCookie(r *http.Request, config *gci18n.I18N) string {
 	cookie, err := r.Cookie(config.LanguageParam)
 	if err != nil {
 		return ""
@@ -270,109 +133,16 @@ func detectFromCookie(r *http.Request, config *goi18n.I18N) string {
 	return cookie.Value
 }
 
-// I18nContext 国际化上下文
-type I18nContext struct {
-	Language string
-	Manager  *I18nManager
-}
-
-// T 翻译函数（简化调用）
-func (ctx *I18nContext) T(key string, args ...any) string {
-	return ctx.Manager.GetMessage(ctx.Language, key, args...)
-}
-
-// TWithMap 使用map模板数据翻译
-func (ctx *I18nContext) TWithMap(key string, templateData map[string]any) string {
-	return ctx.Manager.GetMessageWithMap(ctx.Language, key, templateData)
-}
-
-// GetLanguage 获取当前语言
-func (ctx *I18nContext) GetLanguage() string {
-	return ctx.Language
-}
-
-// SetLanguage 设置当前语言
-func (ctx *I18nContext) SetLanguage(language string) {
-	if ctx.Manager.IsLanguageSupported(language) {
-		ctx.Language = language
-	}
-}
-
-// I18nFromContext 从context中获取i18n上下文的辅助函数
-func I18nFromContext(ctx context.Context) *I18nContext {
-	if i18nCtx, ok := ctx.Value(I18nContextKey).(*I18nContext); ok {
-		return i18nCtx
-	}
-	return nil
-}
-
-// T 全局翻译函数
-func T(ctx context.Context, key string, args ...any) string {
-	if i18nCtx := I18nFromContext(ctx); i18nCtx != nil {
-		return i18nCtx.T(key, args...)
-	}
-	return key
-}
-
-// TWithMap 全局使用map模板数据翻译函数
-func TWithMap(ctx context.Context, key string, templateData map[string]any) string {
-	if i18nCtx := I18nFromContext(ctx); i18nCtx != nil {
-		return i18nCtx.TWithMap(key, templateData)
-	}
-	return key
-}
-
-// GetMsgByKey 通过键获取消息（业务层级函数）
-func GetMsgByKey(ctx context.Context, key string) string {
-	return T(ctx, key)
-}
-
-// GetMsgWithMap 使用map模板数据获取消息（业务层级函数）
-func GetMsgWithMap(ctx context.Context, key string, maps map[string]any) string {
-	if maps == nil {
-		return GetMsgByKey(ctx, key)
-	}
-
-	content := TWithMap(ctx, key, maps)
-	// 清理未替换的占位符
-	content = strings.ReplaceAll(content, ": <no value>", "")
-
-	if content == "" {
-		return key
-	}
-	return content
-}
-
-// GetLanguage 全局获取语言函数
-func GetLanguage(ctx context.Context) string {
-	if i18nCtx := I18nFromContext(ctx); i18nCtx != nil {
-		return i18nCtx.GetLanguage()
-	}
-	return constants.I18nDefaultLanguage // 默认返回英语
-}
-
-// SetLanguage 全局设置语言函数
-func SetLanguage(ctx context.Context, language string) context.Context {
-	if i18nCtx := I18nFromContext(ctx); i18nCtx != nil {
-		i18nCtx.SetLanguage(language)
-		return context.WithValue(ctx, I18nContextKey, i18nCtx)
-	}
-	return ctx
-}
-
-// LocalizedError 本地化错误结构
 type LocalizedError struct {
 	Key     string
 	Args    []any
 	Context context.Context
 }
 
-// Error 实现error接口
 func (e *LocalizedError) Error() string {
-	return T(e.Context, e.Key, e.Args...)
+	return goi18n.T(e.Context, e.Key, e.Args...)
 }
 
-// NewLocalizedError 创建本地化错误
 func NewLocalizedError(ctx context.Context, key string, args ...any) *LocalizedError {
 	return &LocalizedError{
 		Key:     key,
@@ -381,14 +151,13 @@ func NewLocalizedError(ctx context.Context, key string, args ...any) *LocalizedE
 	}
 }
 
-// NewLocalizedAppError 使用 i18n key 构造 AppError
 func NewLocalizedAppError(ctx context.Context, code errors.ErrorCode, key string, args ...any) *errors.AppError {
 	appErr := errors.NewError(code, "")
 	if ctx == nil || key == "" {
 		return appErr
 	}
 
-	localizedMessage := T(ctx, key, args...)
+	localizedMessage := goi18n.T(ctx, key, args...)
 	if localizedMessage != "" && localizedMessage != key {
 		appErr.WithDetails(localizedMessage)
 	}
@@ -396,7 +165,6 @@ func NewLocalizedAppError(ctx context.Context, code errors.ErrorCode, key string
 	return appErr
 }
 
-// NewLocalizedAppErrorWithMap 使用 map 模板数据构造 AppError
 func NewLocalizedAppErrorWithMap(ctx context.Context, code errors.ErrorCode, key string, templateData map[string]any) *errors.AppError {
 	appErr := errors.NewError(code, "")
 	if ctx == nil || key == "" {
@@ -405,9 +173,9 @@ func NewLocalizedAppErrorWithMap(ctx context.Context, code errors.ErrorCode, key
 
 	var localizedMessage string
 	if templateData == nil {
-		localizedMessage = GetMsgByKey(ctx, key)
+		localizedMessage = goi18n.GetMsgByKey(ctx, key)
 	} else {
-		localizedMessage = GetMsgWithMap(ctx, key, templateData)
+		localizedMessage = goi18n.GetMsgWithMap(ctx, key, templateData)
 	}
 
 	if localizedMessage != "" && localizedMessage != key {
@@ -415,96 +183,4 @@ func NewLocalizedAppErrorWithMap(ctx context.Context, code errors.ErrorCode, key
 	}
 
 	return appErr
-}
-
-// JSONMessageLoader JSON消息加载器，用于从JSON数据加载消息
-type JSONMessageLoader struct {
-	messages map[string]map[string]string
-}
-
-// NewJSONMessageLoader 创建JSON消息加载器
-func NewJSONMessageLoader(messagesJSON string) (*JSONMessageLoader, error) {
-	var messages map[string]map[string]string
-	if err := json.Unmarshal([]byte(messagesJSON), &messages); err != nil {
-		return nil, errors.WrapWithContext(err, errors.ErrCodeJSONParseFailed)
-	}
-
-	return &JSONMessageLoader{messages: messages}, nil
-}
-
-// LoadMessages 加载指定语言的消息
-func (j *JSONMessageLoader) LoadMessages(language string) (map[string]string, error) {
-	if messages, exists := j.messages[language]; exists {
-		return messages, nil
-	}
-	return nil, errors.NewErrorf(errors.ErrCodeLanguageNotFound, "language: %s", language)
-}
-
-// FileMessageLoader 文件系统消息加载器，从磁盘文件加载翻译消息
-type FileMessageLoader struct {
-	localesPath string
-}
-
-// NewFileMessageLoader 创建文件消息加载器
-// localesPath: 翻译文件所在目录路径，如 "./locales" 或 "resources/locales"
-func NewFileMessageLoader(localesPath string) *FileMessageLoader {
-	return &FileMessageLoader{
-		localesPath: localesPath,
-	}
-}
-
-// LoadMessages 加载指定语言的消息（支持嵌套JSON，自动扁平化为点号格式）
-// language: 语言代码，如 "zh", "en", "ja" 等
-// 会读取 {localesPath}/{language}.json 文件
-func (f *FileMessageLoader) LoadMessages(language string) (map[string]string, error) {
-	filePath := filepath.Join(f.localesPath, language+".json")
-
-	// 检查文件是否存在
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return nil, errors.NewErrorf(errors.ErrCodeLanguageNotFound, "language file not found: %s", filePath)
-	}
-
-	// 读取文件内容
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, errors.NewErrorf(errors.ErrCodeLanguageLoadFailed, "failed to read language file %s: %v", filePath, err)
-	}
-
-	// 先尝试解析为嵌套结构
-	var nested map[string]any
-	if err := json.Unmarshal(data, &nested); err != nil {
-		return nil, errors.NewErrorf(errors.ErrCodeJSONParseFailed, "failed to parse language file %s: %v", filePath, err)
-	}
-
-	// 扁平化为点号格式
-	messages := flattenJSON(nested, "")
-
-	return messages, nil
-}
-
-// flattenJSON 递归扁平化嵌套JSON为点号格式
-// 例如: {"error": {"internal": "错误"}} -> {"error.internal": "错误"}
-func flattenJSON(data map[string]any, prefix string) map[string]string {
-	result := make(map[string]string)
-
-	for key, value := range data {
-		fullKey := key
-		if prefix != "" {
-			fullKey = prefix + "." + key
-		}
-
-		switch v := value.(type) {
-		case string:
-			// 字符串值直接存储
-			result[fullKey] = v
-		case map[string]any:
-			// 递归处理嵌套对象
-			maps.Copy(result, flattenJSON(v, fullKey))
-		default:
-			// 其他类型转换为字符串
-			result[fullKey] = fmt.Sprintf("%v", v)
-		}
-	}
-
-	return result
 }
