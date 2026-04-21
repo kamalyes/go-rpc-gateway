@@ -154,6 +154,8 @@ github.com/kamalyes/go-pbmo v0.0.0-20260420115656-a6493c549927 h1:0LkSZpRrXhMAZE
 github.com/kamalyes/go-pbmo v0.0.0-20260420115656-a6493c549927/go.mod h1:W/Y+EnYL6qvUg22czNdYf8/N9sfeyIIFPtSuBsd3yu4=
 github.com/kamalyes/go-sqlbuilder v0.3.6-0.20260417015507-b1b743590a44 h1:Dv6zX5nLcJ3NkZnVAZpccUho4E/rcOssWL7vjOsFTMw=
 github.com/kamalyes/go-sqlbuilder v0.3.6-0.20260417015507-b1b743590a44/go.mod h1:sk9ktu7mkdFiL4EKTKmrl8gOPNNK+QUgPnHTf8Pwu5U=
+github.com/kamalyes/go-swagger v0.0.0-20260321012919-1cd794cde17e h1:YZ5KZB/JFVapKOqns6Y9jd4hyDHDn0tsSF1pL0cEaII=
+github.com/kamalyes/go-swagger v0.0.0-20260321012919-1cd794cde17e/go.mod h1:0tbaQDl2PWNJsON2ny88xA6bVOmQb3UYwk5AAlpNLnY=
 github.com/kamalyes/go-toolbox v0.11.87 h1:HFbkmMTS2mdEKi4bymjGlOOrY1HKVQWyjA8tc14GaNs=
 github.com/kamalyes/go-toolbox v0.11.87/go.mod h1:T0toLZCP952jKKJFo8Rn+sZ9OktxxU7GYWFPpk/c98k=
 github.com/kamalyes/go-wsc v0.5.8-0.20260420015855-3d9c7892eaac h1:oZaDRejcPJIvsmTwByLVLWUZshtIg3Zfto5Uo2NCKoA=

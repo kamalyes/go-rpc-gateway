@@ -11,14 +11,14 @@
 package middleware
 
 import (
-	"net/http"
-
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-config/pkg/ratelimit"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	swaggerMiddleware "github.com/kamalyes/go-swagger"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
+	"net/http"
 )
 
 // Manager 中间件管理器 - 使用 go-config 的 middleware 配置
@@ -31,7 +31,7 @@ type Manager struct {
 	dynamicSignature       DynamicSignatureProvider
 	i18nManager            *I18nManager
 	pbValidationMiddleware *PBValidationMiddleware
-	swaggerMiddleware      *SwaggerMiddleware
+	swaggerMiddleware      *swaggerMiddleware.Middleware
 }
 
 // NewManager 创建中间件管理器 - 使用全局 GATEWAY 配置
@@ -67,7 +67,12 @@ func NewManager(cfg *gwconfig.Gateway) (*Manager, error) {
 
 	// 初始化 Swagger 中间件
 	if cfg.Swagger.Enabled {
-		manager.swaggerMiddleware = NewSwaggerMiddleware(cfg.Swagger)
+		manager.swaggerMiddleware = swaggerMiddleware.NewMiddleware(cfg.Swagger,
+			swaggerMiddleware.WithLogger(global.LOGGER),
+		)
+		if err != nil {
+			return nil, errors.NewErrorf(errors.ErrCodeMiddlewareError, "failed to init swagger middleware: %v", err)
+		}
 		global.LOGGER.Info("Swagger文档中间件已初始化 [ui_path=%s, enabled=%v]",
 			cfg.Swagger.UIPath, true)
 	}
@@ -210,16 +215,7 @@ func (m *Manager) SwaggerHandler() http.Handler {
 	if m.swaggerMiddleware == nil {
 		return http.NotFoundHandler()
 	}
-
-	// 创建处理函数
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Swagger 中间件会直接处理请求，不需要传递给下一个处理器
-		nextHandler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-			// Empty handler - Swagger middleware handles the request directly
-		})
-		handler := m.swaggerMiddleware.Handler()(nextHandler)
-		handler.ServeHTTP(w, r)
-	})
+	return m.swaggerMiddleware
 }
 
 // GetSwaggerPaths 获取 Swagger 路由路径
@@ -227,12 +223,7 @@ func (m *Manager) GetSwaggerPaths() []string {
 	if m.swaggerMiddleware == nil || !m.cfg.Swagger.Enabled {
 		return nil
 	}
-
-	return []string{
-		m.cfg.Swagger.UIPath + "/",
-		m.cfg.Swagger.UIPath + "/index.html",
-		m.cfg.Swagger.UIPath + "/swagger.json",
-	}
+	return m.swaggerMiddleware.GetSwaggerPaths()
 }
 
 // GetMiddlewares 获取中间件链（完全基于配置驱动）
