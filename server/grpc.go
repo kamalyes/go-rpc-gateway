@@ -106,12 +106,16 @@ func (s *Server) initGRPCServer() error {
 			unaryInterceptors = append(unaryInterceptors, tracingInterceptor)
 		}
 
+		// 添加 struct tag 参数校验拦截器（配合 protoc-go-inject-tag 生效）
+		unaryInterceptors = append(unaryInterceptors, s.middlewareManager.GRPCStructTagValidatorInterceptor())
+
 		opts = append(opts, grpc.ChainUnaryInterceptor(unaryInterceptors...))
 
 		// 构建 Stream 拦截器链
 		streamInterceptors := []grpc.StreamServerInterceptor{
 			middleware.StreamServerRequestContextInterceptor(), // 1. RequestContext 注入
 			middleware.StreamServerLoggingInterceptor(),        // 2. 日志记录
+			s.middlewareManager.GRPCStructTagValidatorStreamInterceptor(),
 		}
 		opts = append(opts, grpc.ChainStreamInterceptor(streamInterceptors...))
 	}

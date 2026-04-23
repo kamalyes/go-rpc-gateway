@@ -11,6 +11,8 @@
 package middleware
 
 import (
+	"net/http"
+
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-config/pkg/ratelimit"
 	"github.com/kamalyes/go-rpc-gateway/errors"
@@ -18,7 +20,6 @@ import (
 	swaggerMiddleware "github.com/kamalyes/go-swagger"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
-	"net/http"
 )
 
 // Manager 中间件管理器 - 使用 go-config 的 middleware 配置
@@ -126,6 +127,17 @@ func (m *Manager) GRPCMetricsInterceptor() GRPCInterceptor {
 // GRPCTracingInterceptor gRPC 链路追踪拦截器
 func (m *Manager) GRPCTracingInterceptor() GRPCInterceptor {
 	return GRPCTracingInterceptor(m.tracingManager)
+}
+
+// GRPCStructTagValidatorInterceptor gRPC struct tag 参数校验拦截器
+// 配合 protoc-go-inject-tag 在 pb 字段上注入的 `validate:"..."` 标签生效。
+func (m *Manager) GRPCStructTagValidatorInterceptor() GRPCInterceptor {
+	return StructTagValidatorUnaryInterceptor()
+}
+
+// GRPCStructTagValidatorStreamInterceptor gRPC 流式 struct tag 参数校验拦截器
+func (m *Manager) GRPCStructTagValidatorStreamInterceptor() grpc.StreamServerInterceptor {
+	return StructTagValidatorStreamInterceptor()
 }
 
 // CORSMiddleware CORS 中间件

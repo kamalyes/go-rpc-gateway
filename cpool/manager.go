@@ -3,7 +3,7 @@
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-17 15:56:59
- * @FilePath: \im-access-control-service\go-rpc-gateway\cpool\manager.go
+ * @FilePath: \go-rpc-gateway\cpool\manager.go
  * @Description: 连接池管理器，统一管理数据库、Redis、OSS等客户端连接
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
@@ -13,8 +13,6 @@ package cpool
 import (
 	"context"
 	"fmt"
-	"sync"
-
 	"github.com/bwmarrin/snowflake"
 	"github.com/casbin/casbin/v2"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -28,6 +26,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	redisClient "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"sync"
 )
 
 // PoolManager 连接池管理器接口
