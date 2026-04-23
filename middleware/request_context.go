@@ -19,6 +19,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/contextx"
+	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"github.com/kamalyes/go-toolbox/pkg/osx"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
@@ -40,6 +41,7 @@ type RequestCommonMeta struct {
 	AppID         string `json:"appId" header:"X-App-Id"`
 	DeviceID      string `json:"deviceId" header:"X-Device-Id"`
 	AppVersion    string `json:"appVersion" header:"X-App-Version"`
+	IPAddress     string `json:"ipAddress" header:"X-Forwarded-For"`
 	Platform      string `json:"platform" header:"X-Platform"`
 	Nonce         string `json:"nonce" header:"X-Nonce"`
 }
@@ -71,6 +73,7 @@ func RequestContextMiddleware() HTTPMiddleware {
 				DeviceID:      gccommon.ExtractAttribute(r, requestContext.DeviceIDSources),
 				AppVersion:    gccommon.ExtractAttribute(r, requestContext.AppVersionSources),
 				Platform:      gccommon.ExtractAttribute(r, requestContext.PlatformSources),
+				IPAddress:     netx.GetClientIP(r),
 				Nonce:         gccommon.ExtractAttribute(r, requestContext.NonceSources),
 			}
 
@@ -81,6 +84,7 @@ func RequestContextMiddleware() HTTPMiddleware {
 			ctx = WithTenantID(ctx, requestCommonMeta.TenantID)
 			ctx = WithSessionID(ctx, requestCommonMeta.SessionID)
 			ctx = WithTimezone(ctx, requestCommonMeta.Timezone)
+			ctx = WithIPAddress(ctx, requestCommonMeta.IPAddress)
 			ctx = context.WithValue(ctx, requestCommonMetaKey{}, requestCommonMeta)
 
 			// 5. 设置响应头（便于客户端追踪）
@@ -109,6 +113,7 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 		TenantID:  contextx.GetValue[string](ctx, constants.MetadataTenantID),
 		SessionID: contextx.GetValue[string](ctx, constants.MetadataSessionID),
 		Timezone:  contextx.GetValue[string](ctx, constants.MetadataTimezone),
+		IPAddress: contextx.GetValue[string](ctx, constants.MetadataIPAddress),
 	}
 }
 
@@ -175,12 +180,14 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	sessionID := firstMetadataValue(constants.MetadataSessionID)
 	tenantID := firstMetadataValue(constants.MetadataTenantID)
 	timezone := firstMetadataValue(constants.MetadataTimezone)
+	ipAddress := firstMetadataValue(constants.MetadataIPAddress)
 
 	ctx = WithRequestID(ctx, requestID)
 	ctx = WithTraceID(ctx, traceID)
 	ctx = WithUserID(ctx, userID)
 	ctx = WithTenantID(ctx, tenantID)
 	ctx = WithSessionID(ctx, sessionID)
+	ctx = WithIPAddress(ctx, ipAddress)
 	ctx = WithTimezone(ctx, timezone)
 
 	return context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
@@ -254,6 +261,7 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 		constants.MetadataTenantID, requestCommonMeta.TenantID,
 		constants.MetadataSessionID, requestCommonMeta.SessionID,
 		constants.MetadataTimezone, requestCommonMeta.Timezone,
+		constants.MetadataIPAddress, requestCommonMeta.IPAddress,
 	)
 
 	// 合并已有的 outgoing metadata
@@ -329,6 +337,12 @@ func GetTimezone(ctx context.Context) string {
 	return requestCommonMeta.Timezone
 }
 
+// GetIPAddress 从 context 获取 IPAddress
+func GetIPAddress(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.IPAddress
+}
+
 // WithTraceID 将 TraceID 设置到 context
 func WithTraceID(ctx context.Context, traceID string) context.Context {
 	return contextx.WithValue(ctx, constants.MetadataTraceID, traceID)
@@ -357,4 +371,9 @@ func WithSessionID(ctx context.Context, sessionID string) context.Context {
 // WithTimezone 将 Timezone 设置到 context
 func WithTimezone(ctx context.Context, timezone string) context.Context {
 	return contextx.WithValue(ctx, constants.MetadataTimezone, timezone)
+}
+
+// WithIPAddress 将 IPAddress 设置到 context
+func WithIPAddress(ctx context.Context, ipAddress string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataIPAddress, ipAddress)
 }

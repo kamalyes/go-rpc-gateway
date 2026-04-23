@@ -23,6 +23,7 @@ const (
 	MetadataTenantID  = "x-tenant-id"
 	MetadataSessionID = "x-session-id"
 	MetadataTimezone  = "x-timezone"
+	MetadataIPAddress = "x-ip-address"
 )
 
 // ============================================================================
