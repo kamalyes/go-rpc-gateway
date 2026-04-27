@@ -1,3 +1,14 @@
+/*
+ * @Author: kamalyes 501893067@qq.com
+ * @Date: 2025-11-12 00:00:00
+ * @LastEditors: kamalyes 501893067@qq.com
+ * @LastEditTime: 2025-11-17 15:56:59
+ * @FilePath: \go-rpc-gateway\cpool\database\client.go
+ * @Description: 提供数据库连接初始化和管理功能
+ * 支持普通连接和持久化模式
+ *
+ * Copyright (c) 2025 by kamalyes, All Rights Reserved.
+ */
 package database
 
 import (
@@ -20,11 +31,19 @@ import (
 	"gorm.io/gorm/schema"
 )
 
-// contextLogger 存储在context中的logger实例
+// contextLogger 包级日志器实例，供 GormLogger 在记录 SQL 日志时使用
 var contextLogger gologger.ILogger
 
 // Gorm 初始化数据库并产生数据库全局变量
+// 根据配置中的数据库类型（MySQL/PostgreSQL/SQLite/CockroachDB）自动选择对应的初始化方法
+// 参数:
+//   - ctx: 上下文，用于超时控制和取消
+//   - cfg: 网关配置，包含数据库连接参数
+//   - log: 日志记录器
+//
+// 返回: GORM 数据库实例，如果数据库未启用或初始化失败返回 nil
 func Gorm(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
+	// 检查数据库是否启用
 	if !cfg.Database.Enabled {
 		return nil
 	}
@@ -41,6 +60,8 @@ func Gorm(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gor
 			return GormPostgreSQL(ctx, cfg, log)
 		case database.DBTypeSQLite:
 			return GormSQLite(ctx, cfg, log)
+		case database.DBTypeCockroachDB:
+			return GormCockroachDB(ctx, cfg, log)
 		default:
 			return GormMySQL(ctx, cfg, log) // 默认使用 MySQL
 		}
@@ -51,6 +72,7 @@ func Gorm(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gor
 }
 
 // GormMySQL 初始化MySQL数据库
+// 使用 MySQL 官方驱动，通过 DSN 方式连接
 func GormMySQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.MySQL == nil {
 		if log != nil {
@@ -60,12 +82,14 @@ func GormMySQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger)
 	}
 
 	config := cfg.Database.MySQL
+	// 使用 initDB 通用初始化方法，传入 MySQL 专属的 GORM 打开函数
 	return initDB(ctx, config, database.DBTypeMySQL, log, func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(mysqldriver.New(mysqldriver.Config{DSN: dsn}), gormConfig(config))
 	})
 }
 
 // GormPostgreSQL 初始化PostgreSQL数据库
+// 使用 PostgreSQL 驱动，启用 PreferSimpleProtocol 以提升性能
 func GormPostgreSQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.PostgreSQL == nil {
 		if log != nil {
@@ -75,12 +99,14 @@ func GormPostgreSQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILo
 	}
 
 	config := cfg.Database.PostgreSQL
+	// 使用 initDB 通用初始化方法，传入 PostgreSQL 专属的 GORM 打开函数
 	return initDB(ctx, config, database.DBTypePostgreSQL, log, func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), gormConfig(config))
 	})
 }
 
 // GormSQLite 连接SQLite数据库
+// SQLite 为文件型数据库，使用 DbPath 指定数据库文件路径
 func GormSQLite(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.SQLite == nil {
 		if log != nil {
@@ -90,14 +116,40 @@ func GormSQLite(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger
 	}
 
 	config := cfg.Database.SQLite
+	// SQLite 直接使用文件路径打开，不需要 DSN
 	return initDB(ctx, config, database.DBTypeSQLite, log, func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(sqlite.Open(config.DbPath), gormConfig(config))
 	})
 }
 
-// initDB 初始化数据库连接
+// GormCockroachDB 初始化CockroachDB数据库
+// CockroachDB兼容PostgreSQL协议，使用postgres驱动
+func GormCockroachDB(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
+	if cfg == nil || cfg.Database == nil || cfg.Database.CockroachDB == nil {
+		if log != nil {
+			log.ErrorContext(ctx, "CockroachDB config not found")
+		}
+		return nil
+	}
+
+	config := cfg.Database.CockroachDB
+	return initDB(ctx, config, database.DBTypeCockroachDB, log, func(dsn string) (*gorm.DB, error) {
+		return gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), gormConfig(config))
+	})
+}
+
+// initDB 初始化数据库连接的通用方法
+// 通过 DatabaseProvider 接口和 openFunc 回调实现多数据库类型的统一初始化流程
+// 包括：构建 DSN、打开连接、配置连接池参数
+// 参数:
+//   - ctx: 上下文
+//   - provider: 数据库配置提供者（实现 DatabaseProvider 接口）
+//   - dbType: 数据库类型
+//   - log: 日志记录器
+//   - openFunc: GORM 数据库打开函数（不同数据库类型有不同的打开方式）
 func initDB(ctx context.Context, provider database.DatabaseProvider, dbType database.DBType, log gologger.ILogger, openFunc func(string) (*gorm.DB, error)) *gorm.DB {
 	host := provider.GetHost()
+	// SQLite 不需要主机地址，其他数据库类型必须提供
 	if dbType != database.DBTypeSQLite && host == "" {
 		if log != nil {
 			log.ErrorContext(ctx, "Database host is empty")
@@ -106,16 +158,20 @@ func initDB(ctx context.Context, provider database.DatabaseProvider, dbType data
 	}
 
 	dsn := buildDSN(provider, dbType)
+	// 使用传入的 openFunc 打开数据库连接
 	db, err := openFunc(dsn)
 	if err != nil {
+		// 数据库连接失败，直接退出程序（数据库为关键依赖）
 		log.ErrorContextKV(ctx, fmt.Sprintf("%s database connection failed", dbType), "host", host, "dbname", provider.GetDBName(), "err", err)
 		os.Exit(1)
 		return nil
 	}
 
+	// 获取底层 sql.DB 实例以配置连接池
 	sqlDB, _ := db.DB()
 
-	// 设置连接池参数，直接从provider获取
+	// 设置连接池参数，根据不同的数据库类型从 provider 中读取配置
+	// 各数据库类型的连接池参数配置逻辑相同，只是类型断言不同
 	if mysql, ok := provider.(*database.MySQL); ok {
 		sqlDB.SetMaxIdleConns(mysql.MaxIdleConns)
 		sqlDB.SetMaxOpenConns(mysql.MaxOpenConns)
@@ -142,6 +198,15 @@ func initDB(ctx context.Context, provider database.DatabaseProvider, dbType data
 		}
 		if sqlite.ConnMaxLifeTime > 0 {
 			sqlDB.SetConnMaxLifetime(time.Duration(sqlite.ConnMaxLifeTime) * time.Second)
+		}
+	} else if cockroachdb, ok := provider.(*database.CockroachDB); ok {
+		sqlDB.SetMaxIdleConns(cockroachdb.MaxIdleConns)
+		sqlDB.SetMaxOpenConns(cockroachdb.MaxOpenConns)
+		if cockroachdb.ConnMaxIdleTime > 0 {
+			sqlDB.SetConnMaxIdleTime(time.Duration(cockroachdb.ConnMaxIdleTime) * time.Second)
+		}
+		if cockroachdb.ConnMaxLifeTime > 0 {
+			sqlDB.SetConnMaxLifetime(time.Duration(cockroachdb.ConnMaxLifeTime) * time.Second)
 		}
 	}
 
@@ -171,8 +236,8 @@ func buildDSN(provider database.DatabaseProvider, dbType database.DBType) string
 			AllowNativePasswords: true,
 		}
 		dsn = cfg.FormatDSN()
-	case database.DBTypePostgreSQL:
-		// PostgreSQL DSN 格式
+	case database.DBTypePostgreSQL, database.DBTypeCockroachDB:
+		// CockroachDB 兼容 PostgreSQL 协议，DSN格式与PostgreSQL相同
 		dsn = fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s %s",
 			host, user, password, dbname, port, configString)
 	case database.DBTypeSQLite:
@@ -199,9 +264,10 @@ func parseConfigParams(configString string) map[string]string {
 	return params
 }
 
-// gormConfig 根据配置决定是否开启日志
+// gormConfig 根据数据库配置构建 GORM 配置
+// 包含性能优化选项、命名策略和自定义日志记录器
 func gormConfig(provider database.DatabaseProvider) *gorm.Config {
-	// 从 DatabaseProvider 读取所有 GORM 配置
+	// 从 DatabaseProvider 接口读取所有 GORM 相关配置
 	slowThreshold := provider.GetSlowThreshold()
 	ignoreRecordNotFoundError := provider.GetIgnoreRecordNotFoundError()
 	skipDefaultTransaction := provider.GetSkipDefaultTransaction()
@@ -252,41 +318,49 @@ func NewGormLogger(config gormlogger.Config) gormlogger.Interface {
 	}
 }
 
-// LogMode 实现gormlogger.Interface接口
+// LogMode 实现 gormlogger.Interface 接口 - 设置日志级别
+// 返回一个新的 GormLogger 实例，不影响原实例
 func (l *GormLogger) LogMode(level gormlogger.LogLevel) gormlogger.Interface {
 	newLogger := *l
 	newLogger.Config.LogLevel = level
 	return &newLogger
 }
 
-// Info 实现gormlogger.Interface接口
+// Info 实现 gormlogger.Interface 接口 - 记录 Info 级别日志
 func (l *GormLogger) Info(ctx context.Context, msg string, data ...interface{}) {
 	if l.Config.LogLevel >= gormlogger.Info && contextLogger != nil {
 		contextLogger.InfoContextKV(ctx, msg, "data", fmt.Sprintf("%v", data))
 	}
 }
 
-// Warn 实现gormlogger.Interface接口
+// Warn 实现 gormlogger.Interface 接口 - 记录 Warn 级别日志
 func (l *GormLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
 	if l.Config.LogLevel >= gormlogger.Warn && contextLogger != nil {
 		contextLogger.WarnContextKV(ctx, msg, "data", fmt.Sprintf("%v", data))
 	}
 }
 
-// Error 实现gormlogger.Interface接口
+// Error 实现 gormlogger.Interface 接口 - 记录 Error 级别日志
 func (l *GormLogger) Error(ctx context.Context, msg string, data ...interface{}) {
 	if l.Config.LogLevel >= gormlogger.Error && contextLogger != nil {
 		contextLogger.ErrorContextKV(ctx, msg, "data", fmt.Sprintf("%v", data))
 	}
 }
 
-// Trace 实现gormlogger.Interface接口 - 记录SQL执行
+// Trace 实现 gormlogger.Interface 接口 - 记录 SQL 执行详情
+// 根据执行结果和耗时分为四种情况：
+// 1. 记录未找到 → 降级为 WARN
+// 2. SQL 执行错误 → 记录为 ERROR
+// 3. 慢查询（超过阈值）→ 记录为 WARN
+// 4. 正常执行 → 记录为 INFO
 func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	if l.Config.LogLevel <= gormlogger.Silent || contextLogger == nil {
 		return
 	}
 
+	// 计算 SQL 执行耗时
 	elapsed := time.Since(begin)
+	// 获取 SQL 语句和影响行数
 	sql, rows := fc()
 
 	switch {

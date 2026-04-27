@@ -13,20 +13,25 @@ package cpool
 import (
 	"context"
 	"fmt"
+	"sync"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/bwmarrin/snowflake"
 	"github.com/casbin/casbin/v2"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	cachex "github.com/kamalyes/go-cachex"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-logger"
+	"github.com/kamalyes/go-natsx"
+	chclient "github.com/kamalyes/go-rpc-gateway/cpool/clickhouse"
 	"github.com/kamalyes/go-rpc-gateway/cpool/database"
+	natsclient "github.com/kamalyes/go-rpc-gateway/cpool/nats"
 	"github.com/kamalyes/go-rpc-gateway/cpool/oss"
 	"github.com/kamalyes/go-rpc-gateway/cpool/redis"
 	"github.com/kamalyes/go-rpc-gateway/cpool/smtp"
 	"github.com/minio/minio-go/v7"
 	redisClient "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
-	"sync"
 )
 
 // PoolManager 连接池管理器接口
@@ -61,6 +66,15 @@ type PoolManager interface {
 	// 获取SMTP客户端
 	GetSMTP() smtp.MailHandler
 
+	// 获取ClickHouse连接
+	GetClickHouse() clickhouse.Conn
+
+	// 获取NATS连接封装（包含 Conn 和 JetStream）
+	GetNats() *natsclient.NatsConn
+
+	// 获取 go-natsx 易用性封装客户端
+	GetNatsX() *natsx.Client
+
 	// 设置数据库连接
 	SetDB(db *gorm.DB)
 
@@ -85,6 +99,12 @@ type PoolManager interface {
 	// 设置SMTP客户端
 	SetSMTP(smtp smtp.MailHandler)
 
+	// 设置ClickHouse连接
+	SetClickHouse(conn clickhouse.Conn)
+
+	// 设置NATS连接封装
+	SetNats(conn *natsclient.NatsConn)
+
 	// 设置国际化管理器
 	SetI18n(i18n interface{})
 
@@ -104,16 +124,18 @@ type Manager struct {
 	logger logger.ILogger
 
 	// 连接实例
-	db        *gorm.DB
-	redis     *redisClient.Client
-	cache     cachex.CtxCache
-	minio     *minio.Client
-	storage   oss.StorageHandler
-	smtp      smtp.MailHandler
-	mqtt      mqtt.Client
-	snowflake *snowflake.Node
-	casbin    casbin.IEnforcer
-	i18n      interface{}
+	db         *gorm.DB
+	redis      *redisClient.Client
+	cache      cachex.CtxCache
+	minio      *minio.Client
+	storage    oss.StorageHandler
+	smtp       smtp.MailHandler
+	mqtt       mqtt.Client
+	snowflake  *snowflake.Node
+	casbin     casbin.IEnforcer
+	i18n       interface{}
+	clickhouse clickhouse.Conn
+	nats       *natsclient.NatsConn
 
 	// 状态管理
 	initialized bool
@@ -182,6 +204,16 @@ func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
 
 	if err := m.initCasbin(); err != nil {
 		return fmt.Errorf("failed to initialize casbin: %w", err)
+	}
+
+	// 初始化 ClickHouse 连接（时序数据库，用于日志和指标存储）
+	if err := m.initClickHouse(ctx); err != nil {
+		return fmt.Errorf("failed to initialize clickhouse: %w", err)
+	}
+
+	// 初始化 NATS 连接（消息队列，用于异步消息传递和事件驱动）
+	if err := m.initNats(ctx); err != nil {
+		return fmt.Errorf("failed to initialize nats: %w", err)
 	}
 
 	m.initialized = true
@@ -309,6 +341,34 @@ func (m *Manager) initCasbin() error {
 	return nil
 }
 
+// initClickHouse 初始化 ClickHouse 连接
+// ClickHouse 是列式存储的时序数据库，适用于日志分析和指标存储场景
+func (m *Manager) initClickHouse(ctx context.Context) error {
+	conn := chclient.NewClickHouse(ctx, m.cfg, m.logger)
+	if conn != nil {
+		m.clickhouse = conn
+		m.logger.InfoContext(ctx, "ClickHouse initialized successfully")
+	} else {
+		// ClickHouse 未配置或连接失败不阻止启动，仅记录警告
+		m.logger.WarnContext(ctx, "ClickHouse initialization skipped (not configured or connection failed)")
+	}
+	return nil
+}
+
+// initNats 初始化 NATS 连接
+// NATS 是高性能轻量级消息队列，支持发布/订阅和 JetStream 持久化消息流
+// 默认启用 go-natsx 易用性封装客户端，提供泛型发布/订阅、批量流式消费等高级功能
+func (m *Manager) initNats(ctx context.Context) error {
+	result := natsclient.NewNats(ctx, m.logger, m.cfg.Nats)
+	if result != nil {
+		m.nats = result
+		m.logger.InfoContext(ctx, "NATS initialized successfully")
+	} else {
+		m.logger.WarnContext(ctx, "NATS initialization skipped (not configured or connection failed)")
+	}
+	return nil
+}
+
 // initJWT 初始化JWT管理器
 // Getter methods
 func (m *Manager) GetDB() *gorm.DB {
@@ -366,6 +426,27 @@ func (m *Manager) GetSMTP() smtp.MailHandler {
 	return m.smtp
 }
 
+func (m *Manager) GetClickHouse() clickhouse.Conn {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.clickhouse
+}
+
+func (m *Manager) GetNats() *natsclient.NatsConn {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.nats
+}
+
+func (m *Manager) GetNatsX() *natsx.Client {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.nats != nil {
+		return m.nats.Client
+	}
+	return nil
+}
+
 // GetSMTPClient 获取SMTP客户端（兼容 go-wsc.PoolManager 接口）
 func (m *Manager) GetSMTPClient() interface{} {
 	return m.GetSMTP()
@@ -418,6 +499,18 @@ func (m *Manager) SetSMTP(smtpClient smtp.MailHandler) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.smtp = smtpClient
+}
+
+func (m *Manager) SetClickHouse(conn clickhouse.Conn) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.clickhouse = conn
+}
+
+func (m *Manager) SetNats(conn *natsclient.NatsConn) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.nats = conn
 }
 
 func (m *Manager) SetI18n(i18n interface{}) {
@@ -490,6 +583,21 @@ func (m *Manager) Close() error {
 		m.mqtt = nil
 	}
 
+	// 关闭 ClickHouse 连接（直接操作连接实例，不再委托包级函数）
+	if m.clickhouse != nil {
+		m.clickhouse.Close()
+		m.clickhouse = nil
+	}
+
+	// 关闭 NATS 连接（先释放 go-natsx 客户端资源，再关闭底层连接）
+	if m.nats != nil {
+		if m.nats.Client != nil {
+			m.nats.Client.Close()
+		}
+		m.nats.Conn.Close()
+		m.nats = nil
+	}
+
 	// 取消上下文
 	if m.cancel != nil {
 		m.cancel()
@@ -538,6 +646,21 @@ func (m *Manager) HealthCheck() map[string]bool {
 	// 检查MQTT
 	if m.mqtt != nil {
 		status["mqtt"] = m.mqtt.IsConnected()
+	}
+
+	// 检查 ClickHouse 连接状态（通过 Ping 验证）
+	if m.clickhouse != nil {
+		ctx := context.Background()
+		status["clickhouse"] = m.clickhouse.Ping(ctx) == nil
+	}
+
+	// 检查 NATS 连接状态（通过 go-natsx 客户端或底层连接验证）
+	if m.nats != nil {
+		if m.nats.Client != nil {
+			status["nats"] = m.nats.Client.IsConnected()
+		} else {
+			status["nats"] = m.nats.Conn.IsConnected()
+		}
 	}
 
 	return status

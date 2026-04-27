@@ -31,8 +31,9 @@ func TestBuildDSN(t *testing.T) {
 	}
 
 	// 测试MySQL DSN
+	// mysql.Config.FormatDSN() 会自动添加默认参数并按内部顺序排列
 	mysqlDSN := buildDSN(mysqlConfig, database.DBTypeMySQL)
-	expected := "user:pass@tcp(localhost:3306)/testdb?charset=utf8mb4&parseTime=True&loc=Local"
+	expected := "user:pass@tcp(localhost:3306)/testdb?checkConnLiveness=false&maxAllowedPacket=0&charset=utf8mb4&loc=Local&parseTime=True"
 	assert.Equal(t, expected, mysqlDSN)
 
 	// 创建PostgreSQL配置

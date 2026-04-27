@@ -17,13 +17,25 @@ package constants
 
 // gRPC Metadata 键常量（小写，符合 gRPC metadata 规范）
 const (
-	MetadataTraceID   = "x-trace-id"
-	MetadataRequestID = "x-request-id"
-	MetadataUserID    = "x-user-id"
-	MetadataTenantID  = "x-tenant-id"
-	MetadataSessionID = "x-session-id"
-	MetadataTimezone  = "x-timezone"
-	MetadataIPAddress = "x-ip-address"
+	MetadataTraceID           = "x-trace-id"
+	MetadataRequestID         = "x-request-id"
+	MetadataID                = "x-id"
+	MetadataUserID            = "x-user-id"
+	MetadataTenantID          = "x-tenant-id"
+	MetadataTenantCode        = "x-tenant-code"
+	MetadataSessionID         = "x-session-id"
+	MetadataTimezone          = "x-timezone"
+	MetadataIPAddress         = "x-ip-address"
+	MetadataAppID             = "x-app-id"
+	MetadataDeviceID          = "x-device-id"
+	MetadataAppVersion        = "x-app-version"
+	MetadataPlatformID        = "x-platform-id"
+	MetadataPlatformCode      = "x-platform-code"
+	MetadataRegionID          = "x-region-id"
+	MetadataRegionCode        = "x-region-code"
+	MetadataNonce             = "x-nonce"
+	MetadataXNsID             = "x-ns-id"
+	MetadataGrpcMetadataXNsID = "grpc-metadata-x-ns-id"
 )
 
 // ============================================================================
@@ -32,16 +44,26 @@ const (
 
 // 上下文相关字段
 const (
-	LogFieldTraceID    = "trace_id"
-	LogFieldRequestID  = "request_id"
-	LogFieldUserID     = "user_id"
-	LogFieldTenantID   = "tenant_id"
-	LogFieldSessionID  = "session_id"
-	LogFieldTimezone   = "timezone"
-	LogFieldAppID      = "app_id"
-	LogFieldDeviceID   = "device_id"
-	LogFieldAppVersion = "app_version"
-	LogFieldPlatform   = "platform"
+	LogFieldTraceID           = "trace_id"
+	LogFieldRequestID         = "request_id"
+	LogFieldID                = "id"
+	LogFieldUserID            = "user_id"
+	LogFieldTenantID          = "tenant_id"
+	LogFieldTenantCode        = "tenant_code"
+	LogFieldSessionID         = "session_id"
+	LogFieldTimezone          = "timezone"
+	LogFieldAppID             = "app_id"
+	LogFieldDeviceID          = "device_id"
+	LogFieldAppVersion        = "app_version"
+	LogFieldPlatform          = "platform"
+	LogFieldPlatformID        = "platform_id"
+	LogFieldPlatformCode      = "platform_code"
+	LogFieldRegionID          = "region_id"
+	LogFieldRegionCode        = "region_code"
+	LogFieldIPAddress         = "ip_address"
+	LogFieldNonce             = "nonce"
+	LogFieldXNsID             = "x_ns_id"
+	LogFieldGrpcMetadataXNsId = "grpc_metadata_x_ns_id"
 )
 
 // 请求相关字段

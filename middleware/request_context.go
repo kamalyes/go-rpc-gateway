@@ -28,22 +28,29 @@ import (
 
 // RequestCommonMeta 请求公共元信息
 type RequestCommonMeta struct {
-	TraceID       string `json:"traceId" header:"X-Trace-Id"`
-	RequestID     string `json:"requestId" header:"X-Request-Id"`
-	UserID        string `json:"userId" header:"X-User-ID"`
-	TenantID      string `json:"tenantId" header:"X-Tenant-ID"`
-	SessionID     string `json:"sessionId" header:"X-Session-ID"`
-	Timezone      string `json:"timezone" header:"X-Timezone"`
-	Timestamp     string `json:"timestamp" header:"X-Timestamp"`
-	Signature     string `json:"signature" header:"X-Signature"`
-	Authorization string `json:"authorization" header:"Authorization"`
-	AccessKey     string `json:"accessKey" header:"X-Access-Key"`
-	AppID         string `json:"appId" header:"X-App-Id"`
-	DeviceID      string `json:"deviceId" header:"X-Device-Id"`
-	AppVersion    string `json:"appVersion" header:"X-App-Version"`
-	IPAddress     string `json:"ipAddress" header:"X-Forwarded-For"`
-	Platform      string `json:"platform" header:"X-Platform"`
-	Nonce         string `json:"nonce" header:"X-Nonce"`
+	ID                string `json:"id" header:"X-ID"`                                 // 请求ID
+	TraceID           string `json:"traceID" header:"X-Trace-ID"`                      // 跟踪ID
+	RequestID         string `json:"requestID" header:"X-Request-ID"`                  // 请求ID
+	UserID            string `json:"userID" header:"X-User-ID"`                        // 用户ID
+	TenantID          string `json:"tenantID" header:"X-Tenant-ID"`                    // 租户ID
+	TenantCode        string `json:"tenantCode" header:"X-Tenant-Code"`                // 租户编码
+	SessionID         string `json:"sessionID" header:"X-Session-ID"`                  // 会话ID
+	Timezone          string `json:"timezone" header:"X-Timezone"`                     // 时区
+	Timestamp         string `json:"timestamp" header:"X-Timestamp"`                   // 时间戳
+	Signature         string `json:"signature" header:"X-Signature"`                   // 签名
+	Authorization     string `json:"authorization" header:"Authorization"`             // 授权
+	AccessKey         string `json:"accessKey" header:"X-Access-Key"`                  // 访问密钥
+	AppID             string `json:"appID" header:"X-App-ID"`                          // 应用ID
+	DeviceID          string `json:"deviceID" header:"X-Device-ID"`                    // 设备ID
+	AppVersion        string `json:"appVersion" header:"X-App-Version"`                // 应用版本
+	IPAddress         string `json:"ipAddress" header:"X-Forwarded-For"`               // IP地址
+	PlatformID        string `json:"platformID" header:"X-Platform-ID"`                // 平台ID
+	PlatformCode      string `json:"platformCode" header:"X-Platform-Code"`            // 平台编码
+	RegionID          string `json:"regionID" header:"X-Region-ID"`                    // 区域ID
+	RegionCode        string `json:"regionCode" header:"X-Region-Code"`                // 区域编码
+	Nonce             string `json:"nonce" header:"X-Nonce"`                           // 随机数
+	XNsID             string `json:"xNsID" header:"X-Ns-ID"`                           // 命名空间ID
+	GrpcMetadataXNsID string `json:"grpcMetadataXNsID" header:"Grpc-Metadata-X-Ns-ID"` // gRPC元数据命名空间ID
 }
 
 type requestCommonMetaKey struct{}
@@ -59,10 +66,12 @@ func RequestContextMiddleware() HTTPMiddleware {
 			ctx := r.Context()
 			requestContext := global.GATEWAY.RequestContext
 			requestCommonMeta := &RequestCommonMeta{
+				ID:            gccommon.ExtractAttribute(r, requestContext.IDSources),
 				TraceID:       extractOrGenerateTraceID(ctx, gccommon.ExtractAttribute(r, requestContext.TraceIDSources)),
 				RequestID:     extractOrGenerateRequestID(gccommon.ExtractAttribute(r, requestContext.RequestIDSources)),
 				UserID:        gccommon.ExtractAttribute(r, requestContext.UserIDSources),
 				TenantID:      gccommon.ExtractAttribute(r, requestContext.TenantIDSources),
+				TenantCode:    gccommon.ExtractAttribute(r, requestContext.TenantCodeSources),
 				SessionID:     gccommon.ExtractAttribute(r, requestContext.SessionIDSources),
 				Timezone:      gccommon.ExtractAttribute(r, requestContext.TimezoneSources),
 				Timestamp:     gccommon.ExtractAttribute(r, requestContext.TimestampSources),
@@ -72,19 +81,32 @@ func RequestContextMiddleware() HTTPMiddleware {
 				AppID:         gccommon.ExtractAttribute(r, requestContext.AppIDSources),
 				DeviceID:      gccommon.ExtractAttribute(r, requestContext.DeviceIDSources),
 				AppVersion:    gccommon.ExtractAttribute(r, requestContext.AppVersionSources),
-				Platform:      gccommon.ExtractAttribute(r, requestContext.PlatformSources),
+				PlatformID:    gccommon.ExtractAttribute(r, requestContext.PlatformIDSources),
+				PlatformCode:  gccommon.ExtractAttribute(r, requestContext.PlatformCodeSources),
+				RegionID:      gccommon.ExtractAttribute(r, requestContext.RegionIDSources),
+				RegionCode:    gccommon.ExtractAttribute(r, requestContext.RegionCodeSources),
 				IPAddress:     netx.GetClientIP(r),
 				Nonce:         gccommon.ExtractAttribute(r, requestContext.NonceSources),
 			}
 
 			// 将核心链路字段注入 context，便于日志和下游组件统一获取
+			ctx = WithID(ctx, requestCommonMeta.ID)
 			ctx = WithTraceID(ctx, requestCommonMeta.TraceID)
 			ctx = WithRequestID(ctx, requestCommonMeta.RequestID)
 			ctx = WithUserID(ctx, requestCommonMeta.UserID)
 			ctx = WithTenantID(ctx, requestCommonMeta.TenantID)
+			ctx = WithTenantCode(ctx, requestCommonMeta.TenantCode)
 			ctx = WithSessionID(ctx, requestCommonMeta.SessionID)
 			ctx = WithTimezone(ctx, requestCommonMeta.Timezone)
 			ctx = WithIPAddress(ctx, requestCommonMeta.IPAddress)
+			ctx = WithAppID(ctx, requestCommonMeta.AppID)
+			ctx = WithDeviceID(ctx, requestCommonMeta.DeviceID)
+			ctx = WithAppVersion(ctx, requestCommonMeta.AppVersion)
+			ctx = WithPlatformID(ctx, requestCommonMeta.PlatformID)
+			ctx = WithPlatformCode(ctx, requestCommonMeta.PlatformCode)
+			ctx = WithRegionID(ctx, requestCommonMeta.RegionID)
+			ctx = WithRegionCode(ctx, requestCommonMeta.RegionCode)
+			ctx = WithNonce(ctx, requestCommonMeta.Nonce)
 			ctx = context.WithValue(ctx, requestCommonMetaKey{}, requestCommonMeta)
 
 			// 5. 设置响应头（便于客户端追踪）
@@ -107,13 +129,25 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 
 	// 回退：直接从 context 中提取链路字段，避免递归调用。
 	return &RequestCommonMeta{
-		TraceID:   contextx.GetValue[string](ctx, constants.MetadataTraceID),
-		RequestID: contextx.GetValue[string](ctx, constants.MetadataRequestID),
-		UserID:    contextx.GetValue[string](ctx, constants.MetadataUserID),
-		TenantID:  contextx.GetValue[string](ctx, constants.MetadataTenantID),
-		SessionID: contextx.GetValue[string](ctx, constants.MetadataSessionID),
-		Timezone:  contextx.GetValue[string](ctx, constants.MetadataTimezone),
-		IPAddress: contextx.GetValue[string](ctx, constants.MetadataIPAddress),
+		ID:                contextx.GetValue[string](ctx, constants.MetadataID),
+		TraceID:           contextx.GetValue[string](ctx, constants.MetadataTraceID),
+		RequestID:         contextx.GetValue[string](ctx, constants.MetadataRequestID),
+		UserID:            contextx.GetValue[string](ctx, constants.MetadataUserID),
+		TenantID:          contextx.GetValue[string](ctx, constants.MetadataTenantID),
+		TenantCode:        contextx.GetValue[string](ctx, constants.MetadataTenantCode),
+		SessionID:         contextx.GetValue[string](ctx, constants.MetadataSessionID),
+		Timezone:          contextx.GetValue[string](ctx, constants.MetadataTimezone),
+		IPAddress:         contextx.GetValue[string](ctx, constants.MetadataIPAddress),
+		AppID:             contextx.GetValue[string](ctx, constants.MetadataAppID),
+		DeviceID:          contextx.GetValue[string](ctx, constants.MetadataDeviceID),
+		AppVersion:        contextx.GetValue[string](ctx, constants.MetadataAppVersion),
+		PlatformID:        contextx.GetValue[string](ctx, constants.MetadataPlatformID),
+		PlatformCode:      contextx.GetValue[string](ctx, constants.MetadataPlatformCode),
+		RegionID:          contextx.GetValue[string](ctx, constants.MetadataRegionID),
+		RegionCode:        contextx.GetValue[string](ctx, constants.MetadataRegionCode),
+		Nonce:             contextx.GetValue[string](ctx, constants.MetadataNonce),
+		XNsID:             contextx.GetValue[string](ctx, constants.MetadataXNsID),
+		GrpcMetadataXNsID: contextx.GetValue[string](ctx, constants.MetadataGrpcMetadataXNsID),
 	}
 }
 
@@ -176,27 +210,64 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	requestID := extractOrGenerateRequestID(firstMetadataValue(constants.MetadataRequestID))
 
 	// 提取其他可选字段
+	id := firstMetadataValue(constants.MetadataID)
 	userID := firstMetadataValue(constants.MetadataUserID)
 	sessionID := firstMetadataValue(constants.MetadataSessionID)
 	tenantID := firstMetadataValue(constants.MetadataTenantID)
+	tenantCode := firstMetadataValue(constants.MetadataTenantCode)
 	timezone := firstMetadataValue(constants.MetadataTimezone)
 	ipAddress := firstMetadataValue(constants.MetadataIPAddress)
+	appID := firstMetadataValue(constants.MetadataAppID)
+	deviceID := firstMetadataValue(constants.MetadataDeviceID)
+	appVersion := firstMetadataValue(constants.MetadataAppVersion)
+	platformID := firstMetadataValue(constants.MetadataPlatformID)
+	platformCode := firstMetadataValue(constants.MetadataPlatformCode)
+	regionID := firstMetadataValue(constants.MetadataRegionID)
+	regionCode := firstMetadataValue(constants.MetadataRegionCode)
+	nonce := firstMetadataValue(constants.MetadataNonce)
+	xNsID := firstMetadataValue(constants.MetadataXNsID)
+	grpcMetadataXNsID := firstMetadataValue(constants.MetadataGrpcMetadataXNsID)
 
+	ctx = WithID(ctx, id)
 	ctx = WithRequestID(ctx, requestID)
 	ctx = WithTraceID(ctx, traceID)
 	ctx = WithUserID(ctx, userID)
 	ctx = WithTenantID(ctx, tenantID)
+	ctx = WithTenantCode(ctx, tenantCode)
 	ctx = WithSessionID(ctx, sessionID)
 	ctx = WithIPAddress(ctx, ipAddress)
 	ctx = WithTimezone(ctx, timezone)
+	ctx = WithAppID(ctx, appID)
+	ctx = WithDeviceID(ctx, deviceID)
+	ctx = WithAppVersion(ctx, appVersion)
+	ctx = WithPlatformID(ctx, platformID)
+	ctx = WithPlatformCode(ctx, platformCode)
+	ctx = WithRegionID(ctx, regionID)
+	ctx = WithRegionCode(ctx, regionCode)
+	ctx = WithNonce(ctx, nonce)
+	ctx = WithXNsID(ctx, xNsID)
+	ctx = WithGrpcMetadataXNsID(ctx, grpcMetadataXNsID)
 
 	return context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
-		TraceID:   traceID,
-		RequestID: requestID,
-		UserID:    userID,
-		TenantID:  tenantID,
-		SessionID: sessionID,
-		Timezone:  timezone,
+		ID:                id,
+		TraceID:           traceID,
+		RequestID:         requestID,
+		UserID:            userID,
+		TenantID:          tenantID,
+		TenantCode:        tenantCode,
+		SessionID:         sessionID,
+		Timezone:          timezone,
+		IPAddress:         ipAddress,
+		AppID:             appID,
+		DeviceID:          deviceID,
+		AppVersion:        appVersion,
+		PlatformID:        platformID,
+		PlatformCode:      platformCode,
+		RegionID:          regionID,
+		RegionCode:        regionCode,
+		Nonce:             nonce,
+		XNsID:             xNsID,
+		GrpcMetadataXNsID: grpcMetadataXNsID,
 	})
 }
 
@@ -205,8 +276,25 @@ func setResponseMetadata(ctx context.Context) {
 	requestCommonMeta := GetRequestCommonMeta(ctx)
 
 	md := metadata.Pairs(
+		constants.MetadataID, requestCommonMeta.ID,
 		constants.MetadataTraceID, requestCommonMeta.TraceID,
 		constants.MetadataRequestID, requestCommonMeta.RequestID,
+		constants.MetadataUserID, requestCommonMeta.UserID,
+		constants.MetadataTenantID, requestCommonMeta.TenantID,
+		constants.MetadataTenantCode, requestCommonMeta.TenantCode,
+		constants.MetadataSessionID, requestCommonMeta.SessionID,
+		constants.MetadataTimezone, requestCommonMeta.Timezone,
+		constants.MetadataIPAddress, requestCommonMeta.IPAddress,
+		constants.MetadataAppID, requestCommonMeta.AppID,
+		constants.MetadataDeviceID, requestCommonMeta.DeviceID,
+		constants.MetadataAppVersion, requestCommonMeta.AppVersion,
+		constants.MetadataPlatformID, requestCommonMeta.PlatformID,
+		constants.MetadataPlatformCode, requestCommonMeta.PlatformCode,
+		constants.MetadataRegionID, requestCommonMeta.RegionID,
+		constants.MetadataRegionCode, requestCommonMeta.RegionCode,
+		constants.MetadataNonce, requestCommonMeta.Nonce,
+		constants.MetadataXNsID, requestCommonMeta.XNsID,
+		constants.MetadataGrpcMetadataXNsID, requestCommonMeta.GrpcMetadataXNsID,
 	)
 
 	// 发送 metadata（忽略错误，因为可能已经发送过）
@@ -255,13 +343,25 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 
 	// 直接注入所有字段，空值也可以传递
 	md := metadata.Pairs(
+		constants.MetadataID, requestCommonMeta.ID,
 		constants.MetadataTraceID, requestCommonMeta.TraceID,
 		constants.MetadataRequestID, requestCommonMeta.RequestID,
 		constants.MetadataUserID, requestCommonMeta.UserID,
 		constants.MetadataTenantID, requestCommonMeta.TenantID,
+		constants.MetadataTenantCode, requestCommonMeta.TenantCode,
 		constants.MetadataSessionID, requestCommonMeta.SessionID,
 		constants.MetadataTimezone, requestCommonMeta.Timezone,
 		constants.MetadataIPAddress, requestCommonMeta.IPAddress,
+		constants.MetadataAppID, requestCommonMeta.AppID,
+		constants.MetadataDeviceID, requestCommonMeta.DeviceID,
+		constants.MetadataAppVersion, requestCommonMeta.AppVersion,
+		constants.MetadataPlatformID, requestCommonMeta.PlatformID,
+		constants.MetadataPlatformCode, requestCommonMeta.PlatformCode,
+		constants.MetadataRegionID, requestCommonMeta.RegionID,
+		constants.MetadataRegionCode, requestCommonMeta.RegionCode,
+		constants.MetadataNonce, requestCommonMeta.Nonce,
+		constants.MetadataXNsID, requestCommonMeta.XNsID,
+		constants.MetadataGrpcMetadataXNsID, requestCommonMeta.GrpcMetadataXNsID,
 	)
 
 	// 合并已有的 outgoing metadata
@@ -343,6 +443,78 @@ func GetIPAddress(ctx context.Context) string {
 	return requestCommonMeta.IPAddress
 }
 
+// GetID 从 context 获取 ID
+func GetID(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.ID
+}
+
+// GetTenantCode 从 context 获取 TenantCode
+func GetTenantCode(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.TenantCode
+}
+
+// GetPlatformID 从 context 获取 PlatformID
+func GetPlatformID(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.PlatformID
+}
+
+// GetPlatformCode 从 context 获取 PlatformCode
+func GetPlatformCode(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.PlatformCode
+}
+
+// GetRegionID 从 context 获取 RegionID
+func GetRegionID(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.RegionID
+}
+
+// GetRegionCode 从 context 获取 RegionCode
+func GetRegionCode(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.RegionCode
+}
+
+// GetXNsID 从 context 获取 XNsID
+func GetXNsID(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.XNsID
+}
+
+// GetGrpcMetadataXNsID 从 context 获取 GrpcMetadataXNsID
+func GetGrpcMetadataXNsID(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.GrpcMetadataXNsID
+}
+
+// GetAppID 从 context 获取 AppID
+func GetAppID(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.AppID
+}
+
+// GetDeviceID 从 context 获取 DeviceID
+func GetDeviceID(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.DeviceID
+}
+
+// GetAppVersion 从 context 获取 AppVersion
+func GetAppVersion(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.AppVersion
+}
+
+// GetNonce 从 context 获取 Nonce
+func GetNonce(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.Nonce
+}
+
 // WithTraceID 将 TraceID 设置到 context
 func WithTraceID(ctx context.Context, traceID string) context.Context {
 	return contextx.WithValue(ctx, constants.MetadataTraceID, traceID)
@@ -376,4 +548,64 @@ func WithTimezone(ctx context.Context, timezone string) context.Context {
 // WithIPAddress 将 IPAddress 设置到 context
 func WithIPAddress(ctx context.Context, ipAddress string) context.Context {
 	return contextx.WithValue(ctx, constants.MetadataIPAddress, ipAddress)
+}
+
+// WithID 将 ID 设置到 context
+func WithID(ctx context.Context, id string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataID, id)
+}
+
+// WithTenantCode 将 TenantCode 设置到 context
+func WithTenantCode(ctx context.Context, tenantCode string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataTenantCode, tenantCode)
+}
+
+// WithPlatformID 将 PlatformID 设置到 context
+func WithPlatformID(ctx context.Context, platformID string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataPlatformID, platformID)
+}
+
+// WithPlatformCode 将 PlatformCode 设置到 context
+func WithPlatformCode(ctx context.Context, platformCode string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataPlatformCode, platformCode)
+}
+
+// WithRegionID 将 RegionID 设置到 context
+func WithRegionID(ctx context.Context, regionID string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataRegionID, regionID)
+}
+
+// WithRegionCode 将 RegionCode 设置到 context
+func WithRegionCode(ctx context.Context, regionCode string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataRegionCode, regionCode)
+}
+
+// WithXNsID 将 XNsID 设置到 context
+func WithXNsID(ctx context.Context, xNsID string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataXNsID, xNsID)
+}
+
+// WithGrpcMetadataXNsID 将 GrpcMetadataXNsID 设置到 context
+func WithGrpcMetadataXNsID(ctx context.Context, grpcMetadataXNsID string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataGrpcMetadataXNsID, grpcMetadataXNsID)
+}
+
+// WithAppID 将 AppID 设置到 context
+func WithAppID(ctx context.Context, appID string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataAppID, appID)
+}
+
+// WithDeviceID 将 DeviceID 设置到 context
+func WithDeviceID(ctx context.Context, deviceID string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataDeviceID, deviceID)
+}
+
+// WithAppVersion 将 AppVersion 设置到 context
+func WithAppVersion(ctx context.Context, appVersion string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataAppVersion, appVersion)
+}
+
+// WithNonce 将 Nonce 设置到 context
+func WithNonce(ctx context.Context, nonce string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataNonce, nonce)
 }

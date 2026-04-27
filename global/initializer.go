@@ -262,7 +262,8 @@ func (i *PoolManagerInitializer) Initialize(ctx context.Context, cfg *gwconfig.G
 
 	POOL_MANAGER = manager
 
-	// 将 Manager 的资源绑定到全局变量
+	// 将 Manager 的资源绑定到全局便捷引用变量
+	// ClickHouse 和 NATS 不再存储为独立全局变量，通过 GetClickHouse()/GetNats() 从 PoolManager 获取
 	DB = manager.GetDB()
 	REDIS = manager.GetRedis()
 	MinIO = manager.GetMinIO()

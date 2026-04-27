@@ -1057,3 +1057,287 @@ func TestExtractOrGenerateRequestID(t *testing.T) {
 	requestID = extractOrGenerateRequestID("")
 	assert.NotEmpty(t, requestID, "应该生成 request_id")
 }
+
+// TestNewFields_HTTPMiddleware 测试新增字段的 HTTP 中间件提取
+func TestNewFields_HTTPMiddleware(t *testing.T) {
+	middleware := RequestContextMiddleware()
+
+	var capturedCtx context.Context
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCtx = r.Context()
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set(constants.HeaderXID, "test-id-123")
+	req.Header.Set(constants.HeaderXTenantCode, "tenant-code-abc")
+	req.Header.Set(constants.HeaderXPlatformId, "platform-123")
+	req.Header.Set(constants.HeaderXPlatformCode, "platform-code-xyz")
+	req.Header.Set(constants.HeaderXRegionId, "region-456")
+	req.Header.Set(constants.HeaderXRegionCode, "region-code-def")
+	req.Header.Set(constants.HeaderXNonce, "nonce-789")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	// 验证新增字段被正确提取
+	assert.Equal(t, "test-id-123", GetID(capturedCtx), "应提取 ID")
+	assert.Equal(t, "tenant-code-abc", GetTenantCode(capturedCtx), "应提取 TenantCode")
+	assert.Equal(t, "platform-123", GetPlatformID(capturedCtx), "应提取 PlatformID")
+	assert.Equal(t, "platform-code-xyz", GetPlatformCode(capturedCtx), "应提取 PlatformCode")
+	assert.Equal(t, "region-456", GetRegionID(capturedCtx), "应提取 RegionID")
+	assert.Equal(t, "region-code-def", GetRegionCode(capturedCtx), "应提取 RegionCode")
+	assert.Equal(t, "nonce-789", GetNonce(capturedCtx), "应提取 Nonce")
+}
+
+// TestNewFields_GRPCMetadata 测试新增字段的 gRPC metadata 提取
+func TestNewFields_GRPCMetadata(t *testing.T) {
+	md := metadata.Pairs(
+		constants.MetadataID, "grpc-id-123",
+		constants.MetadataTenantCode, "grpc-tenant-code",
+		constants.MetadataPlatformID, "grpc-platform-id",
+		constants.MetadataPlatformCode, "grpc-platform-code",
+		constants.MetadataRegionID, "grpc-region-id",
+		constants.MetadataRegionCode, "grpc-region-code",
+		constants.MetadataNonce, "grpc-nonce",
+		constants.MetadataAppID, "grpc-app-id",
+		constants.MetadataDeviceID, "grpc-device-id",
+		constants.MetadataAppVersion, "grpc-app-version",
+		constants.MetadataXNsID, "grpc-ns-id",
+		constants.MetadataGrpcMetadataXNsID, "grpc-metadata-ns-id",
+	)
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	enrichedCtx := enrichContextFromMetadata(ctx)
+
+	// 验证新增字段被正确提取
+	assert.Equal(t, "grpc-id-123", GetID(enrichedCtx))
+	assert.Equal(t, "grpc-tenant-code", GetTenantCode(enrichedCtx))
+	assert.Equal(t, "grpc-platform-id", GetPlatformID(enrichedCtx))
+	assert.Equal(t, "grpc-platform-code", GetPlatformCode(enrichedCtx))
+	assert.Equal(t, "grpc-region-id", GetRegionID(enrichedCtx))
+	assert.Equal(t, "grpc-region-code", GetRegionCode(enrichedCtx))
+	assert.Equal(t, "grpc-nonce", GetNonce(enrichedCtx))
+	assert.Equal(t, "grpc-app-id", GetAppID(enrichedCtx))
+	assert.Equal(t, "grpc-device-id", GetDeviceID(enrichedCtx))
+	assert.Equal(t, "grpc-app-version", GetAppVersion(enrichedCtx))
+	assert.Equal(t, "grpc-ns-id", GetXNsID(enrichedCtx))
+	assert.Equal(t, "grpc-metadata-ns-id", GetGrpcMetadataXNsID(enrichedCtx))
+}
+
+// TestNewFields_InjectTraceToOutgoingContext 测试新增字段注入到 outgoing metadata
+func TestNewFields_InjectTraceToOutgoingContext(t *testing.T) {
+	ctx := context.Background()
+	ctx = WithID(ctx, "out-id")
+	ctx = WithTenantCode(ctx, "out-tenant-code")
+	ctx = WithPlatformID(ctx, "out-platform-id")
+	ctx = WithPlatformCode(ctx, "out-platform-code")
+	ctx = WithRegionID(ctx, "out-region-id")
+	ctx = WithRegionCode(ctx, "out-region-code")
+	ctx = WithNonce(ctx, "out-nonce")
+	ctx = WithAppID(ctx, "out-app-id")
+	ctx = WithDeviceID(ctx, "out-device-id")
+	ctx = WithAppVersion(ctx, "out-app-version")
+	ctx = WithXNsID(ctx, "out-ns-id")
+	ctx = WithGrpcMetadataXNsID(ctx, "out-metadata-ns-id")
+
+	ctx = context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
+		ID:                "out-id",
+		TenantCode:        "out-tenant-code",
+		PlatformID:        "out-platform-id",
+		PlatformCode:      "out-platform-code",
+		RegionID:          "out-region-id",
+		RegionCode:        "out-region-code",
+		Nonce:             "out-nonce",
+		AppID:             "out-app-id",
+		DeviceID:          "out-device-id",
+		AppVersion:        "out-app-version",
+		XNsID:             "out-ns-id",
+		GrpcMetadataXNsID: "out-metadata-ns-id",
+	})
+
+	outgoingCtx := injectTraceToOutgoingContext(ctx)
+
+	md, ok := metadata.FromOutgoingContext(outgoingCtx)
+	assert.True(t, ok, "应该有 outgoing metadata")
+	assert.Equal(t, []string{"out-id"}, md.Get(constants.MetadataID))
+	assert.Equal(t, []string{"out-tenant-code"}, md.Get(constants.MetadataTenantCode))
+	assert.Equal(t, []string{"out-platform-id"}, md.Get(constants.MetadataPlatformID))
+	assert.Equal(t, []string{"out-platform-code"}, md.Get(constants.MetadataPlatformCode))
+	assert.Equal(t, []string{"out-region-id"}, md.Get(constants.MetadataRegionID))
+	assert.Equal(t, []string{"out-region-code"}, md.Get(constants.MetadataRegionCode))
+	assert.Equal(t, []string{"out-nonce"}, md.Get(constants.MetadataNonce))
+	assert.Equal(t, []string{"out-app-id"}, md.Get(constants.MetadataAppID))
+	assert.Equal(t, []string{"out-device-id"}, md.Get(constants.MetadataDeviceID))
+	assert.Equal(t, []string{"out-app-version"}, md.Get(constants.MetadataAppVersion))
+	assert.Equal(t, []string{"out-ns-id"}, md.Get(constants.MetadataXNsID))
+	assert.Equal(t, []string{"out-metadata-ns-id"}, md.Get(constants.MetadataGrpcMetadataXNsID))
+}
+
+// TestNewFields_GetRequestCommonMetaFallback 测试 GetRequestCommonMeta 回退逻辑包含新字段
+func TestNewFields_GetRequestCommonMetaFallback(t *testing.T) {
+	ctx := context.Background()
+	ctx = WithID(ctx, "fallback-id")
+	ctx = WithTenantCode(ctx, "fallback-tenant-code")
+	ctx = WithPlatformID(ctx, "fallback-platform-id")
+	ctx = WithPlatformCode(ctx, "fallback-platform-code")
+	ctx = WithRegionID(ctx, "fallback-region-id")
+	ctx = WithRegionCode(ctx, "fallback-region-code")
+	ctx = WithNonce(ctx, "fallback-nonce")
+	ctx = WithAppID(ctx, "fallback-app-id")
+	ctx = WithDeviceID(ctx, "fallback-device-id")
+	ctx = WithAppVersion(ctx, "fallback-app-version")
+	ctx = WithXNsID(ctx, "fallback-ns-id")
+	ctx = WithGrpcMetadataXNsID(ctx, "fallback-metadata-ns-id")
+
+	// 不缓存 RequestCommonMeta，触发回退逻辑
+	info := GetRequestCommonMeta(ctx)
+
+	assert.Equal(t, "fallback-id", info.ID)
+	assert.Equal(t, "fallback-tenant-code", info.TenantCode)
+	assert.Equal(t, "fallback-platform-id", info.PlatformID)
+	assert.Equal(t, "fallback-platform-code", info.PlatformCode)
+	assert.Equal(t, "fallback-region-id", info.RegionID)
+	assert.Equal(t, "fallback-region-code", info.RegionCode)
+	assert.Equal(t, "fallback-nonce", info.Nonce)
+	assert.Equal(t, "fallback-app-id", info.AppID)
+	assert.Equal(t, "fallback-device-id", info.DeviceID)
+	assert.Equal(t, "fallback-app-version", info.AppVersion)
+	assert.Equal(t, "fallback-ns-id", info.XNsID)
+	assert.Equal(t, "fallback-metadata-ns-id", info.GrpcMetadataXNsID)
+}
+
+// TestNewFields_WithFunctions 测试新增的 With* 函数
+func TestNewFields_WithFunctions(t *testing.T) {
+	ctx := context.Background()
+
+	ctx = WithID(ctx, "test-id")
+	ctx = WithTenantCode(ctx, "test-tenant-code")
+	ctx = WithPlatformID(ctx, "test-platform-id")
+	ctx = WithPlatformCode(ctx, "test-platform-code")
+	ctx = WithRegionID(ctx, "test-region-id")
+	ctx = WithRegionCode(ctx, "test-region-code")
+	ctx = WithNonce(ctx, "test-nonce")
+	ctx = WithAppID(ctx, "test-app-id")
+	ctx = WithDeviceID(ctx, "test-device-id")
+	ctx = WithAppVersion(ctx, "test-app-version")
+	ctx = WithXNsID(ctx, "test-ns-id")
+	ctx = WithGrpcMetadataXNsID(ctx, "test-metadata-ns-id")
+
+	assert.Equal(t, "test-id", GetID(ctx))
+	assert.Equal(t, "test-tenant-code", GetTenantCode(ctx))
+	assert.Equal(t, "test-platform-id", GetPlatformID(ctx))
+	assert.Equal(t, "test-platform-code", GetPlatformCode(ctx))
+	assert.Equal(t, "test-region-id", GetRegionID(ctx))
+	assert.Equal(t, "test-region-code", GetRegionCode(ctx))
+	assert.Equal(t, "test-nonce", GetNonce(ctx))
+	assert.Equal(t, "test-app-id", GetAppID(ctx))
+	assert.Equal(t, "test-device-id", GetDeviceID(ctx))
+	assert.Equal(t, "test-app-version", GetAppVersion(ctx))
+	assert.Equal(t, "test-ns-id", GetXNsID(ctx))
+	assert.Equal(t, "test-metadata-ns-id", GetGrpcMetadataXNsID(ctx))
+}
+
+// TestRequestCommonMeta_AllFields 测试 RequestCommonMeta 结构体所有字段
+func TestRequestCommonMeta_AllFields(t *testing.T) {
+	meta := &RequestCommonMeta{
+		ID:                "id-1",
+		TraceID:           "trace-1",
+		RequestID:         "request-1",
+		UserID:            "user-1",
+		TenantID:          "tenant-1",
+		TenantCode:        "tenant-code-1",
+		SessionID:         "session-1",
+		Timezone:          "Asia/Shanghai",
+		Timestamp:         "1234567890",
+		Signature:         "signature-1",
+		Authorization:     "Bearer token",
+		AccessKey:         "access-key-1",
+		AppID:             "app-1",
+		DeviceID:          "device-1",
+		AppVersion:        "1.0.0",
+		IPAddress:         "127.0.0.1",
+		PlatformID:        "platform-1",
+		PlatformCode:      "platform-code-1",
+		RegionID:          "region-1",
+		RegionCode:        "region-code-1",
+		Nonce:             "nonce-1",
+		XNsID:             "ns-1",
+		GrpcMetadataXNsID: "metadata-ns-1",
+	}
+
+	assert.Equal(t, "id-1", meta.ID)
+	assert.Equal(t, "trace-1", meta.TraceID)
+	assert.Equal(t, "request-1", meta.RequestID)
+	assert.Equal(t, "user-1", meta.UserID)
+	assert.Equal(t, "tenant-1", meta.TenantID)
+	assert.Equal(t, "tenant-code-1", meta.TenantCode)
+	assert.Equal(t, "session-1", meta.SessionID)
+	assert.Equal(t, "Asia/Shanghai", meta.Timezone)
+	assert.Equal(t, "1234567890", meta.Timestamp)
+	assert.Equal(t, "signature-1", meta.Signature)
+	assert.Equal(t, "Bearer token", meta.Authorization)
+	assert.Equal(t, "access-key-1", meta.AccessKey)
+	assert.Equal(t, "app-1", meta.AppID)
+	assert.Equal(t, "device-1", meta.DeviceID)
+	assert.Equal(t, "1.0.0", meta.AppVersion)
+	assert.Equal(t, "127.0.0.1", meta.IPAddress)
+	assert.Equal(t, "platform-1", meta.PlatformID)
+	assert.Equal(t, "platform-code-1", meta.PlatformCode)
+	assert.Equal(t, "region-1", meta.RegionID)
+	assert.Equal(t, "region-code-1", meta.RegionCode)
+	assert.Equal(t, "nonce-1", meta.Nonce)
+	assert.Equal(t, "ns-1", meta.XNsID)
+	assert.Equal(t, "metadata-ns-1", meta.GrpcMetadataXNsID)
+}
+
+// TestFullChain_AllFields 测试完整链路传递所有字段
+func TestFullChain_AllFields(t *testing.T) {
+	middleware := RequestContextMiddleware()
+
+	var serviceCtx context.Context
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serviceCtx = r.Context()
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("POST", "/api/test", nil)
+	req.Header.Set(constants.HeaderXID, "full-id")
+	req.Header.Set(constants.HeaderXTraceID, "full-trace")
+	req.Header.Set(constants.HeaderXRequestID, "full-request")
+	req.Header.Set(constants.HeaderXUserID, "full-user")
+	req.Header.Set(constants.HeaderXTenantID, "full-tenant")
+	req.Header.Set(constants.HeaderXTenantCode, "full-tenant-code")
+	req.Header.Set(constants.HeaderXSessionID, "full-session")
+	req.Header.Set(constants.HeaderXTimezone, "Asia/Shanghai")
+	req.Header.Set(constants.HeaderXAppID, "full-app")
+	req.Header.Set(constants.HeaderXDeviceID, "full-device")
+	req.Header.Set(constants.HeaderXAppVersion, "1.0.0")
+	req.Header.Set(constants.HeaderXPlatformId, "full-platform-id")
+	req.Header.Set(constants.HeaderXPlatformCode, "full-platform-code")
+	req.Header.Set(constants.HeaderXRegionId, "full-region-id")
+	req.Header.Set(constants.HeaderXRegionCode, "full-region-code")
+	req.Header.Set(constants.HeaderXNonce, "full-nonce")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	// 验证所有字段都能在服务层获取
+	meta := GetRequestCommonMeta(serviceCtx)
+	assert.Equal(t, "full-id", meta.ID)
+	assert.Equal(t, "full-trace", meta.TraceID)
+	assert.Equal(t, "full-request", meta.RequestID)
+	assert.Equal(t, "full-user", meta.UserID)
+	assert.Equal(t, "full-tenant", meta.TenantID)
+	assert.Equal(t, "full-tenant-code", meta.TenantCode)
+	assert.Equal(t, "full-session", meta.SessionID)
+	assert.Equal(t, "Asia/Shanghai", meta.Timezone)
+	assert.Equal(t, "full-app", meta.AppID)
+	assert.Equal(t, "full-device", meta.DeviceID)
+	assert.Equal(t, "1.0.0", meta.AppVersion)
+	assert.Equal(t, "full-platform-id", meta.PlatformID)
+	assert.Equal(t, "full-platform-code", meta.PlatformCode)
+	assert.Equal(t, "full-region-id", meta.RegionID)
+	assert.Equal(t, "full-region-code", meta.RegionCode)
+	assert.Equal(t, "full-nonce", meta.Nonce)
+}

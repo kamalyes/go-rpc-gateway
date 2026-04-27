@@ -79,14 +79,22 @@ func (lf *LogFields) AddRequestContext(ctx context.Context) *LogFields {
 	return lf.
 		Add(constants.LogFieldTraceID, requestCommonMeta.TraceID).
 		Add(constants.LogFieldRequestID, requestCommonMeta.RequestID).
+		Add(constants.LogFieldID, requestCommonMeta.ID).
 		Add(constants.LogFieldUserID, requestCommonMeta.UserID).
 		Add(constants.LogFieldTenantID, requestCommonMeta.TenantID).
+		Add(constants.LogFieldTenantCode, requestCommonMeta.TenantCode).
 		Add(constants.LogFieldSessionID, requestCommonMeta.SessionID).
 		Add(constants.LogFieldTimezone, requestCommonMeta.Timezone).
 		Add(constants.LogFieldAppID, requestCommonMeta.AppID).
 		Add(constants.LogFieldDeviceID, requestCommonMeta.DeviceID).
 		Add(constants.LogFieldAppVersion, requestCommonMeta.AppVersion).
-		Add(constants.LogFieldPlatform, requestCommonMeta.Platform)
+		Add(constants.LogFieldPlatformID, requestCommonMeta.PlatformID).
+		Add(constants.LogFieldPlatformCode, requestCommonMeta.PlatformCode).
+		Add(constants.LogFieldRegionID, requestCommonMeta.RegionID).
+		Add(constants.LogFieldRegionCode, requestCommonMeta.RegionCode).
+		Add(constants.LogFieldIPAddress, requestCommonMeta.IPAddress).
+		Add(constants.LogFieldXNsID, requestCommonMeta.XNsID).
+		Add(constants.LogFieldGrpcMetadataXNsId, requestCommonMeta.GrpcMetadataXNsID)
 }
 
 // AddSlow 添加慢请求标记 🐌
