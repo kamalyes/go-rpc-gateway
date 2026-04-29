@@ -36,6 +36,7 @@ const (
 	MetadataNonce             = "x-nonce"
 	MetadataXNsID             = "x-ns-id"
 	MetadataGrpcMetadataXNsID = "grpc-metadata-x-ns-id"
+	MetadataAuthorization     = "authorization"
 )
 
 // ============================================================================
@@ -64,6 +65,7 @@ const (
 	LogFieldNonce             = "nonce"
 	LogFieldXNsID             = "x_ns_id"
 	LogFieldGrpcMetadataXNsId = "grpc_metadata_x_ns_id"
+	LogFieldAuthorization     = "authorization"
 )
 
 // 请求相关字段

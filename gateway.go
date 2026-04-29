@@ -16,6 +16,13 @@ package gateway
 
 import (
 	"context"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
 	"github.com/bwmarrin/snowflake"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	goconfig "github.com/kamalyes/go-config"
@@ -30,12 +37,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
-	"net/http"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
 )
 
 // Gateway 是主要的网关服务器
@@ -167,8 +168,9 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 		return nil, errors.NewError(errors.ErrCodeInitializationError, errors.FormatInitError("日志器", err))
 	}
 
-	// 创建配置实例
-	config := &gwconfig.Gateway{}
+	// 创建配置实例：先放入默认值，再让配置文件覆盖。
+	// 这样嵌套的数据库配置不会在后续初始化时退回到框架默认库名
+	config := gwconfig.Default()
 
 	// 使用go-config创建并启动配置管理器
 	var manager *goconfig.IntegratedConfigManager
@@ -218,6 +220,12 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 	}
 
 	if err != nil {
+		return nil, errors.Wrap(err, errors.ErrCodeInvalidConfiguration)
+	}
+
+	// go-config 初始加载使用 viper 默认反序列化；这里再走一次带弱类型和
+	// kebab-case 兼容的反序列化，确保 db-name、max-open-conns 等字段完整覆盖默认值
+	if err := goconfig.UnmarshalWithFlexibleNaming(manager.GetViper(), config); err != nil {
 		return nil, errors.Wrap(err, errors.ErrCodeInvalidConfiguration)
 	}
 

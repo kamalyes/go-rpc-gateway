@@ -55,6 +55,11 @@ type RequestCommonMeta struct {
 
 type requestCommonMetaKey struct{}
 
+// WithRequestCommonMeta 为上下文添加请求公共元信息
+func WithRequestCommonMeta(ctx context.Context, requestCommonMeta *RequestCommonMeta) context.Context {
+	return contextx.WithValue(ctx, &requestCommonMetaKey{}, requestCommonMeta)
+}
+
 // RequestContextMiddleware HTTP 层统一的请求上下文中间件
 // 职责：
 // 1. 从 HTTP Header 提取或生成 trace_id 和 request_id
@@ -107,7 +112,7 @@ func RequestContextMiddleware() HTTPMiddleware {
 			ctx = WithRegionID(ctx, requestCommonMeta.RegionID)
 			ctx = WithRegionCode(ctx, requestCommonMeta.RegionCode)
 			ctx = WithNonce(ctx, requestCommonMeta.Nonce)
-			ctx = context.WithValue(ctx, requestCommonMetaKey{}, requestCommonMeta)
+			ctx = WithRequestCommonMeta(ctx, requestCommonMeta)
 
 			// 5. 设置响应头（便于客户端追踪）
 			w.Header().Set(constants.HeaderXTraceID, requestCommonMeta.TraceID)
@@ -132,6 +137,7 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 		ID:                contextx.GetValue[string](ctx, constants.MetadataID),
 		TraceID:           contextx.GetValue[string](ctx, constants.MetadataTraceID),
 		RequestID:         contextx.GetValue[string](ctx, constants.MetadataRequestID),
+		Authorization:     contextx.GetValue[string](ctx, constants.MetadataAuthorization),
 		UserID:            contextx.GetValue[string](ctx, constants.MetadataUserID),
 		TenantID:          contextx.GetValue[string](ctx, constants.MetadataTenantID),
 		TenantCode:        contextx.GetValue[string](ctx, constants.MetadataTenantCode),
@@ -211,6 +217,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 
 	// 提取其他可选字段
 	id := firstMetadataValue(constants.MetadataID)
+	authorization := firstMetadataValue(constants.MetadataAuthorization)
 	userID := firstMetadataValue(constants.MetadataUserID)
 	sessionID := firstMetadataValue(constants.MetadataSessionID)
 	tenantID := firstMetadataValue(constants.MetadataTenantID)
@@ -231,6 +238,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	ctx = WithID(ctx, id)
 	ctx = WithRequestID(ctx, requestID)
 	ctx = WithTraceID(ctx, traceID)
+	ctx = WithAuthorization(ctx, authorization)
 	ctx = WithUserID(ctx, userID)
 	ctx = WithTenantID(ctx, tenantID)
 	ctx = WithTenantCode(ctx, tenantCode)
@@ -252,6 +260,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		ID:                id,
 		TraceID:           traceID,
 		RequestID:         requestID,
+		Authorization:     authorization,
 		UserID:            userID,
 		TenantID:          tenantID,
 		TenantCode:        tenantCode,
@@ -279,6 +288,7 @@ func setResponseMetadata(ctx context.Context) {
 		constants.MetadataID, requestCommonMeta.ID,
 		constants.MetadataTraceID, requestCommonMeta.TraceID,
 		constants.MetadataRequestID, requestCommonMeta.RequestID,
+		constants.MetadataAuthorization, requestCommonMeta.Authorization,
 		constants.MetadataUserID, requestCommonMeta.UserID,
 		constants.MetadataTenantID, requestCommonMeta.TenantID,
 		constants.MetadataTenantCode, requestCommonMeta.TenantCode,
@@ -346,6 +356,7 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 		constants.MetadataID, requestCommonMeta.ID,
 		constants.MetadataTraceID, requestCommonMeta.TraceID,
 		constants.MetadataRequestID, requestCommonMeta.RequestID,
+		constants.MetadataAuthorization, requestCommonMeta.Authorization,
 		constants.MetadataUserID, requestCommonMeta.UserID,
 		constants.MetadataTenantID, requestCommonMeta.TenantID,
 		constants.MetadataTenantCode, requestCommonMeta.TenantCode,
@@ -523,6 +534,11 @@ func WithTraceID(ctx context.Context, traceID string) context.Context {
 // WithRequestID 将 RequestID 设置到 context
 func WithRequestID(ctx context.Context, requestID string) context.Context {
 	return contextx.WithValue(ctx, constants.MetadataRequestID, requestID)
+}
+
+// WithAuthorization 将 Authorization 设置到 context
+func WithAuthorization(ctx context.Context, authorization string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataAuthorization, authorization)
 }
 
 // WithUserID 将 UserID 设置到 context

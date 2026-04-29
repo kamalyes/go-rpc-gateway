@@ -75,9 +75,7 @@ func Gorm(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gor
 // 使用 MySQL 官方驱动，通过 DSN 方式连接
 func GormMySQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.MySQL == nil {
-		if log != nil {
-			log.ErrorContext(ctx, "MySQL config not found")
-		}
+		log.ErrorContext(ctx, "MySQL config not found")
 		return nil
 	}
 
@@ -92,9 +90,7 @@ func GormMySQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger)
 // 使用 PostgreSQL 驱动，启用 PreferSimpleProtocol 以提升性能
 func GormPostgreSQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.PostgreSQL == nil {
-		if log != nil {
-			log.ErrorContext(ctx, "PostgreSQL config not found")
-		}
+		log.ErrorContext(ctx, "PostgreSQL config not found")
 		return nil
 	}
 
@@ -109,9 +105,7 @@ func GormPostgreSQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILo
 // SQLite 为文件型数据库，使用 DbPath 指定数据库文件路径
 func GormSQLite(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.SQLite == nil {
-		if log != nil {
-			log.ErrorContext(ctx, "SQLite config not found")
-		}
+		log.ErrorContext(ctx, "SQLite config not found")
 		return nil
 	}
 
@@ -126,16 +120,21 @@ func GormSQLite(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger
 // CockroachDB兼容PostgreSQL协议，使用postgres驱动
 func GormCockroachDB(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.Database == nil || cfg.Database.CockroachDB == nil {
-		if log != nil {
-			log.ErrorContext(ctx, "CockroachDB config not found")
-		}
+		log.ErrorContext(ctx, "CockroachDB config not found")
 		return nil
 	}
 
 	config := cfg.Database.CockroachDB
-	return initDB(ctx, config, database.DBTypeCockroachDB, log, func(dsn string) (*gorm.DB, error) {
+	openFunc := func(dsn string) (*gorm.DB, error) {
 		return gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), gormConfig(config))
-	})
+	}
+	if err := ensureCockroachDatabase(ctx, config, log, openFunc); err != nil {
+		log.ErrorContextKV(ctx, "CockroachDB database prepare failed", "host", config.GetHost(), "dbname", config.GetDBName(), "err", err)
+		os.Exit(1)
+		return nil
+	}
+
+	return initDB(ctx, config, database.DBTypeCockroachDB, log, openFunc)
 }
 
 // initDB 初始化数据库连接的通用方法
@@ -149,15 +148,16 @@ func GormCockroachDB(ctx context.Context, cfg *gwconfig.Gateway, log gologger.IL
 //   - openFunc: GORM 数据库打开函数（不同数据库类型有不同的打开方式）
 func initDB(ctx context.Context, provider database.DatabaseProvider, dbType database.DBType, log gologger.ILogger, openFunc func(string) (*gorm.DB, error)) *gorm.DB {
 	host := provider.GetHost()
+	port := provider.GetPort()
 	// SQLite 不需要主机地址，其他数据库类型必须提供
 	if dbType != database.DBTypeSQLite && host == "" {
-		if log != nil {
-			log.ErrorContext(ctx, "Database host is empty")
-		}
+		log.ErrorContext(ctx, "Database host is empty")
 		return nil
 	}
 
 	dsn := buildDSN(provider, dbType)
+	log.DebugContextKV(ctx, "Opening database connection", "type", dbType, "host", host, "port", port, "dbname", provider.GetDBName())
+
 	// 使用传入的 openFunc 打开数据库连接
 	db, err := openFunc(dsn)
 	if err != nil {
@@ -168,7 +168,17 @@ func initDB(ctx context.Context, provider database.DatabaseProvider, dbType data
 	}
 
 	// 获取底层 sql.DB 实例以配置连接池
-	sqlDB, _ := db.DB()
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.ErrorContextKV(ctx, fmt.Sprintf("%s database handle failed", dbType), "host", host, "dbname", provider.GetDBName(), "err", err)
+		os.Exit(1)
+		return nil
+	}
+	if err := sqlDB.PingContext(ctx); err != nil {
+		log.ErrorContextKV(ctx, fmt.Sprintf("%s database ping failed", dbType), "host", host, "dbname", provider.GetDBName(), "err", err)
+		os.Exit(1)
+		return nil
+	}
 
 	// 设置连接池参数，根据不同的数据库类型从 provider 中读取配置
 	// 各数据库类型的连接池参数配置逻辑相同，只是类型断言不同
@@ -213,6 +223,37 @@ func initDB(ctx context.Context, provider database.DatabaseProvider, dbType data
 	return db
 }
 
+func ensureCockroachDatabase(ctx context.Context, provider database.DatabaseProvider, log gologger.ILogger, openFunc func(string) (*gorm.DB, error)) error {
+	dbname := provider.GetDBName()
+	if dbname == "" {
+		return fmt.Errorf("cockroachdb db-name is empty")
+	}
+
+	maintenanceDSN := buildDSN(provider, database.DBTypeCockroachDB)
+	maintenanceDB, err := openFunc(maintenanceDSN)
+	if err != nil {
+		return fmt.Errorf("connect maintenance database system failed: %w", err)
+	}
+
+	sqlDB, err := maintenanceDB.DB()
+	if err != nil {
+		return fmt.Errorf("get maintenance database handle failed: %w", err)
+	}
+	defer sqlDB.Close()
+
+	if err := sqlDB.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping maintenance database system failed: %w", err)
+	}
+
+	createSQL := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", quoteIdentifier(dbname))
+	if err := maintenanceDB.WithContext(ctx).Exec(createSQL).Error; err != nil {
+		return fmt.Errorf("ensure database %q failed: %w", dbname, err)
+	}
+
+	log.InfoContextKV(ctx, "CockroachDB database is ready", "dbname", dbname)
+	return nil
+}
+
 // buildDSN 构建数据库连接字符串
 func buildDSN(provider database.DatabaseProvider, dbType database.DBType) string {
 	host := provider.GetHost()
@@ -238,12 +279,45 @@ func buildDSN(provider database.DatabaseProvider, dbType database.DBType) string
 		dsn = cfg.FormatDSN()
 	case database.DBTypePostgreSQL, database.DBTypeCockroachDB:
 		// CockroachDB 兼容 PostgreSQL 协议，DSN格式与PostgreSQL相同
-		dsn = fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s %s",
-			host, user, password, dbname, port, configString)
+		parts := []string{
+			pgKeyValue("host", host),
+			pgKeyValue("user", user),
+			pgKeyValue("password", password),
+			pgKeyValue("dbname", dbname),
+			pgKeyValue("port", port),
+		}
+		if configString != "" {
+			parts = append(parts, configString)
+		}
+		dsn = strings.Join(parts, " ")
 	case database.DBTypeSQLite:
-		dsn = provider.GetDBName() // SQLite使用DbPath
+		dsn = dbname // SQLite使用DbPath
 	}
 	return dsn
+}
+
+// pgKeyValue 构建 PostgreSQL 连接字符串键值对
+func pgKeyValue(key, value string) string {
+	return fmt.Sprintf("%s=%s", key, quoteConnStringValue(value))
+}
+
+// quoteConnStringValue 转义 PostgreSQL 连接字符串中的特殊字符
+func quoteConnStringValue(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if !strings.ContainsAny(value, " \\'") {
+		return value
+	}
+
+	escaped := strings.ReplaceAll(value, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `'`, `\'`)
+	return "'" + escaped + "'"
+}
+
+// quoteIdentifier 转义 PostgreSQL 连接字符串中的标识符
+func quoteIdentifier(identifier string) string {
+	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
 }
 
 // parseConfigParams 解析配置字符串为参数 map

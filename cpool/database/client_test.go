@@ -51,6 +51,19 @@ func TestBuildDSN(t *testing.T) {
 	expected = "host=localhost user=user password=pass dbname=testdb port=5432 sslmode=disable"
 	assert.Equal(t, expected, postgresDSN)
 
+	cockroachConfig := &database.CockroachDB{
+		Host:     "localhost",
+		Port:     "26257",
+		Username: "root",
+		Password: "",
+		Dbname:   "apex_ac",
+		Config:   "sslmode=disable",
+	}
+
+	cockroachDSN := buildDSN(cockroachConfig, database.DBTypeCockroachDB)
+	expected = "host=localhost user=root password='' dbname=apex_ac port=26257 sslmode=disable"
+	assert.Equal(t, expected, cockroachDSN)
+
 	// 创建SQLite配置
 	sqliteConfig := &database.SQLite{
 		DbPath: "/tmp/test.db",

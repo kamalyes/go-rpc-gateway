@@ -79,6 +79,7 @@ func (lf *LogFields) AddRequestContext(ctx context.Context) *LogFields {
 	return lf.
 		Add(constants.LogFieldTraceID, requestCommonMeta.TraceID).
 		Add(constants.LogFieldRequestID, requestCommonMeta.RequestID).
+		Add(constants.LogFieldAuthorization, requestCommonMeta.Authorization).
 		Add(constants.LogFieldID, requestCommonMeta.ID).
 		Add(constants.LogFieldUserID, requestCommonMeta.UserID).
 		Add(constants.LogFieldTenantID, requestCommonMeta.TenantID).
