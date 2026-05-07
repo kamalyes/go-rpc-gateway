@@ -37,6 +37,8 @@ const (
 	MetadataXNsID             = "x-ns-id"
 	MetadataGrpcMetadataXNsID = "grpc-metadata-x-ns-id"
 	MetadataAuthorization     = "authorization"
+	MetadataJti               = "x-jti"
+	MetadataFamilyId          = "x-family-id"
 )
 
 // ============================================================================
@@ -66,6 +68,8 @@ const (
 	LogFieldXNsID             = "x_ns_id"
 	LogFieldGrpcMetadataXNsId = "grpc_metadata_x_ns_id"
 	LogFieldAuthorization     = "authorization"
+	LogFieldJti               = "jti"
+	LogFieldFamilyId          = "family_id"
 )
 
 // 请求相关字段

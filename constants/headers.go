@@ -57,6 +57,8 @@ const (
 	HeaderXNonce          = "X-Nonce"
 	HeaderXAccessKey      = "X-Access-Key"
 	HeaderXResponseFormat = "X-Response-Format"
+	HeaderXJti            = "X-Jtl"
+	HeaderXFamilyId       = "X-Family-Id"
 
 	// 安全相关头部
 	HeaderXFrameOptions           = "X-Frame-Options"

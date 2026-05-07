@@ -49,6 +49,8 @@ type RequestCommonMeta struct {
 	RegionID          string `json:"regionID" header:"X-Region-ID"`                    // 区域ID
 	RegionCode        string `json:"regionCode" header:"X-Region-Code"`                // 区域编码
 	Nonce             string `json:"nonce" header:"X-Nonce"`                           // 随机数
+	Jti               string `json:"jti" header:"X-Jti"`                               // JWT ID (Token唯一标识)
+	FamilyId          string `json:"familyId" header:"X-Family-ID"`                    // Token家族ID
 	XNsID             string `json:"xNsID" header:"X-Ns-ID"`                           // 命名空间ID
 	GrpcMetadataXNsID string `json:"grpcMetadataXNsID" header:"Grpc-Metadata-X-Ns-ID"` // gRPC元数据命名空间ID
 }
@@ -152,6 +154,8 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 		RegionID:          contextx.GetValue[string](ctx, constants.MetadataRegionID),
 		RegionCode:        contextx.GetValue[string](ctx, constants.MetadataRegionCode),
 		Nonce:             contextx.GetValue[string](ctx, constants.MetadataNonce),
+		Jti:               contextx.GetValue[string](ctx, constants.MetadataJti),
+		FamilyId:          contextx.GetValue[string](ctx, constants.MetadataFamilyId),
 		XNsID:             contextx.GetValue[string](ctx, constants.MetadataXNsID),
 		GrpcMetadataXNsID: contextx.GetValue[string](ctx, constants.MetadataGrpcMetadataXNsID),
 	}
@@ -232,6 +236,8 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	regionID := firstMetadataValue(constants.MetadataRegionID)
 	regionCode := firstMetadataValue(constants.MetadataRegionCode)
 	nonce := firstMetadataValue(constants.MetadataNonce)
+	jti := firstMetadataValue(constants.MetadataJti)
+	familyId := firstMetadataValue(constants.MetadataFamilyId)
 	xNsID := firstMetadataValue(constants.MetadataXNsID)
 	grpcMetadataXNsID := firstMetadataValue(constants.MetadataGrpcMetadataXNsID)
 
@@ -253,6 +259,8 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	ctx = WithRegionID(ctx, regionID)
 	ctx = WithRegionCode(ctx, regionCode)
 	ctx = WithNonce(ctx, nonce)
+	ctx = WithJti(ctx, jti)
+	ctx = WithFamilyId(ctx, familyId)
 	ctx = WithXNsID(ctx, xNsID)
 	ctx = WithGrpcMetadataXNsID(ctx, grpcMetadataXNsID)
 
@@ -275,6 +283,8 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		RegionID:          regionID,
 		RegionCode:        regionCode,
 		Nonce:             nonce,
+		Jti:               jti,
+		FamilyId:          familyId,
 		XNsID:             xNsID,
 		GrpcMetadataXNsID: grpcMetadataXNsID,
 	})
@@ -303,6 +313,8 @@ func setResponseMetadata(ctx context.Context) {
 		constants.MetadataRegionID, requestCommonMeta.RegionID,
 		constants.MetadataRegionCode, requestCommonMeta.RegionCode,
 		constants.MetadataNonce, requestCommonMeta.Nonce,
+		constants.MetadataJti, requestCommonMeta.Jti,
+		constants.MetadataFamilyId, requestCommonMeta.FamilyId,
 		constants.MetadataXNsID, requestCommonMeta.XNsID,
 		constants.MetadataGrpcMetadataXNsID, requestCommonMeta.GrpcMetadataXNsID,
 	)
@@ -371,6 +383,8 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 		constants.MetadataRegionID, requestCommonMeta.RegionID,
 		constants.MetadataRegionCode, requestCommonMeta.RegionCode,
 		constants.MetadataNonce, requestCommonMeta.Nonce,
+		constants.MetadataJti, requestCommonMeta.Jti,
+		constants.MetadataFamilyId, requestCommonMeta.FamilyId,
 		constants.MetadataXNsID, requestCommonMeta.XNsID,
 		constants.MetadataGrpcMetadataXNsID, requestCommonMeta.GrpcMetadataXNsID,
 	)
@@ -526,6 +540,18 @@ func GetNonce(ctx context.Context) string {
 	return requestCommonMeta.Nonce
 }
 
+// GetJti 从 context 获取 Jti (JWT ID)
+func GetJti(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.Jti
+}
+
+// GetFamilyId 从 context 获取 FamilyId (Token家族ID)
+func GetFamilyId(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.FamilyId
+}
+
 // WithTraceID 将 TraceID 设置到 context
 func WithTraceID(ctx context.Context, traceID string) context.Context {
 	return contextx.WithValue(ctx, constants.MetadataTraceID, traceID)
@@ -624,4 +650,14 @@ func WithAppVersion(ctx context.Context, appVersion string) context.Context {
 // WithNonce 将 Nonce 设置到 context
 func WithNonce(ctx context.Context, nonce string) context.Context {
 	return contextx.WithValue(ctx, constants.MetadataNonce, nonce)
+}
+
+// WithJti 将 Jti 设置到 context
+func WithJti(ctx context.Context, jti string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataJti, jti)
+}
+
+// WithFamilyId 将 FamilyId 设置到 context
+func WithFamilyId(ctx context.Context, familyId string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataFamilyId, familyId)
 }
