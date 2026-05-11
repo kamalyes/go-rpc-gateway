@@ -167,12 +167,12 @@ github.com/kamalyes/go-natsx v0.0.0-20260422181750-0698f7452ec8 h1:2w9iMMz+ZeXcL
 github.com/kamalyes/go-natsx v0.0.0-20260422181750-0698f7452ec8/go.mod h1:Cfh2n3BvgVpec5kTRhz7wQrFovUqUu5OssoVNBimxyA=
 github.com/kamalyes/go-pbmo v0.0.0-20260427005550-adb3114bde54 h1:fOt4urBFkYYmj7AduXlJ2LQaQMdrfP9AebklDS/NngE=
 github.com/kamalyes/go-pbmo v0.0.0-20260427005550-adb3114bde54/go.mod h1:W/Y+EnYL6qvUg22czNdYf8/N9sfeyIIFPtSuBsd3yu4=
-github.com/kamalyes/go-sqlbuilder v0.3.6 h1:zSXyv6lW8B4ckPeOA1SYyaXnaGltRM+5GGbfvJucnGs=
-github.com/kamalyes/go-sqlbuilder v0.3.6/go.mod h1:sk9ktu7mkdFiL4EKTKmrl8gOPNNK+QUgPnHTf8Pwu5U=
+github.com/kamalyes/go-sqlbuilder v0.3.7-0.20260511092602-55ad7619ef5c h1:NC0ulKFsNoStq+I6axuMye+crHx2BmktKxxWmr1YmFA=
+github.com/kamalyes/go-sqlbuilder v0.3.7-0.20260511092602-55ad7619ef5c/go.mod h1:SNIrGqg9eE13d4gPHIRqa9pjieSauMEIu6WYCowMrJY=
 github.com/kamalyes/go-swagger v0.0.0-20260321012919-1cd794cde17e h1:YZ5KZB/JFVapKOqns6Y9jd4hyDHDn0tsSF1pL0cEaII=
 github.com/kamalyes/go-swagger v0.0.0-20260321012919-1cd794cde17e/go.mod h1:0tbaQDl2PWNJsON2ny88xA6bVOmQb3UYwk5AAlpNLnY=
-github.com/kamalyes/go-toolbox v0.11.88-0.20260422051535-9c51526b8753 h1:rUvH8hVDv6OI0I2/bRIyXfFYbVC73CVcde6J9Kx2e3Q=
-github.com/kamalyes/go-toolbox v0.11.88-0.20260422051535-9c51526b8753/go.mod h1:T0toLZCP952jKKJFo8Rn+sZ9OktxxU7GYWFPpk/c98k=
+github.com/kamalyes/go-toolbox v0.11.89-0.20260511075716-430944639a6c h1:5Y4wVTWxVGc+IH6R2d1E0O7CqSy0Wb4b0gvFGmlMfcU=
+github.com/kamalyes/go-toolbox v0.11.89-0.20260511075716-430944639a6c/go.mod h1:T0toLZCP952jKKJFo8Rn+sZ9OktxxU7GYWFPpk/c98k=
 github.com/kamalyes/go-wsc v0.5.9 h1:0yO3MU6Sc7NsIkSWqZa5b55WX05tEMQybW7KIpdhvco=
 github.com/kamalyes/go-wsc v0.5.9/go.mod h1:MT/CwQvA6XhyVPhF07+hH1ivIGiPIemj/PuMXwPrHwI=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=

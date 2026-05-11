@@ -53,6 +53,7 @@ type RequestCommonMeta struct {
 	FamilyId          string `json:"familyId" header:"X-Family-ID"`                    // Token家族ID
 	XNsID             string `json:"xNsID" header:"X-Ns-ID"`                           // 命名空间ID
 	GrpcMetadataXNsID string `json:"grpcMetadataXNsID" header:"Grpc-Metadata-X-Ns-ID"` // gRPC元数据命名空间ID
+	UserAgent         string `json:"userAgent" header:"User-Agent"`                    // 用户代理
 }
 
 type requestCommonMetaKey struct{}
@@ -94,6 +95,7 @@ func RequestContextMiddleware() HTTPMiddleware {
 				RegionCode:    gccommon.ExtractAttribute(r, requestContext.RegionCodeSources),
 				IPAddress:     netx.GetClientIP(r),
 				Nonce:         gccommon.ExtractAttribute(r, requestContext.NonceSources),
+				UserAgent:     r.UserAgent(),
 			}
 
 			// 将核心链路字段注入 context，便于日志和下游组件统一获取
@@ -114,6 +116,7 @@ func RequestContextMiddleware() HTTPMiddleware {
 			ctx = WithRegionID(ctx, requestCommonMeta.RegionID)
 			ctx = WithRegionCode(ctx, requestCommonMeta.RegionCode)
 			ctx = WithNonce(ctx, requestCommonMeta.Nonce)
+			ctx = WithUserAgent(ctx, requestCommonMeta.UserAgent)
 			ctx = WithRequestCommonMeta(ctx, requestCommonMeta)
 
 			// 5. 设置响应头（便于客户端追踪）
@@ -158,6 +161,7 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 		FamilyId:          contextx.GetValue[string](ctx, constants.MetadataFamilyId),
 		XNsID:             contextx.GetValue[string](ctx, constants.MetadataXNsID),
 		GrpcMetadataXNsID: contextx.GetValue[string](ctx, constants.MetadataGrpcMetadataXNsID),
+		UserAgent:         contextx.GetValue[string](ctx, constants.MetadataUserAgent),
 	}
 }
 
@@ -240,6 +244,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	familyId := firstMetadataValue(constants.MetadataFamilyId)
 	xNsID := firstMetadataValue(constants.MetadataXNsID)
 	grpcMetadataXNsID := firstMetadataValue(constants.MetadataGrpcMetadataXNsID)
+	userAgent := firstMetadataValue(constants.MetadataUserAgent)
 
 	ctx = WithID(ctx, id)
 	ctx = WithRequestID(ctx, requestID)
@@ -263,6 +268,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	ctx = WithFamilyId(ctx, familyId)
 	ctx = WithXNsID(ctx, xNsID)
 	ctx = WithGrpcMetadataXNsID(ctx, grpcMetadataXNsID)
+	ctx = WithUserAgent(ctx, userAgent)
 
 	return context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
 		ID:                id,
@@ -287,6 +293,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		FamilyId:          familyId,
 		XNsID:             xNsID,
 		GrpcMetadataXNsID: grpcMetadataXNsID,
+		UserAgent:         userAgent,
 	})
 }
 
@@ -317,6 +324,7 @@ func setResponseMetadata(ctx context.Context) {
 		constants.MetadataFamilyId, requestCommonMeta.FamilyId,
 		constants.MetadataXNsID, requestCommonMeta.XNsID,
 		constants.MetadataGrpcMetadataXNsID, requestCommonMeta.GrpcMetadataXNsID,
+		constants.MetadataUserAgent, requestCommonMeta.UserAgent,
 	)
 
 	// 发送 metadata（忽略错误，因为可能已经发送过）
@@ -387,6 +395,7 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 		constants.MetadataFamilyId, requestCommonMeta.FamilyId,
 		constants.MetadataXNsID, requestCommonMeta.XNsID,
 		constants.MetadataGrpcMetadataXNsID, requestCommonMeta.GrpcMetadataXNsID,
+		constants.MetadataUserAgent, requestCommonMeta.UserAgent,
 	)
 
 	// 合并已有的 outgoing metadata
@@ -660,4 +669,15 @@ func WithJti(ctx context.Context, jti string) context.Context {
 // WithFamilyId 将 FamilyId 设置到 context
 func WithFamilyId(ctx context.Context, familyId string) context.Context {
 	return contextx.WithValue(ctx, constants.MetadataFamilyId, familyId)
+}
+
+// WithUserAgent 将 UserAgent 设置到 context
+func WithUserAgent(ctx context.Context, userAgent string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataUserAgent, userAgent)
+}
+
+// GetUserAgent 从 context 获取 UserAgent
+func GetUserAgent(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.UserAgent
 }

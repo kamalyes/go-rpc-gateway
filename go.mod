@@ -21,7 +21,7 @@ require (
 	github.com/kamalyes/go-natsx v0.0.0-20260422181750-0698f7452ec8
 	github.com/kamalyes/go-pbmo v0.0.0-20260427005550-adb3114bde54
 	github.com/kamalyes/go-swagger v0.0.0-20260321012919-1cd794cde17e
-	github.com/kamalyes/go-toolbox v0.11.88-0.20260422051535-9c51526b8753
+	github.com/kamalyes/go-toolbox v0.11.89-0.20260511075716-430944639a6c
 	github.com/kamalyes/go-wsc v0.5.9
 	github.com/nats-io/nats.go v1.51.0
 	github.com/prometheus/client_golang v1.19.1
@@ -71,7 +71,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/kamalyes/go-jsonpath v0.0.0-20260129163507-0b67ed48bb28 // indirect
-	github.com/kamalyes/go-sqlbuilder v0.3.6 // indirect
+	github.com/kamalyes/go-sqlbuilder v0.3.7-0.20260511092602-55ad7619ef5c // indirect
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/nats-io/nkeys v0.4.15 // indirect

@@ -39,6 +39,7 @@ const (
 	MetadataAuthorization     = "authorization"
 	MetadataJti               = "x-jti"
 	MetadataFamilyId          = "x-family-id"
+	MetadataUserAgent         = "x-user-agent"
 )
 
 // ============================================================================
