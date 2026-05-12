@@ -82,6 +82,8 @@ func (lf *LogFields) AddRequestContext(ctx context.Context) *LogFields {
 		Add(constants.LogFieldAuthorization, requestCommonMeta.Authorization).
 		Add(constants.LogFieldID, requestCommonMeta.ID).
 		Add(constants.LogFieldUserID, requestCommonMeta.UserID).
+		Add(constants.LogFieldDomain, requestCommonMeta.Domain).
+		Add(constants.LogFieldRoleCode, requestCommonMeta.RoleCode).
 		Add(constants.LogFieldTenantID, requestCommonMeta.TenantID).
 		Add(constants.LogFieldTenantCode, requestCommonMeta.TenantCode).
 		Add(constants.LogFieldSessionID, requestCommonMeta.SessionID).

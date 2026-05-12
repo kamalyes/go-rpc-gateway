@@ -32,6 +32,8 @@ type RequestCommonMeta struct {
 	TraceID           string `json:"traceID" header:"X-Trace-ID"`                      // 跟踪ID
 	RequestID         string `json:"requestID" header:"X-Request-ID"`                  // 请求ID
 	UserID            string `json:"userID" header:"X-User-ID"`                        // 用户ID
+	Domain            string `json:"domain" header:"X-Domain"`                         // 域
+	RoleCode          string `json:"roleCode" header:"X-Role-Code"`                    // 角色Code
 	TenantID          string `json:"tenantID" header:"X-Tenant-ID"`                    // 租户ID
 	TenantCode        string `json:"tenantCode" header:"X-Tenant-Code"`                // 租户编码
 	SessionID         string `json:"sessionID" header:"X-Session-ID"`                  // 会话ID
@@ -78,6 +80,8 @@ func RequestContextMiddleware() HTTPMiddleware {
 				TraceID:       extractOrGenerateTraceID(ctx, gccommon.ExtractAttribute(r, requestContext.TraceIDSources)),
 				RequestID:     extractOrGenerateRequestID(gccommon.ExtractAttribute(r, requestContext.RequestIDSources)),
 				UserID:        gccommon.ExtractAttribute(r, requestContext.UserIDSources),
+				Domain:        gccommon.ExtractAttribute(r, requestContext.DomainSources),
+				RoleCode:      gccommon.ExtractAttribute(r, requestContext.RoleCodeSources),
 				TenantID:      gccommon.ExtractAttribute(r, requestContext.TenantIDSources),
 				TenantCode:    gccommon.ExtractAttribute(r, requestContext.TenantCodeSources),
 				SessionID:     gccommon.ExtractAttribute(r, requestContext.SessionIDSources),
@@ -103,6 +107,8 @@ func RequestContextMiddleware() HTTPMiddleware {
 			ctx = WithTraceID(ctx, requestCommonMeta.TraceID)
 			ctx = WithRequestID(ctx, requestCommonMeta.RequestID)
 			ctx = WithUserID(ctx, requestCommonMeta.UserID)
+			ctx = WithDomain(ctx, requestCommonMeta.Domain)
+			ctx = WithRoleCode(ctx, requestCommonMeta.RoleCode)
 			ctx = WithTenantID(ctx, requestCommonMeta.TenantID)
 			ctx = WithTenantCode(ctx, requestCommonMeta.TenantCode)
 			ctx = WithSessionID(ctx, requestCommonMeta.SessionID)
@@ -144,6 +150,8 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 		RequestID:         contextx.GetValue[string](ctx, constants.MetadataRequestID),
 		Authorization:     contextx.GetValue[string](ctx, constants.MetadataAuthorization),
 		UserID:            contextx.GetValue[string](ctx, constants.MetadataUserID),
+		Domain:            contextx.GetValue[string](ctx, constants.MetadataDomain),
+		RoleCode:          contextx.GetValue[string](ctx, constants.MetadataRoleCode),
 		TenantID:          contextx.GetValue[string](ctx, constants.MetadataTenantID),
 		TenantCode:        contextx.GetValue[string](ctx, constants.MetadataTenantCode),
 		SessionID:         contextx.GetValue[string](ctx, constants.MetadataSessionID),
@@ -227,6 +235,8 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	id := firstMetadataValue(constants.MetadataID)
 	authorization := firstMetadataValue(constants.MetadataAuthorization)
 	userID := firstMetadataValue(constants.MetadataUserID)
+	domain := firstMetadataValue(constants.MetadataDomain)
+	roleCode := firstMetadataValue(constants.MetadataRoleCode)
 	sessionID := firstMetadataValue(constants.MetadataSessionID)
 	tenantID := firstMetadataValue(constants.MetadataTenantID)
 	tenantCode := firstMetadataValue(constants.MetadataTenantCode)
@@ -251,6 +261,8 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	ctx = WithTraceID(ctx, traceID)
 	ctx = WithAuthorization(ctx, authorization)
 	ctx = WithUserID(ctx, userID)
+	ctx = WithDomain(ctx, domain)
+	ctx = WithRoleCode(ctx, roleCode)
 	ctx = WithTenantID(ctx, tenantID)
 	ctx = WithTenantCode(ctx, tenantCode)
 	ctx = WithSessionID(ctx, sessionID)
@@ -276,6 +288,8 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		RequestID:         requestID,
 		Authorization:     authorization,
 		UserID:            userID,
+		Domain:            domain,
+		RoleCode:          roleCode,
 		TenantID:          tenantID,
 		TenantCode:        tenantCode,
 		SessionID:         sessionID,
@@ -307,6 +321,8 @@ func setResponseMetadata(ctx context.Context) {
 		constants.MetadataRequestID, requestCommonMeta.RequestID,
 		constants.MetadataAuthorization, requestCommonMeta.Authorization,
 		constants.MetadataUserID, requestCommonMeta.UserID,
+		constants.MetadataDomain, requestCommonMeta.Domain,
+		constants.MetadataRoleCode, requestCommonMeta.RoleCode,
 		constants.MetadataTenantID, requestCommonMeta.TenantID,
 		constants.MetadataTenantCode, requestCommonMeta.TenantCode,
 		constants.MetadataSessionID, requestCommonMeta.SessionID,
@@ -378,6 +394,8 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 		constants.MetadataRequestID, requestCommonMeta.RequestID,
 		constants.MetadataAuthorization, requestCommonMeta.Authorization,
 		constants.MetadataUserID, requestCommonMeta.UserID,
+		constants.MetadataDomain, requestCommonMeta.Domain,
+		constants.MetadataRoleCode, requestCommonMeta.RoleCode,
 		constants.MetadataTenantID, requestCommonMeta.TenantID,
 		constants.MetadataTenantCode, requestCommonMeta.TenantCode,
 		constants.MetadataSessionID, requestCommonMeta.SessionID,
@@ -451,6 +469,18 @@ func GetRequestID(ctx context.Context) string {
 func GetUserID(ctx context.Context) string {
 	requestCommonMeta := GetRequestCommonMeta(ctx)
 	return requestCommonMeta.UserID
+}
+
+// GetDomain 从 context 获取 Domain
+func GetDomain(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.Domain
+}
+
+// GetRoleCode 从 context 获取 RoleCode
+func GetRoleCode(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.RoleCode
 }
 
 // GetTenantID 从 context 获取 TenantID
@@ -579,6 +609,16 @@ func WithAuthorization(ctx context.Context, authorization string) context.Contex
 // WithUserID 将 UserID 设置到 context
 func WithUserID(ctx context.Context, userID string) context.Context {
 	return contextx.WithValue(ctx, constants.MetadataUserID, userID)
+}
+
+// WithDomain 将 Domain 设置到 context
+func WithDomain(ctx context.Context, domain string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataDomain, domain)
+}
+
+// WithRoleCode 将 RoleCode 设置到 context
+func WithRoleCode(ctx context.Context, roleCode string) context.Context {
+	return contextx.WithValue(ctx, constants.MetadataRoleCode, roleCode)
 }
 
 // WithTenantID 将 TenantID 设置到 context

@@ -37,6 +37,8 @@ const (
 	HeaderXClientID   = "X-Client-ID"
 	HeaderXUserID     = "X-User-ID"
 	HeaderXUserType   = "X-User-Type"
+	HeaderXDomain     = "X-Domain"
+	HeaderXRoleCode   = "X-Role-Code"
 	HeaderXTenantID   = "X-Tenant-ID"
 	HeaderXTenantCode = "X-Tenant-Code"
 	HeaderXSessionID  = "X-Session-ID"

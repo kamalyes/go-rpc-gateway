@@ -96,6 +96,8 @@ func TestRequestContextMiddleware_ExtractsOptionalFields(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	req.Header.Set(constants.HeaderXUserID, "user-123")
+	req.Header.Set(constants.HeaderXDomain, "tenant")
+	req.Header.Set(constants.HeaderXRoleCode, "admin")
 	req.Header.Set(constants.HeaderXTenantID, "tenant-456")
 	req.Header.Set(constants.HeaderXSessionID, "session-789")
 	req.Header.Set(constants.HeaderXTimezone, "Asia/Shanghai")
@@ -105,6 +107,8 @@ func TestRequestContextMiddleware_ExtractsOptionalFields(t *testing.T) {
 
 	// 验证可选字段被提取
 	assert.Equal(t, "user-123", GetUserID(capturedCtx), "应提取 user_id")
+	assert.Equal(t, "tenant", GetDomain(capturedCtx))
+	assert.Equal(t, "admin", GetRoleCode(capturedCtx))
 	assert.Equal(t, "tenant-456", GetTenantID(capturedCtx), "应提取 tenant_id")
 	assert.Equal(t, "session-789", GetSessionID(capturedCtx), "应提取 session_id")
 	assert.Equal(t, "Asia/Shanghai", GetTimezone(capturedCtx), "应提取 timezone")
@@ -117,6 +121,8 @@ func TestEnrichContextFromMetadata(t *testing.T) {
 		constants.MetadataTraceID, "grpc-trace-123",
 		constants.MetadataRequestID, "grpc-request-456",
 		constants.MetadataUserID, "grpc-user-789",
+		constants.MetadataDomain, "grpc-domain",
+		constants.MetadataRoleCode, "grpc-role",
 		constants.MetadataTenantID, "grpc-tenant-456",
 		constants.MetadataSessionID, "grpc-session-999",
 		constants.MetadataTimezone, "UTC",
@@ -130,6 +136,8 @@ func TestEnrichContextFromMetadata(t *testing.T) {
 	assert.Equal(t, "grpc-trace-123", GetTraceID(enrichedCtx))
 	assert.Equal(t, "grpc-request-456", GetRequestID(enrichedCtx))
 	assert.Equal(t, "grpc-user-789", GetUserID(enrichedCtx))
+	assert.Equal(t, "grpc-domain", GetDomain(enrichedCtx))
+	assert.Equal(t, "grpc-role", GetRoleCode(enrichedCtx))
 	assert.Equal(t, "grpc-tenant-456", GetTenantID(enrichedCtx))
 	assert.Equal(t, "grpc-session-999", GetSessionID(enrichedCtx))
 	assert.Equal(t, "UTC", GetTimezone(enrichedCtx))
@@ -155,6 +163,8 @@ func TestInjectTraceToOutgoingContext(t *testing.T) {
 	ctx = WithTraceID(ctx, "outgoing-trace-123")
 	ctx = WithRequestID(ctx, "outgoing-request-456")
 	ctx = WithUserID(ctx, "outgoing-user-789")
+	ctx = WithDomain(ctx, "outgoing-domain")
+	ctx = WithRoleCode(ctx, "outgoing-role")
 	ctx = WithTenantID(ctx, "outgoing-tenant-111")
 	ctx = WithSessionID(ctx, "outgoing-session-222")
 	ctx = WithTimezone(ctx, "America/New_York")
@@ -164,6 +174,8 @@ func TestInjectTraceToOutgoingContext(t *testing.T) {
 		TraceID:   "outgoing-trace-123",
 		RequestID: "outgoing-request-456",
 		UserID:    "outgoing-user-789",
+		Domain:    "outgoing-domain",
+		RoleCode:  "outgoing-role",
 		TenantID:  "outgoing-tenant-111",
 		SessionID: "outgoing-session-222",
 		Timezone:  "America/New_York",
@@ -178,6 +190,8 @@ func TestInjectTraceToOutgoingContext(t *testing.T) {
 	assert.Equal(t, []string{"outgoing-trace-123"}, md.Get(constants.MetadataTraceID))
 	assert.Equal(t, []string{"outgoing-request-456"}, md.Get(constants.MetadataRequestID))
 	assert.Equal(t, []string{"outgoing-user-789"}, md.Get(constants.MetadataUserID))
+	assert.Equal(t, []string{"outgoing-domain"}, md.Get(constants.MetadataDomain))
+	assert.Equal(t, []string{"outgoing-role"}, md.Get(constants.MetadataRoleCode))
 	assert.Equal(t, []string{"outgoing-tenant-111"}, md.Get(constants.MetadataTenantID))
 	assert.Equal(t, []string{"outgoing-session-222"}, md.Get(constants.MetadataSessionID))
 	assert.Equal(t, []string{"America/New_York"}, md.Get(constants.MetadataTimezone))
