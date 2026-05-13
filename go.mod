@@ -15,15 +15,15 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-config v0.16.1-0.20260512130959-f301ce582eb6
-	github.com/kamalyes/go-i18n v0.0.0-20260320070028-fea3ef2009b5
-	github.com/kamalyes/go-logger v0.4.6-0.20260423015836-299999af76ec
-	github.com/kamalyes/go-natsx v0.0.0-20260422181750-0698f7452ec8
-	github.com/kamalyes/go-pbmo v0.0.0-20260427005550-adb3114bde54
-	github.com/kamalyes/go-swagger v0.0.0-20260321012919-1cd794cde17e
-	github.com/kamalyes/go-toolbox v0.11.89-0.20260512122120-00364cc1c386
+	github.com/kamalyes/go-config v0.17.0
+	github.com/kamalyes/go-i18n v0.1.1
+	github.com/kamalyes/go-logger v0.4.6
+	github.com/kamalyes/go-natsx v0.0.0-20260513070803-a61be807ec71
+	github.com/kamalyes/go-pbmo v0.0.0-20260513090856-898ded204d21
+	github.com/kamalyes/go-swagger v0.0.0-20260513072852-dd47cada70c7
+	github.com/kamalyes/go-toolbox v0.12.1-0.20260513095929-fd679e7646ee
 	github.com/kamalyes/go-wsc v0.5.9
-	github.com/nats-io/nats.go v1.51.0
+	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.19.0
 	github.com/stretchr/testify v1.11.1
@@ -111,8 +111,8 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12
-	github.com/kamalyes/go-cachex v0.1.9-0.20260320162159-9ee0f598da5e
-	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/kamalyes/go-cachex v0.1.9
+	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
@@ -162,8 +162,8 @@ require (
 
 // replace github.com/kamalyes/go-toolbox => ../go-toolbox
 
-// replace github.com/kamalyes/go-i18n => ./go-i18n
+// replace github.com/kamalyes/go-i18n => ../go-i18n
 
-// replace github.com/kamalyes/go-pbmo => ./go-pbmo
+// replace github.com/kamalyes/go-pbmo => ../go-pbmo
 
-// replace github.com/kamalyes/go-natsx => ./go-natsx
+// replace github.com/kamalyes/go-natsx => ../go-natsx
