@@ -31,10 +31,11 @@ type Server struct {
 	config *gwconfig.Gateway
 
 	// 服务器组件
-	grpcServer *grpc.Server
-	httpServer *http.Server
-	gwMux      *runtime.ServeMux
-	httpMux    *http.ServeMux // 添加HTTP路由管理器
+	grpcServer  *grpc.Server
+	httpServer  *http.Server
+	gwMux       *runtime.ServeMux
+	pprofServer *middleware.PProfServer
+	httpMux     *http.ServeMux // 添加HTTP路由管理器
 
 	// 中间件管理器
 	middlewareManager *middleware.Manager
@@ -64,6 +65,7 @@ type Server struct {
 	// Gzip 跳过路径和扩展名的快速查找表（预处理，避免每次请求遍历切片）
 	gzipSkipPathsMap      map[string]bool
 	gzipSkipExtensionsMap map[string]bool
+	httpRoutePatterns     map[string]struct{}
 
 	// 数据脱敏器（用于日志敏感数据脱敏）
 	dataMasker *desensitize.DataMasker

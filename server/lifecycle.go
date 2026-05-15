@@ -12,6 +12,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -64,13 +65,16 @@ func (s *Server) Start() error {
 	}
 
 	// 启动 PProf 服务器（如果配置启用）
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		if err := middleware.StartPProfServer(s.config.Middleware.PProf); err != nil {
-			logger.WithError(err).WarnMsg("PProf server failed to start")
-		}
-	}()
+	if s.config.Middleware != nil && s.config.Middleware.PProf != nil && s.config.Middleware.PProf.Enabled {
+		s.pprofServer = middleware.NewPProfServer(s.config.Middleware.PProf)
+		s.wg.Add(1)
+		go func(pprofServer *middleware.PProfServer) {
+			defer s.wg.Done()
+			if err := pprofServer.Start(); err != nil {
+				logger.WithError(err).WarnMsg("PProf server failed to start")
+			}
+		}(s.pprofServer)
+	}
 
 	s.running = true
 
@@ -156,6 +160,15 @@ func (s *Server) Stop() error {
 
 	// 停止gRPC服务器
 	s.stopGRPCServer()
+
+	if s.pprofServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := s.pprofServer.Shutdown(ctx); err != nil {
+			logger.WithError(err).WarnMsg("Failed to stop PProf server")
+		}
+		cancel()
+		s.pprofServer = nil
+	}
 
 	// 等待所有goroutine结束
 	s.wg.Wait()

@@ -109,6 +109,33 @@ func NewManager(cfg *gwconfig.Gateway) (*Manager, error) {
 	return manager, nil
 }
 
+// UpdateConfig 更新中间件管理器配置
+// 保留动态提供程序（如限流、签名等）
+func (m *Manager) UpdateConfig(cfg *gwconfig.Gateway) error {
+	if m == nil {
+		return nil
+	}
+
+	dynamicRateLimit := m.dynamicRateLimit
+	dynamicSignature := m.dynamicSignature
+
+	if m.swaggerMiddleware != nil && cfg != nil && cfg.Swagger != nil {
+		if err := m.swaggerMiddleware.UpdateConfig(cfg.Swagger); err != nil {
+			return err
+		}
+	}
+
+	next, err := NewManager(cfg)
+	if err != nil {
+		return err
+	}
+
+	next.dynamicRateLimit = dynamicRateLimit
+	next.dynamicSignature = dynamicSignature
+	*m = *next
+	return nil
+}
+
 // HTTPMetricsMiddleware HTTP 监控中间件
 func (m *Manager) HTTPMetricsMiddleware() MiddlewareFunc {
 	return HTTPMetricsMiddleware(m.metricsManager)

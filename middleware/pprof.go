@@ -11,11 +11,14 @@
 package middleware
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"runtime"
 	"strings"
+	"sync"
 
 	gopprof "github.com/kamalyes/go-config/pkg/pprof"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -24,9 +27,21 @@ import (
 	"github.com/kamalyes/go-toolbox/pkg/validator"
 )
 
+// PProfServer 可控制的pprof服务器实例 它允许在配置更改时停止和重新创建服务器
+type PProfServer struct {
+	cfg        *gopprof.PProf
+	httpServer *http.Server
+	mu         sync.Mutex
+}
+
+// NewPProfServer 创建可控制的pprof服务器实例
+func NewPProfServer(cfg *gopprof.PProf) *PProfServer {
+	return &PProfServer{cfg: cfg}
+}
+
 // initSamplingConfig 初始化采样配置
 func initSamplingConfig(cfg *gopprof.PProf) {
-	if cfg.Sampling == nil {
+	if cfg == nil || cfg.Sampling == nil {
 		return
 	}
 
@@ -170,12 +185,16 @@ func registerPProfHandlers(mux *http.ServeMux, pathPrefix string) {
 
 // StartPProfServer 启动独立的pprof服务器（在单独的端口）
 // 这个函数应该在 goroutine 中调用
-func StartPProfServer(cfg *gopprof.PProf) error {
-	if !cfg.Enabled {
+func (s *PProfServer) Start() error {
+	s.mu.Lock()
+	cfg := s.cfg
+	if cfg == nil || !cfg.Enabled {
+		s.mu.Unlock()
 		return nil
 	}
 
 	cfg.Port = mathx.IfNotZero(cfg.Port, 6060)
+	cfg.PathPrefix = mathx.IfEmpty(cfg.PathPrefix, "/debug/pprof")
 
 	initSamplingConfig(cfg)
 
@@ -187,10 +206,37 @@ func StartPProfServer(cfg *gopprof.PProf) error {
 	handler := authMiddleware(mux)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: handler,
+	}
+	s.httpServer = httpServer
+	s.mu.Unlock()
 
 	global.LOGGER.InfoKV("🔍 PProf服务器启动",
-		"地址", addr,
-		"路径", cfg.PathPrefix)
+		"address", addr,
+		"path", cfg.PathPrefix)
 
-	return http.ListenAndServe(addr, handler)
+	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+// Shutdown 停止pprof服务器
+func (s *PProfServer) Shutdown(ctx context.Context) error {
+	s.mu.Lock()
+	httpServer := s.httpServer
+	s.httpServer = nil
+	s.mu.Unlock()
+
+	if httpServer == nil {
+		return nil
+	}
+	return httpServer.Shutdown(ctx)
+}
+
+// StartPProfServer 启动独立的pprof服务器
+func StartPProfServer(cfg *gopprof.PProf) error {
+	return NewPProfServer(cfg).Start()
 }

@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"reflect"
 	"strings"
 	"syscall"
 	"time"
@@ -50,6 +51,9 @@ type Gateway struct {
 	registeredGRPCServices    []string
 	registeredGatewayHandlers []string
 	registeredHTTPRoutes      []string
+	grpcServiceRegistrars     []ServiceRegisterFunc
+	gatewayHandlerRegistrars  []ServerHandlerRegisterFunc
+	httpRouteRegistrations    []httpRouteRegistration
 }
 
 // GatewayBuilder Gateway构建器 - 支持链式调用
@@ -77,6 +81,11 @@ type HandlerRegisterFunc func(context.Context, *runtime.ServeMux, string, []grpc
 
 // ServerHandlerRegisterFunc 本地Server Handler注册函数类型 (不需要gRPC连接)
 type ServerHandlerRegisterFunc func(context.Context, *runtime.ServeMux) error
+
+type httpRouteRegistration struct {
+	pattern string
+	handler http.Handler
+}
 
 // NewGateway 创建新的Gateway构建器 - 链式调用API入口
 // 使用示例:
@@ -286,10 +295,30 @@ func (b *GatewayBuilder) MustBuildAndStart(ctx ...context.Context) *Gateway {
 	return gateway
 }
 
+// mergeGatewayConfigWithDefaults 合并默认配置并刷新派生字段
+func mergeGatewayConfigWithDefaults(config *gwconfig.Gateway) *gwconfig.Gateway {
+	merged := safe.MergeWithDefaults(config, gwconfig.Default())
+	refreshGatewayDerivedFields(merged)
+	return merged
+}
+
+// refreshGatewayDerivedFields 刷新派生字段
+func refreshGatewayDerivedFields(config *gwconfig.Gateway) {
+	if config == nil {
+		return
+	}
+	if config.HTTPServer != nil {
+		_ = config.HTTPServer.AfterLoad()
+	}
+	if config.GRPC != nil && config.GRPC.Server != nil {
+		_ = config.GRPC.Server.AfterLoad()
+	}
+}
+
 // initializeGlobalState 初始化全局状态
 func (b *GatewayBuilder) initializeGlobalState(manager *goconfig.IntegratedConfigManager, config **gwconfig.Gateway) error {
 	// 使用 safe.MergeWithDefaults 合并默认配置
-	*config = safe.MergeWithDefaults(*config, gwconfig.Default())
+	*config = mergeGatewayConfigWithDefaults(*config)
 
 	// 设置全局变量
 	global.CONFIG_MANAGER = manager
@@ -317,7 +346,7 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 	err := manager.RegisterConfigCallback(func(ctx context.Context, event goconfig.CallbackEvent) error {
 		if newConfig, ok := event.NewValue.(*gwconfig.Gateway); ok {
 			// 合并默认配置
-			newConfig = safe.MergeWithDefaults(newConfig, gwconfig.Default())
+			newConfig = mergeGatewayConfigWithDefaults(newConfig)
 			global.LOGGER.InfoContext(b.Context(), "📋 配置已更新: %s", newConfig.Name)
 			global.GATEWAY = newConfig
 
@@ -331,7 +360,7 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 		}
 		return nil
 	}, goconfig.CallbackOptions{
-		ID:       "gateway_config_handler",
+		ID:       "gateway_global_config_handler",
 		Types:    []goconfig.CallbackType{goconfig.CallbackTypeConfigChanged},
 		Priority: -100, // 高优先级（负数表示优先）
 		Async:    false,
@@ -343,7 +372,7 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 	}
 
 	// 注册环境变更回调
-	err = manager.RegisterEnvironmentCallback("gateway_env_handler",
+	err = manager.RegisterEnvironmentCallback("gateway_global_env_handler",
 		func(oldEnv, newEnv goconfig.EnvironmentType) error {
 			global.LOGGER.InfoContext(b.Context(), "🌍 环境变更: %s -> %s", oldEnv, newEnv)
 			return nil
@@ -372,6 +401,7 @@ func (g *Gateway) RegisterService(registerFunc ServiceRegisterFunc) {
 	grpcAddr := g.gatewayConfig.GRPC.Server.GetEndpoint()
 	global.LOGGER.InfoContext(g.Context(), "开始注册gRPC服务")
 	g.Server.RegisterGRPCService(registerFunc)
+	g.grpcServiceRegistrars = append(g.grpcServiceRegistrars, registerFunc)
 	g.registeredGRPCServices = append(g.registeredGRPCServices, grpcAddr)
 	global.LOGGER.InfoContext(g.Context(), "✅ gRPC服务注册完成")
 }
@@ -390,6 +420,7 @@ func (g *Gateway) RegisterGatewayHandler(registerFunc ServerHandlerRegisterFunc)
 		global.LOGGER.ErrorContext(g.Context(), "❌ 注册gRPC-Gateway HTTP处理器失败: error=%v", err)
 		return err
 	}
+	g.gatewayHandlerRegistrars = append(g.gatewayHandlerRegistrars, registerFunc)
 	g.registeredGatewayHandlers = append(g.registeredGatewayHandlers, "gRPC-Gateway@"+httpAddr)
 	global.LOGGER.InfoContext(g.Context(), "✅ gRPC-Gateway HTTP处理器注册成功")
 	return nil
@@ -399,6 +430,7 @@ func (g *Gateway) RegisterGatewayHandler(registerFunc ServerHandlerRegisterFunc)
 func (g *Gateway) RegisterHandler(pattern string, handler http.Handler) {
 	global.LOGGER.DebugContext(g.Context(), "注册HTTP处理器: pattern=%s", pattern)
 	g.Server.RegisterHTTPRoute(pattern, handler)
+	g.httpRouteRegistrations = append(g.httpRouteRegistrations, httpRouteRegistration{pattern: pattern, handler: handler})
 	g.registeredHTTPRoutes = append(g.registeredHTTPRoutes, pattern)
 	global.LOGGER.DebugContext(g.Context(), "✅ HTTP处理器注册成功: pattern=%s", pattern)
 }
@@ -407,6 +439,7 @@ func (g *Gateway) RegisterHandler(pattern string, handler http.Handler) {
 func (g *Gateway) RegisterHTTPRoute(pattern string, handlerFunc http.HandlerFunc) {
 	global.LOGGER.DebugContext(g.Context(), "注册HTTP路由: pattern=%s", pattern)
 	g.Server.RegisterHTTPRoute(pattern, handlerFunc)
+	g.httpRouteRegistrations = append(g.httpRouteRegistrations, httpRouteRegistration{pattern: pattern, handler: handlerFunc})
 	g.registeredHTTPRoutes = append(g.registeredHTTPRoutes, pattern)
 	global.LOGGER.DebugContext(g.Context(), "✅ HTTP路由注册成功: pattern=%s", pattern)
 }
@@ -435,7 +468,36 @@ func (g *Gateway) AddGrpcGatewayMiddlewareProvider(provider func() []runtime.Mid
 // RebuildHTTPGateway 重建 HTTP Gateway（用于在添加中间件后重新初始化）
 // 注意：需要在注册 HTTP Handlers 之前调用
 func (g *Gateway) RebuildHTTPGateway() error {
-	return g.Server.RebuildHTTPGateway()
+	if err := g.Server.RebuildHTTPGateway(); err != nil {
+		return err
+	}
+	return g.replayHTTPRegistrations()
+}
+
+func (g *Gateway) replayHTTPRegistrations() error {
+	for _, registerFunc := range g.gatewayHandlerRegistrars {
+		if registerFunc == nil {
+			continue
+		}
+		if err := registerFunc(g.Context(), g.GetGatewayMux()); err != nil {
+			return err
+		}
+	}
+
+	for _, route := range g.httpRouteRegistrations {
+		if route.handler == nil {
+			continue
+		}
+		g.Server.RegisterHTTPRoute(route.pattern, route.handler)
+	}
+
+	if g.gatewayConfig != nil && g.gatewayConfig.Swagger != nil && g.gatewayConfig.Swagger.Enabled {
+		if err := g.Server.EnableSwagger(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // GetConfig 获取网关配置
@@ -482,7 +544,21 @@ func (g *Gateway) Start() error {
 
 // StartSilent 静默启动网关服务（不显示banner）
 func (g *Gateway) StartSilent() error {
+	if g.gatewayConfig != nil && g.gatewayConfig.Swagger != nil && g.gatewayConfig.Swagger.Enabled {
+		if err := g.EnableSwagger(); err != nil {
+			global.LOGGER.WarnContext(g.Context(), "enable swagger failed: %v", err)
+		}
+	}
 	return g.Server.Start()
+}
+
+// Run starts the gateway and waits for a shutdown signal.
+func (g *Gateway) Run() error {
+	if err := g.Start(); err != nil {
+		global.LOGGER.WithError(err).ErrorMsg("Failed to start gateway")
+		return err
+	}
+	return g.WaitForShutdown()
 }
 
 // StartWithBanner 启动网关服务并显示banner
@@ -494,7 +570,7 @@ func (g *Gateway) StartWithBanner() error {
 	}
 
 	// 默认启用Swagger文档服务
-	if g.gatewayConfig.Swagger.Enabled {
+	if g.gatewayConfig != nil && g.gatewayConfig.Swagger != nil && g.gatewayConfig.Swagger.Enabled {
 		if err := g.EnableSwagger(); err != nil {
 			global.LOGGER.WarnContext(g.Context(), "⚠️  启用Swagger失败: %v", err)
 		} else {
@@ -646,10 +722,129 @@ func (g *Gateway) RegisterConfigCallbacks() {
 	})
 
 	// 注册环境变更回调
-	g.configManager.RegisterEnvironmentCallback("gateway_env_handler", func(oldEnv, newEnv goconfig.EnvironmentType) error {
+	if err := g.configManager.RegisterConfigCallback(func(ctx context.Context, event goconfig.CallbackEvent) error {
+		newConfig, ok := event.NewValue.(*gwconfig.Gateway)
+		if !ok || newConfig == nil {
+			return nil
+		}
+
+		newConfig = mergeGatewayConfigWithDefaults(newConfig)
+		return g.applyReloadedConfig(ctx, newConfig)
+	}, goconfig.CallbackOptions{
+		ID:       "gateway_runtime_config_handler",
+		Types:    []goconfig.CallbackType{goconfig.CallbackTypeConfigChanged},
+		Priority: -90,
+		Async:    false,
+		Timeout:  30 * time.Second,
+	}); err != nil {
+		global.LOGGER.WarnContext(g.Context(), "register gateway runtime config callback failed: %v", err)
+	}
+
+	g.configManager.RegisterEnvironmentCallback("gateway_runtime_env_handler", func(oldEnv, newEnv goconfig.EnvironmentType) error {
 		global.LOGGER.InfoContext(g.Context(), errors.FormatEnvironmentChangeInfo(string(oldEnv), string(newEnv)))
 		return nil
 	}, -100, false) // 高优先级
+}
+
+// applyReloadedConfig applies runtime-sensitive config changes without a full process restart.
+func (g *Gateway) applyReloadedConfig(ctx context.Context, newConfig *gwconfig.Gateway) error {
+	oldConfig := g.Server.GetConfig()
+
+	global.LOGGER.InfoContext(g.Context(), errors.FormatConfigUpdateInfo(newConfig.Name))
+	g.gatewayConfig = newConfig
+	global.GATEWAY = newConfig
+
+	httpChanged := httpRuntimeChanged(oldConfig, newConfig) || swaggerRuntimeChanged(oldConfig, newConfig)
+	grpcChanged := grpcRuntimeChanged(oldConfig, newConfig)
+	pprofChanged := pprofRuntimeChanged(oldConfig, newConfig)
+
+	if httpChanged {
+		global.LOGGER.InfoContext(ctx, "HTTP/Swagger config changed, reloading HTTP gateway")
+		if err := g.Server.ReloadHTTPGateway(newConfig, g.replayHTTPRegistrations); err != nil {
+			return err
+		}
+	}
+
+	if grpcChanged {
+		global.LOGGER.InfoContext(ctx, "gRPC server config changed, reloading gRPC server")
+		registrars := make([]func(*grpc.Server), 0, len(g.grpcServiceRegistrars))
+		for _, register := range g.grpcServiceRegistrars {
+			registrars = append(registrars, register)
+		}
+		if err := g.Server.ReloadGRPCServer(newConfig, registrars); err != nil {
+			return err
+		}
+	}
+
+	if pprofChanged {
+		global.LOGGER.InfoContext(ctx, "PProf config changed, reloading PProf server")
+		if err := g.Server.ReloadPProfServer(newConfig); err != nil {
+			return err
+		}
+	}
+
+	if !httpChanged && !grpcChanged && !pprofChanged {
+		g.Server.ApplyConfig(newConfig)
+	}
+
+	if newConfig.HTTPServer != nil {
+		global.LOGGER.InfoContext(g.Context(), errors.FormatConnectionInfo("HTTP", newConfig.HTTPServer.GetEndpoint()))
+	}
+	if newConfig.GRPC != nil && newConfig.GRPC.Server != nil {
+		global.LOGGER.InfoContext(g.Context(), errors.FormatConnectionInfo("gRPC", newConfig.GRPC.Server.GetEndpoint()))
+	}
+
+	return nil
+}
+
+func httpRuntimeChanged(oldConfig, newConfig *gwconfig.Gateway) bool {
+	if oldConfig == nil || newConfig == nil {
+		return oldConfig != newConfig
+	}
+	if oldConfig.HTTPServer == nil || newConfig.HTTPServer == nil {
+		return oldConfig.HTTPServer != newConfig.HTTPServer
+	}
+
+	oldHTTP := *oldConfig.HTTPServer
+	newHTTP := *newConfig.HTTPServer
+	oldHTTP.Endpoint = ""
+	newHTTP.Endpoint = ""
+	return !reflect.DeepEqual(oldHTTP, newHTTP)
+}
+
+func grpcRuntimeChanged(oldConfig, newConfig *gwconfig.Gateway) bool {
+	if oldConfig == nil || newConfig == nil {
+		return oldConfig != newConfig
+	}
+	if oldConfig.GRPC == nil || newConfig.GRPC == nil {
+		return oldConfig.GRPC != newConfig.GRPC
+	}
+	if oldConfig.GRPC.Server == nil || newConfig.GRPC.Server == nil {
+		return oldConfig.GRPC.Server != newConfig.GRPC.Server
+	}
+
+	oldServer := *oldConfig.GRPC.Server
+	newServer := *newConfig.GRPC.Server
+	oldServer.Endpoint = ""
+	newServer.Endpoint = ""
+	return !reflect.DeepEqual(oldServer, newServer)
+}
+
+func swaggerRuntimeChanged(oldConfig, newConfig *gwconfig.Gateway) bool {
+	if oldConfig == nil || newConfig == nil {
+		return oldConfig != newConfig
+	}
+	return !reflect.DeepEqual(oldConfig.Swagger, newConfig.Swagger)
+}
+
+func pprofRuntimeChanged(oldConfig, newConfig *gwconfig.Gateway) bool {
+	if oldConfig == nil || newConfig == nil {
+		return oldConfig != newConfig
+	}
+	if oldConfig.Middleware == nil || newConfig.Middleware == nil {
+		return oldConfig.Middleware != newConfig.Middleware
+	}
+	return !reflect.DeepEqual(oldConfig.Middleware.PProf, newConfig.Middleware.PProf)
 }
 
 // ================ 连接池管理方法 ================

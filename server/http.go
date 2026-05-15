@@ -239,9 +239,11 @@ func (s *Server) initHTTPGateway() error {
 
 	// 创建HTTP多路复用器
 	s.httpMux = http.NewServeMux()
+	s.httpRoutePatterns = make(map[string]struct{})
 
 	// 注册网关路由（默认路由到gwMux）
 	s.httpMux.Handle("/", s.gwMux)
+	s.httpRoutePatterns["/"] = struct{}{}
 
 	httpEndpoint := fmt.Sprintf("%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port)
 
@@ -249,6 +251,7 @@ func (s *Server) initHTTPGateway() error {
 	if s.config.Health.Enabled {
 		healthPath := s.config.Health.Path
 		s.httpMux.HandleFunc(healthPath, s.healthCheckHandler)
+		s.httpRoutePatterns[healthPath] = struct{}{}
 
 		global.LOGGER.InfoKV("❤️  健康检查已启用", "url", "http://"+httpEndpoint+healthPath)
 
@@ -260,6 +263,7 @@ func (s *Server) initHTTPGateway() error {
 	if s.config.Monitoring.Metrics.Enabled {
 		prometheusPath := s.config.Monitoring.Metrics.Endpoint
 		s.httpMux.Handle(prometheusPath, promhttp.Handler())
+		s.httpRoutePatterns[prometheusPath] = struct{}{}
 
 		global.LOGGER.InfoKV("📊 监控指标服务可用", "url", "http://"+httpEndpoint+prometheusPath)
 	}
@@ -315,6 +319,7 @@ func (s *Server) registerComponentHealthChecks() {
 	// 注册Redis健康检查
 	if s.config.Health.Redis.Enabled {
 		s.httpMux.HandleFunc(s.config.Health.Redis.Path, s.redisHealthCheckHandler)
+		s.httpRoutePatterns[s.config.Health.Redis.Path] = struct{}{}
 		global.LOGGER.InfoKV("🔴 Redis健康检查已启用",
 			"url", baseURL+s.config.Health.Redis.Path)
 	}
@@ -322,6 +327,7 @@ func (s *Server) registerComponentHealthChecks() {
 	// 注册MySQL健康检查
 	if s.config.Health.MySQL.Enabled {
 		s.httpMux.HandleFunc(s.config.Health.MySQL.Path, s.mysqlHealthCheckHandler)
+		s.httpRoutePatterns[s.config.Health.MySQL.Path] = struct{}{}
 		global.LOGGER.InfoKV("🗃️  MySQL健康检查已启用",
 			"url", baseURL+s.config.Health.MySQL.Path)
 	}
@@ -332,7 +338,12 @@ func (s *Server) registerComponentHealthChecks() {
 
 // startHTTPServer 启动HTTP服务器
 func (s *Server) startHTTPServer() error {
-	address := s.httpServer.Addr
+	httpServer := s.httpServer
+	if httpServer == nil {
+		return nil
+	}
+
+	address := httpServer.Addr
 
 	// TLS 支持待实现（需要在 go-config/pkg/security 中添加 TLS 配置）
 	// if s.config.Security.TLS.Enabled {
@@ -348,7 +359,10 @@ func (s *Server) startHTTPServer() error {
 	}
 	defer listener.Close() // Fix 确保 listener 关闭，防止连接泄漏
 
-	return s.httpServer.Serve(listener)
+	if err := httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 // stopHTTPServer 停止HTTP服务器
@@ -363,7 +377,12 @@ func (s *Server) stopHTTPServer() error {
 
 	global.LOGGER.InfoContext(ctx, "Stopping HTTP server...")
 
-	if err := s.httpServer.Shutdown(ctx); err != nil {
+	httpServer := s.httpServer
+	if httpServer == nil {
+		return nil
+	}
+
+	if err := httpServer.Shutdown(ctx); err != nil {
 		global.LOGGER.WithError(err).ErrorContext(ctx, "Failed to shutdown HTTP server")
 		return err
 	}
@@ -436,7 +455,18 @@ func (s *Server) RegisterHTTPRoute(pattern string, handler http.Handler) {
 		return
 	}
 
+	if s.httpRoutePatterns == nil {
+		s.httpRoutePatterns = make(map[string]struct{})
+	}
+	if _, exists := s.httpRoutePatterns[pattern]; exists {
+		global.LOGGER.DebugKV("HTTP route already registered, skip duplicate",
+			"pattern", pattern,
+			"handler_type", fmt.Sprintf("%T", handler))
+		return
+	}
+
 	s.httpMux.Handle(pattern, handler)
+	s.httpRoutePatterns[pattern] = struct{}{}
 	global.LOGGER.InfoKV("✅ 注册HTTP路由成功",
 		"pattern", pattern,
 		"handler_type", fmt.Sprintf("%T", handler))
@@ -449,7 +479,16 @@ func (s *Server) RegisterHTTPHandlerFunc(pattern string, handlerFunc http.Handle
 		return
 	}
 
+	if s.httpRoutePatterns == nil {
+		s.httpRoutePatterns = make(map[string]struct{})
+	}
+	if _, exists := s.httpRoutePatterns[pattern]; exists {
+		global.LOGGER.DebugKV("HTTP handler func already registered, skip duplicate", "pattern", pattern)
+		return
+	}
+
 	s.httpMux.HandleFunc(pattern, handlerFunc)
+	s.httpRoutePatterns[pattern] = struct{}{}
 	global.LOGGER.InfoKV("✅ 注册HTTP处理函数成功", "pattern", pattern)
 }
 

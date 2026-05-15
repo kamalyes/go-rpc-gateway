@@ -12,6 +12,7 @@
 package server
 
 import (
+	stderrors "errors"
 	"fmt"
 	"net"
 	"time"
@@ -147,6 +148,11 @@ func (s *Server) startGRPCServer() error {
 	}
 
 	// 获取网络和地址配置
+	grpcServerInstance := s.grpcServer
+	if grpcServerInstance == nil {
+		return nil
+	}
+
 	address := fmt.Sprintf("%s:%d", grpcServer.Host, grpcServer.Port)
 
 	listener, err := net.Listen(grpcServer.Network, address)
@@ -155,14 +161,18 @@ func (s *Server) startGRPCServer() error {
 	}
 
 	global.LOGGER.InfoKV("Starting gRPC server", "address", address)
-	return s.grpcServer.Serve(listener)
+	if err := grpcServerInstance.Serve(listener); err != nil && !stderrors.Is(err, grpc.ErrServerStopped) {
+		return err
+	}
+	return nil
 }
 
 // stopGRPCServer 停止gRPC服务器
 func (s *Server) stopGRPCServer() {
-	if s.grpcServer != nil {
+	grpcServerInstance := s.grpcServer
+	if grpcServerInstance != nil {
 		global.LOGGER.InfoContext(s.ctx, "Stopping gRPC server...")
-		s.grpcServer.GracefulStop()
+		grpcServerInstance.GracefulStop()
 		global.LOGGER.InfoContext(s.ctx, "gRPC server stopped")
 	}
 }

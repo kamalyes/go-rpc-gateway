@@ -19,7 +19,7 @@ require (
 	github.com/kamalyes/go-i18n v0.1.1
 	github.com/kamalyes/go-logger v0.4.6
 	github.com/kamalyes/go-natsx v0.0.0-20260513070803-a61be807ec71
-	github.com/kamalyes/go-pbmo v0.0.0-20260513152901-eb19ad88ea73
+	github.com/kamalyes/go-pbmo v0.0.0-20260515051129-f08f13748043
 	github.com/kamalyes/go-swagger v0.0.0-20260513072852-dd47cada70c7
 	github.com/kamalyes/go-toolbox v0.12.1-0.20260513145936-8b6f54d3138b
 	github.com/kamalyes/go-wsc v0.7.0

@@ -165,8 +165,8 @@ github.com/kamalyes/go-logger v0.4.6 h1:kVJGp54IGAGrVHTwzwNKBYlcIyzrnfstXuhIFP8h
 github.com/kamalyes/go-logger v0.4.6/go.mod h1:3w7WwuBoJfWh+P/nrsxjjHk+xNtTNsBJdw3bXzYlFeg=
 github.com/kamalyes/go-natsx v0.0.0-20260513070803-a61be807ec71 h1:Px9KYqR4VaDhg7FTph5fQv+vDaBTkZ5PVWe5nOsZEec=
 github.com/kamalyes/go-natsx v0.0.0-20260513070803-a61be807ec71/go.mod h1:pAcD3CbVDfBfcE8y7+M+C8mUO/4xtDyCeU04vNEQFjQ=
-github.com/kamalyes/go-pbmo v0.0.0-20260513152901-eb19ad88ea73 h1:B3sf8YngUstAmLy8Oe2JFBP50xUmKLSZmDSsycyxUEI=
-github.com/kamalyes/go-pbmo v0.0.0-20260513152901-eb19ad88ea73/go.mod h1:v0v7lehw0FWHJunysRNoIRNhT0oGozEwoCOLgtGViXI=
+github.com/kamalyes/go-pbmo v0.0.0-20260515051129-f08f13748043 h1:5/15eI+bXoVB8QlZhxMAjasG6KRkLajqbXhdpV22O1U=
+github.com/kamalyes/go-pbmo v0.0.0-20260515051129-f08f13748043/go.mod h1:v0v7lehw0FWHJunysRNoIRNhT0oGozEwoCOLgtGViXI=
 github.com/kamalyes/go-sqlbuilder v0.3.8-0.20260513135600-7ffb7826e6d6 h1:q/JICrNWXPzZ7cQPEau9Kmt7A+vELAuXr/FhMzMu/l8=
 github.com/kamalyes/go-sqlbuilder v0.3.8-0.20260513135600-7ffb7826e6d6/go.mod h1:sxMcQzH2H3bLKginqI8F89RNIDBieTf479LWHamh264=
 github.com/kamalyes/go-swagger v0.0.0-20260513072852-dd47cada70c7 h1:CdS7q5oXWFLXIKr7pwflpTivpBNC7b+KQN93rVaGe6k=
