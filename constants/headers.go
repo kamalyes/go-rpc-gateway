@@ -82,29 +82,3 @@ const (
 	// CSRF 相关头部
 	HeaderXCSRFToken = "X-CSRF-Token"
 )
-
-// MIME 类型常量
-const (
-	MimeApplicationJSON        = "application/json"
-	MimeApplicationXML         = "application/xml"
-	MimeApplicationForm        = "application/x-www-form-urlencoded"
-	MimeApplicationOctetStream = "application/octet-stream"
-	MimeMultipartFormData      = "multipart/form-data"
-	MimeTextPlain              = "text/plain"
-	MimeTextHTML               = "text/html"
-	MimeTextXML                = "text/xml"
-	MimeTextCSV                = "text/csv"
-	MimeImageJPEG              = "image/jpeg"
-	MimeImagePNG               = "image/png"
-	MimeImageGIF               = "image/gif"
-	MimeImageWebP              = "image/webp"
-	MimeApplicationJSONCharset = "application/json; charset=utf-8"
-	MimeTextHTMLCharset        = "text/html; charset=utf-8"
-)
-
-// CORS 相关常量
-const (
-	CORSAllowAll       = "*"
-	CORSDefaultMethods = "GET, POST, PUT, DELETE, OPTIONS"
-	CORSDefaultHeaders = "Content-Type, Authorization"
-)

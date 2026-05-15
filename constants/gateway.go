@@ -17,23 +17,5 @@ const (
 	DefaultHealthPath  = "/health"
 	DefaultMetricsPath = "/metrics"
 	DefaultDebugPath   = "/debug"
-)
-
-// 上下文键常量
-const (
-	ContextKeyI18n = "i18n"
-)
-
-// JSON 响应模板
-const (
-	JSONSuccessTemplate = `{"success": true, "message": "%s", "data": %s}`
-	JSONErrorTemplate   = `{"success": false, "error": "%s", "message": "%s"}`
-	JSONSimpleError     = `{"error": "%s"}`
-	JSONSimpleSuccess   = `{"success": true}`
-	JSONRateLimitError  = `{"error": "Too Many Requests", "message": "Rate limit exceeded"}`
-	JSONInternalError   = `{"error": "Internal server error"}`
-	JSONUnauthorized    = `{"error": "Unauthorized", "message": "Authentication required"}`
-	JSONForbidden       = `{"error": "Forbidden", "message": "Permission denied"}`
-	JSONNotFound        = `{"error": "Not Found", "message": "Resource not found"}`
-	JSONBadRequest      = `{"error": "Bad Request", "message": "Invalid request"}`
+	PProfBasePath      = "/debug/pprof"
 )

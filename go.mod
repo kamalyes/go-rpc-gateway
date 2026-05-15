@@ -15,13 +15,13 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-config v0.17.0
+	github.com/kamalyes/go-config v0.17.1-0.20260515072701-e87cca96edd7
 	github.com/kamalyes/go-i18n v0.1.1
 	github.com/kamalyes/go-logger v0.4.6
 	github.com/kamalyes/go-natsx v0.0.0-20260513070803-a61be807ec71
 	github.com/kamalyes/go-pbmo v0.0.0-20260515051129-f08f13748043
 	github.com/kamalyes/go-swagger v0.0.0-20260513072852-dd47cada70c7
-	github.com/kamalyes/go-toolbox v0.12.1-0.20260513145936-8b6f54d3138b
+	github.com/kamalyes/go-toolbox v0.12.1-0.20260515075122-8e9c571fbaa5
 	github.com/kamalyes/go-wsc v0.7.0
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
@@ -34,7 +34,7 @@ require (
 	go.opentelemetry.io/otel/exporters/zipkin v1.38.0
 	go.opentelemetry.io/otel/sdk v1.43.0
 	go.opentelemetry.io/otel/trace v1.43.0
-	google.golang.org/grpc v1.81.0
+	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.11
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.0

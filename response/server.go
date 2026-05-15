@@ -19,6 +19,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
+	"github.com/kamalyes/go-toolbox/pkg/httpx"
 )
 
 // WriteErrorResponse 写入标准化的错误响应
@@ -29,7 +30,7 @@ func WriteErrorResponse(w http.ResponseWriter, appErr *errors.AppError) {
 
 // WriteResultResponse 写入Result响应
 func WriteResultResponse(w http.ResponseWriter, httpStatus int, result *commonapis.Result) {
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
+	w.Header().Set(constants.HeaderContentType, httpx.ContentTypeApplicationJSON)
 	w.WriteHeader(httpStatus)
 
 	if err := json.NewEncoder(w).Encode(result); err != nil && global.LOGGER != nil {

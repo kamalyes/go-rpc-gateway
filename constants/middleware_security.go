@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-10 11:40:02
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-11 17:56:53
+ * @LastEditTime: 2026-05-15 14:16:49
  * @FilePath: \go-rpc-gateway\constants\middleware_security.go
  * @Description: 安全中间件相关常量
  *
@@ -181,10 +181,10 @@ const (
 
 // 安全中间件日志消息常量
 const (
-	LogMsgIPNotInWhitelist     = "路径保护: IP不在白名单"
-	LogMsgAuthFailed           = "路径保护: 认证失败"
-	LogMsgHTTPSRequired        = "路径保护: 要求HTTPS"
-	LogMsgAccessGranted        = "路径保护: 访问通过"
-	LogMsgCSRFValidationFailed = "CSRF token验证失败"
-	LogMsgIPAccessDenied       = "IP访问被拒绝"
+	LogMsgIPNotInWhitelist     = "Protected Area: IP not allowed in whitelist"
+	LogMsgAuthFailed           = "Protected Area: Authentication failed"
+	LogMsgHTTPSRequired        = "Protected Area: HTTPS required"
+	LogMsgAccessGranted        = "Protected Area: Access granted"
+	LogMsgCSRFValidationFailed = "CSRF token failed"
+	LogMsgIPAccessDenied       = "Protected Area: IP access denied"
 )

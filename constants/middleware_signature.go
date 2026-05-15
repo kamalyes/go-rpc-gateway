@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-10 11:40:02
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-12-11 15:00:51
+ * @LastEditTime: 2026-05-15 14:17:38
  * @FilePath: \go-rpc-gateway\constants\middleware_signature.go
  * @Description: 签名验证中间件相关常量
  *
@@ -97,15 +97,15 @@ var SignatureDefaultRequiredHeaders = []string{
 
 // 错误信息常量
 const (
-	SignatureErrorInvalid          = "invalid signature"
-	SignatureErrorMissing          = "signature missing"
-	SignatureErrorTimestampMissing = "timestamp missing"
-	SignatureErrorTimestampExpired = "timestamp expired"
-	SignatureErrorTimestampInvalid = "invalid timestamp format"
-	SignatureErrorSecretKeyMissing = "secret key missing"
-	SignatureErrorBodyReadFailed   = "failed to read request body"
-	SignatureErrorGenerateFailed   = "failed to generate signature"
-	SignatureErrorMismatch         = "signature mismatch"
+	SignatureErrorInvalid          = "Invalid signature"
+	SignatureErrorMissing          = "Signature missing"
+	SignatureErrorTimestampMissing = "Timestamp missing"
+	SignatureErrorTimestampExpired = "Timestamp expired"
+	SignatureErrorTimestampInvalid = "Invalid timestamp format"
+	SignatureErrorSecretKeyMissing = "Secret key missing"
+	SignatureErrorBodyReadFailed   = "Failed to read request body"
+	SignatureErrorGenerateFailed   = "Failed to generate signature"
+	SignatureErrorMismatch         = "Signature mismatch"
 )
 
 // 签名验证错误代码

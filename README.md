@@ -350,6 +350,25 @@ graph LR
     style Tracing fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
 ```
 
+## 📚 文档
+
+完整文档请访问 [docs/](./docs/) 目录：
+
+| 分类 | 文档 | 说明 |
+|------|------|------|
+| **入门** | [快速入门](./docs/QUICKSTART.md) | 5 分钟上手 |
+| | [Gateway 构建器](./docs/GATEWAY-BUILDER.md) | 链式构建 API、配置发现、热更新 |
+| | [服务注册](./docs/SERVICE-REGISTRATION.md) | gRPC + HTTP 双协议注册 |
+| **核心** | [gRPC 客户端](./docs/GRPC-CLIENT.md) | InitClient 泛型、健康检查、负载均衡 |
+| | [请求上下文](./docs/REQUEST-CONTEXT.md) | HTTP → gRPC → Service 全链路传递 |
+| | [中间件系统](./docs/MIDDLEWARE.md) | 15+ 中间件：CORS、限流、熔断、签名等 |
+| | [连接池管理](./docs/CONNECTION-POOL.md) | DB/Redis/MinIO/ClickHouse/NATS 统一管理 |
+| | [全局变量与初始化器](./docs/GLOBAL.md) | InitializerChain、ID 生成器 |
+| | [Server 内部机制](./docs/SERVER.md) | 生命周期、热重载、Swagger |
+| **工具** | [错误体系](./docs/ERRORS.md) | ErrorCode、AppError、三态映射 |
+| | [HTTP 响应工具](./docs/RESPONSE.md) | 统一 JSON 响应写入 |
+| | [熔断器](./docs/BREAKER.md) | 断路器状态机、管理器 |
+
 ## 🤝 贡献与支持
 
 ### 参与贡献

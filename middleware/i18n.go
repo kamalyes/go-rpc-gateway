@@ -14,11 +14,13 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"net/http"
+
 	gci18n "github.com/kamalyes/go-config/pkg/i18n"
 	goi18n "github.com/kamalyes/go-i18n"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/errors"
-	"net/http"
+	"github.com/kamalyes/go-toolbox/pkg/mathx"
 )
 
 type I18nManager = goi18n.Manager
@@ -122,15 +124,20 @@ func detectFromHeader(r *http.Request, config *gci18n.I18N) string {
 }
 
 func detectFromQuery(r *http.Request, config *gci18n.I18N) string {
-	return r.URL.Query().Get(config.LanguageParam)
+	if lang := r.URL.Query().Get(config.LanguageParam); lang != "" {
+		return config.ResolveLanguage(lang)
+	}
+	return ""
 }
 
 func detectFromCookie(r *http.Request, config *gci18n.I18N) string {
-	cookie, err := r.Cookie(config.LanguageParam)
+	cookieName := mathx.IfEmpty(config.CookieName, config.LanguageParam)
+
+	cookie, err := r.Cookie(cookieName)
 	if err != nil {
 		return ""
 	}
-	return cookie.Value
+	return config.ResolveLanguage(cookie.Value)
 }
 
 type LocalizedError struct {

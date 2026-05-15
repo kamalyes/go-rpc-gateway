@@ -22,6 +22,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
+	"github.com/kamalyes/go-toolbox/pkg/httpx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 )
 
@@ -101,7 +102,7 @@ func logPanicError(ctx context.Context, r *http.Request, err any, stackTrace str
 // setPanicErrorResponse 设置 panic 错误响应
 func setPanicErrorResponse(w http.ResponseWriter, ctx context.Context, err interface{}, stackTrace string, config *recovery.Recovery) {
 	// 设置响应头
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
+	w.Header().Set(constants.HeaderContentType, httpx.ContentTypeApplicationJSON)
 	setTraceHeaders(w, ctx)
 	w.WriteHeader(http.StatusInternalServerError)
 

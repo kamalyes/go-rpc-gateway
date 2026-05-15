@@ -30,6 +30,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/kamalyes/go-toolbox/pkg/desensitize"
+	"github.com/kamalyes/go-toolbox/pkg/httpx"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -415,7 +416,7 @@ func (s *Server) mysqlHealthCheckHandler(w http.ResponseWriter, r *http.Request)
 
 // componentHealthCheck 组件健康检查通用处理器
 func (s *Server) componentHealthCheck(w http.ResponseWriter, r *http.Request, component string) {
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
+	w.Header().Set(constants.HeaderContentType, httpx.ContentTypeApplicationJSON)
 
 	if s.healthManager == nil {
 		response.WriteServiceUnavailableResult(w, fmt.Sprintf("%s health checker not configured", component))

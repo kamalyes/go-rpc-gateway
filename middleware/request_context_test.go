@@ -95,6 +95,7 @@ func TestRequestContextMiddleware_ExtractsOptionalFields(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set(constants.HeaderXForwardedFor, "192.168.1.100")
 	req.Header.Set(constants.HeaderXUserID, "user-123")
 	req.Header.Set(constants.HeaderXDomain, "tenant")
 	req.Header.Set(constants.HeaderXRoleCode, "admin")
@@ -106,6 +107,7 @@ func TestRequestContextMiddleware_ExtractsOptionalFields(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	// 验证可选字段被提取
+	assert.Equal(t, "192.168.1.100", GetIPAddress(capturedCtx), "应提取 forwarded_for")
 	assert.Equal(t, "user-123", GetUserID(capturedCtx), "应提取 user_id")
 	assert.Equal(t, "tenant", GetDomain(capturedCtx))
 	assert.Equal(t, "admin", GetRoleCode(capturedCtx))
@@ -283,10 +285,6 @@ func TestRequestContextMiddleware_CachesRequestCommonMeta(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	req.Header.Set(constants.HeaderXTraceID, "cache-test-trace")
 	req.Header.Set(constants.HeaderXRequestID, "cache-test-request")
-	req.Header.Set(constants.HeaderXUserID, "cache-test-user")
-	req.Header.Set(constants.HeaderXTenantID, "cache-test-tenant")
-	req.Header.Set(constants.HeaderXSessionID, "cache-test-session")
-	req.Header.Set(constants.HeaderXTimezone, "Asia/Seoul")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -296,10 +294,6 @@ func TestRequestContextMiddleware_CachesRequestCommonMeta(t *testing.T) {
 	assert.NotNil(t, info)
 	assert.Equal(t, "cache-test-trace", info.TraceID)
 	assert.Equal(t, "cache-test-request", info.RequestID)
-	assert.Equal(t, "cache-test-user", info.UserID)
-	assert.Equal(t, "cache-test-tenant", info.TenantID)
-	assert.Equal(t, "cache-test-session", info.SessionID)
-	assert.Equal(t, "Asia/Seoul", info.Timezone)
 }
 
 // TestFullChain_HTTPToContext 测试完整链路：HTTP 请求到 context

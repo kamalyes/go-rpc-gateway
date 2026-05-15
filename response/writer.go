@@ -20,6 +20,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
+	"github.com/kamalyes/go-toolbox/pkg/httpx"
 )
 
 // jsonEncoderPool JSON 编码器对象池
@@ -31,7 +32,7 @@ var jsonEncoderPool = sync.Pool{
 
 // WriteResult 写入标准化Result响应
 func WriteResult(w http.ResponseWriter, httpStatus int, result *commonapis.Result) {
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
+	w.Header().Set(constants.HeaderContentType, httpx.ContentTypeApplicationJSON)
 	w.WriteHeader(httpStatus)
 
 	encoder := jsonEncoderPool.Get().(*json.Encoder)
@@ -47,7 +48,7 @@ func WriteResult(w http.ResponseWriter, httpStatus int, result *commonapis.Resul
 
 // WriteJSONResponse 写入自定义JSON响应
 func WriteJSONResponse(w http.ResponseWriter, httpStatus int, data any) {
-	w.Header().Set(constants.HeaderContentType, constants.MimeApplicationJSON)
+	w.Header().Set(constants.HeaderContentType, httpx.ContentTypeApplicationJSON)
 	w.WriteHeader(httpStatus)
 
 	encoder := jsonEncoderPool.Get().(*json.Encoder)
