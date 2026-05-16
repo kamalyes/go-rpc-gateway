@@ -14,13 +14,14 @@ package middleware
 import (
 	"context"
 	"errors"
-	"github.com/go-playground/validator/v10"
+	"reflect"
+	"testing"
+
+	validator "github.com/kamalyes/go-argus"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"reflect"
-	"testing"
 )
 
 type validRequest struct {

@@ -15,12 +15,13 @@ package middleware
 
 import (
 	"context"
-	"github.com/go-playground/validator/v10"
+	"strings"
+	"sync"
+
+	validator "github.com/kamalyes/go-argus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"strings"
-	"sync"
 )
 
 var (

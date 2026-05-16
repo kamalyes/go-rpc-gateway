@@ -8,21 +8,21 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.31.20
 	github.com/aws/aws-sdk-go-v2/credentials v1.18.24
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.90.2
-	github.com/go-playground/validator/v10 v10.30.2
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-config v0.17.1-0.20260515072701-e87cca96edd7
-	github.com/kamalyes/go-i18n v0.1.1
-	github.com/kamalyes/go-logger v0.4.6
-	github.com/kamalyes/go-natsx v0.0.0-20260513070803-a61be807ec71
-	github.com/kamalyes/go-pbmo v0.0.0-20260515051129-f08f13748043
-	github.com/kamalyes/go-swagger v0.0.0-20260513072852-dd47cada70c7
-	github.com/kamalyes/go-toolbox v0.12.1-0.20260515075122-8e9c571fbaa5
-	github.com/kamalyes/go-wsc v0.7.0
+	github.com/kamalyes/go-argus v0.1.0
+	github.com/kamalyes/go-config v0.21.0
+	github.com/kamalyes/go-i18n v0.2.0
+	github.com/kamalyes/go-logger v0.5.0
+	github.com/kamalyes/go-natsx v0.1.0
+	github.com/kamalyes/go-pbmo v0.1.0
+	github.com/kamalyes/go-swagger v0.1.0
+	github.com/kamalyes/go-toolbox v0.15.0
+	github.com/kamalyes/go-wsc v0.9.1
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.19.0
@@ -70,8 +70,7 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
-	github.com/kamalyes/go-jsonpath v0.0.0-20260129163507-0b67ed48bb28 // indirect
-	github.com/kamalyes/go-sqlbuilder v0.3.8-0.20260513135600-7ffb7826e6d6 // indirect
+	github.com/kamalyes/go-sqlbuilder v0.5.0 // indirect
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/nats-io/nkeys v0.4.15 // indirect
@@ -99,22 +98,18 @@ require (
 	github.com/dgraph-io/ristretto/v2 v2.4.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.5.0
-	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-playground/locales v0.14.1 // indirect
-	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12
-	github.com/kamalyes/go-cachex v0.1.9
+	github.com/kamalyes/go-cachex v0.2.1
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
-	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/minio/minio-go/v7 v7.0.74
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
