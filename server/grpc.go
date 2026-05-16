@@ -17,6 +17,7 @@ import (
 	"net"
 	"time"
 
+	grpcpool "github.com/kamalyes/go-rpc-gateway/cpool/grpc"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
@@ -62,6 +63,11 @@ func (s *Server) initGRPCServer() error {
 	opts := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(recvMsgSize),
 		grpc.MaxSendMsgSize(sendMsgSize),
+	}
+
+	// 启用压缩编码器注册（必须在 grpc.NewServer 之前）
+	if grpcServer.EnableCompression {
+		grpcpool.ApplyServerCompression(grpcServer)
 	}
 
 	// 添加Keepalive配置
@@ -110,6 +116,11 @@ func (s *Server) initGRPCServer() error {
 		// 添加 struct tag 参数校验拦截器（配合 protoc-go-inject-tag 生效）
 		unaryInterceptors = append(unaryInterceptors, s.middlewareManager.GRPCStructTagValidatorInterceptor())
 
+		// 添加压缩拦截器（如果启用压缩，在拦截器链末尾设置响应压缩）
+		if grpcServer.EnableCompression {
+			unaryInterceptors = append(unaryInterceptors, grpcpool.UnaryServerCompressionInterceptor(grpcpool.ResolveCompressType(grpcServer.CompressionType)))
+		}
+
 		opts = append(opts, grpc.ChainUnaryInterceptor(unaryInterceptors...))
 
 		// 构建 Stream 拦截器链
@@ -118,6 +129,12 @@ func (s *Server) initGRPCServer() error {
 			middleware.StreamServerLoggingInterceptor(),        // 2. 日志记录
 			s.middlewareManager.GRPCStructTagValidatorStreamInterceptor(),
 		}
+
+		// 添加 Stream 压缩拦截器
+		if grpcServer.EnableCompression {
+			streamInterceptors = append(streamInterceptors, grpcpool.StreamServerCompressionInterceptor(grpcpool.ResolveCompressType(grpcServer.CompressionType)))
+		}
+
 		opts = append(opts, grpc.ChainStreamInterceptor(streamInterceptors...))
 	}
 
@@ -129,10 +146,21 @@ func (s *Server) initGRPCServer() error {
 		global.LOGGER.InfoMsg("gRPC反射服务已启用")
 	}
 
+	// 启用压缩
+	if grpcServer.EnableCompression {
+		grpcpool.ApplyServerCompression(grpcServer)
+		compressType := grpcpool.ResolveCompressType(grpcServer.CompressionType)
+		global.LOGGER.InfoKV("gRPC压缩已启用",
+			"compression_type", compressType,
+			"compression_level", grpcServer.CompressionLevel,
+			"min_compress_size", grpcServer.MinCompressSize)
+	}
+
 	global.LOGGER.InfoKV("gRPC服务器初始化完成",
 		"max_recv_size", grpcServer.MaxRecvMsgSize,
 		"max_send_size", grpcServer.MaxSendMsgSize,
-		"reflection_enabled", grpcServer.EnableReflection)
+		"reflection_enabled", grpcServer.EnableReflection,
+		"compression_enabled", grpcServer.EnableCompression)
 
 	return nil
 }

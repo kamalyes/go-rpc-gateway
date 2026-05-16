@@ -161,6 +161,14 @@ func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds 
 		grpc.WithInitialConnWindowSize(initialConnWindowSize), // 连接窗口
 	}
 
+	// 启用客户端压缩
+	if clientCfg.EnableCompression {
+		ApplyClientCompression(clientCfg)
+		compressType := ResolveCompressType(clientCfg.CompressionType)
+		dialOpts = append(dialOpts, grpc.WithDefaultCallOptions(grpc.UseCompressor(compressType)))
+		gwglobal.LOGGER.Info("📦 %s 启用压缩: %s", serviceName, compressType)
+	}
+
 	// 负载均衡配置
 	if clientCfg.EnableLoadBalance {
 		policy := mathx.IF(clientCfg.LoadBalancePolicy != "", clientCfg.LoadBalancePolicy, "round_robin")

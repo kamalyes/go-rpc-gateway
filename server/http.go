@@ -35,6 +35,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 // buildServeMuxOptions 构建ServeMux选项，支持从配置文件读取JSON序列化配置
@@ -44,7 +45,7 @@ func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
 	emitUnpopulated := s.config.JSON.EmitUnpopulated
 	discardUnknown := s.config.JSON.DiscardUnknown
 
-	return []runtime.ServeMuxOption{
+	opts := []runtime.ServeMuxOption{
 		runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{
 			MarshalOptions: protojson.MarshalOptions{
 				UseProtoNames:   useProtoNames,   // 使用 proto 字段名（snake_case）
@@ -59,6 +60,79 @@ func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
 			return key, true // 传递所有 header
 		}),
 	}
+
+	// 启用 Protobuf 响应支持（当 gRPC Server 配置了 EnableProtobufResp 时）
+	if s.config.GRPC != nil && s.config.GRPC.Server != nil && s.config.GRPC.Server.EnableProtobufResp {
+		opts = append(opts, runtime.WithMarshalerOption("application/x-protobuf", &protobufMarshaler{}))
+		opts = append(opts, runtime.WithMarshalerOption("application/protobuf", &protobufMarshaler{}))
+		global.LOGGER.InfoMsg("✅ Protobuf 响应格式已启用（支持 application/x-protobuf 和 application/protobuf）")
+	}
+
+	return opts
+}
+
+// protobufMarshaler 实现 runtime.Marshaler 接口，用于 protobuf 二进制序列化
+type protobufMarshaler struct{}
+
+func (m *protobufMarshaler) ContentType(v any) string {
+	return "application/x-protobuf"
+}
+
+func (m *protobufMarshaler) Marshal(v any) ([]byte, error) {
+	msg, ok := v.(proto.Message)
+	if !ok {
+		return nil, fmt.Errorf("protobufMarshaler: value is not a proto.Message, got %T", v)
+	}
+	return proto.Marshal(msg)
+}
+
+func (m *protobufMarshaler) Unmarshal(data []byte, v any) error {
+	msg, ok := v.(proto.Message)
+	if !ok {
+		return fmt.Errorf("protobufMarshaler: value is not a proto.Message, got %T", v)
+	}
+	return proto.Unmarshal(data, msg)
+}
+
+func (m *protobufMarshaler) NewDecoder(r io.Reader) runtime.Decoder {
+	return &protobufDecoder{r: r}
+}
+
+func (m *protobufMarshaler) NewEncoder(w io.Writer) runtime.Encoder {
+	return &protobufEncoder{w: w}
+}
+
+type protobufDecoder struct {
+	r io.Reader
+}
+
+func (d *protobufDecoder) Decode(v any) error {
+	msg, ok := v.(proto.Message)
+	if !ok {
+		return fmt.Errorf("protobufDecoder: value is not a proto.Message, got %T", v)
+	}
+	data, err := io.ReadAll(d.r)
+	if err != nil {
+		return err
+	}
+	return proto.Unmarshal(data, msg)
+}
+
+type protobufEncoder struct {
+	w io.Writer
+}
+
+func (e *protobufEncoder) Encode(v any) error {
+	msg, ok := v.(proto.Message)
+	if !ok {
+		return fmt.Errorf("protobufEncoder: value is not a proto.Message, got %T", v)
+	}
+	data, err := proto.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	_, err = e.w.Write(data)
+	return err
 }
 
 // initGzipWriterPool 初始化 Gzip writer 对象池（从配置读取压缩级别）

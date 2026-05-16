@@ -147,8 +147,8 @@ github.com/kamalyes/go-argus v0.1.0 h1:4Ba0EZCSL7+biEiYhIowGaYUXnP2jCu/M9DNV6fLo
 github.com/kamalyes/go-argus v0.1.0/go.mod h1:dG5ttCh6wVn1u5qq4NEvoFtibgQ5Bj3PT8rw7HKX8c0=
 github.com/kamalyes/go-cachex v0.2.1 h1:qh9CqLyTU6pJnL8sAOV+NPoDhrrCpKQOh+Kcn6ry5WE=
 github.com/kamalyes/go-cachex v0.2.1/go.mod h1:q7EyLAwHbhK1o4amzq8Bxkp2/JzRp3uaWWqOIU2n8hY=
-github.com/kamalyes/go-config v0.21.0 h1:6qW9hpP4L4ob9Ar+Ol5it1vz3PfninY57xmxRJ0N9ZI=
-github.com/kamalyes/go-config v0.21.0/go.mod h1:HZTYtFySF8ZIxRcWKNGHbqXwnb+17O05lMT59x0Nd34=
+github.com/kamalyes/go-config v0.21.1-0.20260516165539-4412eace0f88 h1:CjSuNg//htwRzeVEB+GjCpXYj4vzA3C2SuREy380sE0=
+github.com/kamalyes/go-config v0.21.1-0.20260516165539-4412eace0f88/go.mod h1:HZTYtFySF8ZIxRcWKNGHbqXwnb+17O05lMT59x0Nd34=
 github.com/kamalyes/go-i18n v0.2.0 h1:E4GzkMf1rL/275bEK0wsQzaHHg1CM68AATsQhjAxGMQ=
 github.com/kamalyes/go-i18n v0.2.0/go.mod h1:JO6KWblWarSSYXa4mfTarhKUBrU8n5jvmGlWqluh0no=
 github.com/kamalyes/go-logger v0.5.0 h1:VKpx5Fdf+a232g+du4Dexpu3Qc0WOpXMNZQI2LYEEZY=

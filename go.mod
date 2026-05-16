@@ -15,7 +15,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-argus v0.1.0
-	github.com/kamalyes/go-config v0.21.0
+	github.com/kamalyes/go-config v0.21.1-0.20260516165539-4412eace0f88
 	github.com/kamalyes/go-i18n v0.2.0
 	github.com/kamalyes/go-logger v0.5.0
 	github.com/kamalyes/go-natsx v0.1.0
@@ -108,7 +108,7 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12
 	github.com/kamalyes/go-cachex v0.2.1
-	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/klauspost/compress v1.18.6
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/minio/minio-go/v7 v7.0.74
