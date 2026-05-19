@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-29 12:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2026-03-23 11:14:55
+ * @LastEditTime: 2026-05-19 18:19:55
  * @FilePath: \go-rpc-gateway\middleware\request_context_test.go
  * @Description: 请求上下文中间件测试
  *
@@ -160,19 +160,8 @@ func TestEnrichContextFromMetadata_GeneratesIDsWhenMissing(t *testing.T) {
 
 // TestInjectTraceToOutgoingContext 测试将 trace 信息注入到 outgoing metadata
 func TestInjectTraceToOutgoingContext(t *testing.T) {
-	// 创建带有 trace 信息的 context
-	ctx := context.Background()
-	ctx = WithTraceID(ctx, "outgoing-trace-123")
-	ctx = WithRequestID(ctx, "outgoing-request-456")
-	ctx = WithUserID(ctx, "outgoing-user-789")
-	ctx = WithDomain(ctx, "outgoing-domain")
-	ctx = WithRoleCode(ctx, "outgoing-role")
-	ctx = WithTenantID(ctx, "outgoing-tenant-111")
-	ctx = WithSessionID(ctx, "outgoing-session-222")
-	ctx = WithTimezone(ctx, "America/New_York")
-
-	// 缓存 RequestCommonMeta
-	ctx = context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
+	// 创建带有 trace 信息的 RequestCommonMeta
+	ctx := context.WithValue(context.Background(), requestCommonMetaKey{}, &RequestCommonMeta{
 		TraceID:   "outgoing-trace-123",
 		RequestID: "outgoing-request-456",
 		UserID:    "outgoing-user-789",
@@ -998,9 +987,7 @@ func TestEdgeCases_MergeOutgoingMetadata(t *testing.T) {
 	existingMD := metadata.Pairs("existing-key", "existing-value")
 	ctx := metadata.NewOutgoingContext(context.Background(), existingMD)
 
-	// 添加 trace 信息
-	ctx = WithTraceID(ctx, "merge-trace")
-	ctx = WithRequestID(ctx, "merge-request")
+	// 添加 trace 信息到 RequestCommonMeta
 	ctx = context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
 		TraceID:   "merge-trace",
 		RequestID: "merge-request",
@@ -1135,21 +1122,7 @@ func TestNewFields_GRPCMetadata(t *testing.T) {
 
 // TestNewFields_InjectTraceToOutgoingContext 测试新增字段注入到 outgoing metadata
 func TestNewFields_InjectTraceToOutgoingContext(t *testing.T) {
-	ctx := context.Background()
-	ctx = WithID(ctx, "out-id")
-	ctx = WithTenantCode(ctx, "out-tenant-code")
-	ctx = WithPlatformID(ctx, "out-platform-id")
-	ctx = WithPlatformCode(ctx, "out-platform-code")
-	ctx = WithRegionID(ctx, "out-region-id")
-	ctx = WithRegionCode(ctx, "out-region-code")
-	ctx = WithNonce(ctx, "out-nonce")
-	ctx = WithAppID(ctx, "out-app-id")
-	ctx = WithDeviceID(ctx, "out-device-id")
-	ctx = WithAppVersion(ctx, "out-app-version")
-	ctx = WithXNsID(ctx, "out-ns-id")
-	ctx = WithGrpcMetadataXNsID(ctx, "out-metadata-ns-id")
-
-	ctx = context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
+	ctx := context.WithValue(context.Background(), requestCommonMetaKey{}, &RequestCommonMeta{
 		ID:                "out-id",
 		TenantCode:        "out-tenant-code",
 		PlatformID:        "out-platform-id",
@@ -1348,4 +1321,402 @@ func TestFullChain_AllFields(t *testing.T) {
 	assert.Equal(t, "full-region-id", meta.RegionID)
 	assert.Equal(t, "full-region-code", meta.RegionCode)
 	assert.Equal(t, "full-nonce", meta.Nonce)
+}
+
+// TestWithMethods_SetContextValueAndSyncRequestCommonMeta 测试 With* 方法同时设置 context value 和同步更新 RequestCommonMeta
+func TestWithMethods_SetContextValueAndSyncRequestCommonMeta(t *testing.T) {
+	tests := []struct {
+		name      string
+		setupFunc func(context.Context) context.Context
+		key       string
+		value     string
+		getFunc   func(context.Context) string
+		metaField func(*RequestCommonMeta) string
+	}{
+		{
+			name:      "WithTraceID",
+			setupFunc: func(c context.Context) context.Context { return WithTraceID(c, "test-trace-123") },
+			key:       constants.MetadataTraceID,
+			value:     "test-trace-123",
+			getFunc:   GetTraceID,
+			metaField: func(m *RequestCommonMeta) string { return m.TraceID },
+		},
+		{
+			name:      "WithRequestID",
+			setupFunc: func(c context.Context) context.Context { return WithRequestID(c, "test-request-456") },
+			key:       constants.MetadataRequestID,
+			value:     "test-request-456",
+			getFunc:   GetRequestID,
+			metaField: func(m *RequestCommonMeta) string { return m.RequestID },
+		},
+		{
+			name:      "WithUserID",
+			setupFunc: func(c context.Context) context.Context { return WithUserID(c, "test-user-789") },
+			key:       constants.MetadataUserID,
+			value:     "test-user-789",
+			getFunc:   GetUserID,
+			metaField: func(m *RequestCommonMeta) string { return m.UserID },
+		},
+		{
+			name:      "WithTenantID",
+			setupFunc: func(c context.Context) context.Context { return WithTenantID(c, "test-tenant-111") },
+			key:       constants.MetadataTenantID,
+			value:     "test-tenant-111",
+			getFunc:   GetTenantID,
+			metaField: func(m *RequestCommonMeta) string { return m.TenantID },
+		},
+		{
+			name:      "WithSessionID",
+			setupFunc: func(c context.Context) context.Context { return WithSessionID(c, "test-session-222") },
+			key:       constants.MetadataSessionID,
+			value:     "test-session-222",
+			getFunc:   GetSessionID,
+			metaField: func(m *RequestCommonMeta) string { return m.SessionID },
+		},
+		{
+			name:      "WithDomain",
+			setupFunc: func(c context.Context) context.Context { return WithDomain(c, "test-domain") },
+			key:       constants.MetadataDomain,
+			value:     "test-domain",
+			getFunc:   GetDomain,
+			metaField: func(m *RequestCommonMeta) string { return m.Domain },
+		},
+		{
+			name:      "WithRoleCode",
+			setupFunc: func(c context.Context) context.Context { return WithRoleCode(c, "test-role") },
+			key:       constants.MetadataRoleCode,
+			value:     "test-role",
+			getFunc:   GetRoleCode,
+			metaField: func(m *RequestCommonMeta) string { return m.RoleCode },
+		},
+		{
+			name:      "WithTenantCode",
+			setupFunc: func(c context.Context) context.Context { return WithTenantCode(c, "test-tenant-code") },
+			key:       constants.MetadataTenantCode,
+			value:     "test-tenant-code",
+			getFunc:   GetTenantCode,
+			metaField: func(m *RequestCommonMeta) string { return m.TenantCode },
+		},
+		{
+			name:      "WithTimezone",
+			setupFunc: func(c context.Context) context.Context { return WithTimezone(c, "Asia/Shanghai") },
+			key:       constants.MetadataTimezone,
+			value:     "Asia/Shanghai",
+			getFunc:   GetTimezone,
+			metaField: func(m *RequestCommonMeta) string { return m.Timezone },
+		},
+		{
+			name:      "WithIPAddress",
+			setupFunc: func(c context.Context) context.Context { return WithIPAddress(c, "192.168.1.100") },
+			key:       constants.MetadataIPAddress,
+			value:     "192.168.1.100",
+			getFunc:   GetIPAddress,
+			metaField: func(m *RequestCommonMeta) string { return m.IPAddress },
+		},
+		{
+			name:      "WithAppID",
+			setupFunc: func(c context.Context) context.Context { return WithAppID(c, "test-app-id") },
+			key:       constants.MetadataAppID,
+			value:     "test-app-id",
+			getFunc:   GetAppID,
+			metaField: func(m *RequestCommonMeta) string { return m.AppID },
+		},
+		{
+			name:      "WithDeviceID",
+			setupFunc: func(c context.Context) context.Context { return WithDeviceID(c, "test-device-id") },
+			key:       constants.MetadataDeviceID,
+			value:     "test-device-id",
+			getFunc:   GetDeviceID,
+			metaField: func(m *RequestCommonMeta) string { return m.DeviceID },
+		},
+		{
+			name:      "WithAppVersion",
+			setupFunc: func(c context.Context) context.Context { return WithAppVersion(c, "1.0.0") },
+			key:       constants.MetadataAppVersion,
+			value:     "1.0.0",
+			getFunc:   GetAppVersion,
+			metaField: func(m *RequestCommonMeta) string { return m.AppVersion },
+		},
+		{
+			name:      "WithPlatformID",
+			setupFunc: func(c context.Context) context.Context { return WithPlatformID(c, "platform-123") },
+			key:       constants.MetadataPlatformID,
+			value:     "platform-123",
+			getFunc:   GetPlatformID,
+			metaField: func(m *RequestCommonMeta) string { return m.PlatformID },
+		},
+		{
+			name:      "WithPlatformCode",
+			setupFunc: func(c context.Context) context.Context { return WithPlatformCode(c, "platform-code") },
+			key:       constants.MetadataPlatformCode,
+			value:     "platform-code",
+			getFunc:   GetPlatformCode,
+			metaField: func(m *RequestCommonMeta) string { return m.PlatformCode },
+		},
+		{
+			name:      "WithRegionID",
+			setupFunc: func(c context.Context) context.Context { return WithRegionID(c, "region-123") },
+			key:       constants.MetadataRegionID,
+			value:     "region-123",
+			getFunc:   GetRegionID,
+			metaField: func(m *RequestCommonMeta) string { return m.RegionID },
+		},
+		{
+			name:      "WithRegionCode",
+			setupFunc: func(c context.Context) context.Context { return WithRegionCode(c, "region-code") },
+			key:       constants.MetadataRegionCode,
+			value:     "region-code",
+			getFunc:   GetRegionCode,
+			metaField: func(m *RequestCommonMeta) string { return m.RegionCode },
+		},
+		{
+			name:      "WithNonce",
+			setupFunc: func(c context.Context) context.Context { return WithNonce(c, "nonce-abc123") },
+			key:       constants.MetadataNonce,
+			value:     "nonce-abc123",
+			getFunc:   GetNonce,
+			metaField: func(m *RequestCommonMeta) string { return m.Nonce },
+		},
+		{
+			name:      "WithJti",
+			setupFunc: func(c context.Context) context.Context { return WithJti(c, "jti-xyz789") },
+			key:       constants.MetadataJti,
+			value:     "jti-xyz789",
+			getFunc:   GetJti,
+			metaField: func(m *RequestCommonMeta) string { return m.Jti },
+		},
+		{
+			name:      "WithFamilyId",
+			setupFunc: func(c context.Context) context.Context { return WithFamilyId(c, "family-123") },
+			key:       constants.MetadataFamilyId,
+			value:     "family-123",
+			getFunc:   GetFamilyId,
+			metaField: func(m *RequestCommonMeta) string { return m.FamilyId },
+		},
+		{
+			name:      "WithXNsID",
+			setupFunc: func(c context.Context) context.Context { return WithXNsID(c, "ns-123") },
+			key:       constants.MetadataXNsID,
+			value:     "ns-123",
+			getFunc:   GetXNsID,
+			metaField: func(m *RequestCommonMeta) string { return m.XNsID },
+		},
+		{
+			name:      "WithAuthorization",
+			setupFunc: func(c context.Context) context.Context { return WithAuthorization(c, "Bearer token123") },
+			key:       constants.MetadataAuthorization,
+			value:     "Bearer token123",
+			getFunc:   GetAuthorization,
+			metaField: func(m *RequestCommonMeta) string { return m.Authorization },
+		},
+		{
+			name:      "WithUserAgent",
+			setupFunc: func(c context.Context) context.Context { return WithUserAgent(c, "Mozilla/5.0") },
+			key:       constants.MetadataUserAgent,
+			value:     "Mozilla/5.0",
+			getFunc:   GetUserAgent,
+			metaField: func(m *RequestCommonMeta) string { return m.UserAgent },
+		},
+		{
+			name:      "WithTimestamp",
+			setupFunc: func(c context.Context) context.Context { return WithTimestamp(c, "2026-05-19T12:00:00Z") },
+			value:     "2026-05-19T12:00:00Z",
+			getFunc:   GetTimestamp,
+			metaField: func(m *RequestCommonMeta) string { return m.Timestamp },
+		},
+		{
+			name:      "WithSignature",
+			setupFunc: func(c context.Context) context.Context { return WithSignature(c, "abc123signature") },
+			key:       constants.MetadataSignature,
+			value:     "abc123signature",
+			getFunc:   GetSignature,
+			metaField: func(m *RequestCommonMeta) string { return m.Signature },
+		},
+		{
+			name:      "WithAccessKey",
+			setupFunc: func(c context.Context) context.Context { return WithAccessKey(c, "ak-12345") },
+			key:       constants.MetadataAccessKey,
+			value:     "ak-12345",
+			getFunc:   GetAccessKey,
+			metaField: func(m *RequestCommonMeta) string { return m.AccessKey },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// 先初始化一个带 RequestCommonMeta 的 context
+			ctx := context.WithValue(context.Background(), requestCommonMetaKey{}, &RequestCommonMeta{})
+
+			resultCtx := tt.setupFunc(ctx)
+
+			// 验证 context value 可通过 Get* 函数获取
+			assert.Equal(t, tt.value, tt.getFunc(resultCtx), "Get* 函数应返回设置的值")
+
+			// 验证 RequestCommonMeta 被同步更新
+			meta := GetRequestCommonMeta(resultCtx)
+			assert.Equal(t, tt.value, tt.metaField(meta), "RequestCommonMeta 应被同步更新")
+		})
+	}
+}
+
+func TestWithTenantID_RealWorldScenario(t *testing.T) {
+	// 模拟真实场景：先有 RequestCommonMeta（由中间件/拦截器注入），再通过 WithTenantID 覆盖
+	ctx := context.WithValue(context.Background(), requestCommonMetaKey{}, &RequestCommonMeta{
+		TenantID: "old-tenant",
+	})
+
+	resultCtx := WithTenantID(ctx, "tenant-abc123")
+
+	// 验证 Get* 函数返回新值
+	assert.Equal(t, "tenant-abc123", GetTenantID(resultCtx), "GetTenantID 应返回新值")
+
+	// 验证 RequestCommonMeta 被同步更新
+	meta := GetRequestCommonMeta(resultCtx)
+	assert.Equal(t, "tenant-abc123", meta.TenantID, "RequestCommonMeta.TenantID 应被同步更新")
+
+	// 验证 Client 拦截器能通过 injectTraceToOutgoingContext 传播新值
+	outgoingCtx := injectTraceToOutgoingContext(resultCtx)
+	md, ok := metadata.FromOutgoingContext(outgoingCtx)
+	require.True(t, ok, "应该有 outgoing metadata")
+	assert.Equal(t, []string{"tenant-abc123"}, md.Get(constants.MetadataTenantID), "outgoing metadata 应包含新值")
+
+	t.Log("✅ WithTenantID 一次性完成了:")
+	t.Log("  1. 设置 context value")
+	t.Log("  2. 同步更新 RequestCommonMeta")
+	t.Log("  3. Client 拦截器自动传播到 outgoing metadata")
+}
+
+func TestWithMethods_ChainedCalls(t *testing.T) {
+	// 模拟真实场景：先有 RequestCommonMeta（由中间件/拦截器注入）
+	ctx := context.WithValue(context.Background(), requestCommonMetaKey{}, &RequestCommonMeta{})
+
+	resultCtx := WithTraceID(ctx, "trace-123")
+	resultCtx = WithRequestID(resultCtx, "request-456")
+	resultCtx = WithUserID(resultCtx, "user-789")
+	resultCtx = WithTenantID(resultCtx, "tenant-111")
+	resultCtx = WithSessionID(resultCtx, "session-222")
+
+	// 验证 Get* 函数返回正确的值
+	assert.Equal(t, "trace-123", GetTraceID(resultCtx))
+	assert.Equal(t, "request-456", GetRequestID(resultCtx))
+	assert.Equal(t, "user-789", GetUserID(resultCtx))
+	assert.Equal(t, "tenant-111", GetTenantID(resultCtx))
+	assert.Equal(t, "session-222", GetSessionID(resultCtx))
+
+	// 验证 RequestCommonMeta 被同步更新
+	meta := GetRequestCommonMeta(resultCtx)
+	assert.Equal(t, "trace-123", meta.TraceID)
+	assert.Equal(t, "request-456", meta.RequestID)
+	assert.Equal(t, "user-789", meta.UserID)
+	assert.Equal(t, "tenant-111", meta.TenantID)
+	assert.Equal(t, "session-222", meta.SessionID)
+
+	// 验证 Client 拦截器能自动传播
+	outgoingCtx := injectTraceToOutgoingContext(resultCtx)
+	md, ok := metadata.FromOutgoingContext(outgoingCtx)
+	require.True(t, ok, "应该有 outgoing metadata")
+	assert.Equal(t, []string{"trace-123"}, md.Get(constants.MetadataTraceID))
+	assert.Equal(t, []string{"request-456"}, md.Get(constants.MetadataRequestID))
+	assert.Equal(t, []string{"user-789"}, md.Get(constants.MetadataUserID))
+	assert.Equal(t, []string{"tenant-111"}, md.Get(constants.MetadataTenantID))
+	assert.Equal(t, []string{"session-222"}, md.Get(constants.MetadataSessionID))
+
+	t.Log("✅ 链式调用正常工作，RequestCommonMeta 同步更新，Client 拦截器自动传播")
+}
+
+// TestContextBuilder 测试 ContextBuilder 链式构建
+func TestContextBuilder(t *testing.T) {
+	ctx := context.WithValue(context.Background(), requestCommonMetaKey{}, &RequestCommonMeta{})
+
+	resultCtx := NewContextBuilder(ctx).
+		WithTraceID("trace-batch-1").
+		WithUserID("user-batch-2").
+		WithTenantID("tenant-batch-3").
+		WithTimestamp("2026-05-19T12:00:00Z").
+		WithSignature("sig-batch-4").
+		WithAccessKey("ak-batch-5").
+		WithAuthorization("Bearer batch-token").
+		Build()
+
+	// 验证 Get* 函数返回正确的值
+	assert.Equal(t, "trace-batch-1", GetTraceID(resultCtx))
+	assert.Equal(t, "user-batch-2", GetUserID(resultCtx))
+	assert.Equal(t, "tenant-batch-3", GetTenantID(resultCtx))
+	assert.Equal(t, "2026-05-19T12:00:00Z", GetTimestamp(resultCtx))
+	assert.Equal(t, "sig-batch-4", GetSignature(resultCtx))
+	assert.Equal(t, "ak-batch-5", GetAccessKey(resultCtx))
+	assert.Equal(t, "Bearer batch-token", GetAuthorization(resultCtx))
+
+	// 验证 RequestCommonMeta 被同步更新
+	resultMeta := GetRequestCommonMeta(resultCtx)
+	assert.Equal(t, "trace-batch-1", resultMeta.TraceID)
+	assert.Equal(t, "user-batch-2", resultMeta.UserID)
+	assert.Equal(t, "tenant-batch-3", resultMeta.TenantID)
+	assert.Equal(t, "2026-05-19T12:00:00Z", resultMeta.Timestamp)
+	assert.Equal(t, "sig-batch-4", resultMeta.Signature)
+	assert.Equal(t, "ak-batch-5", resultMeta.AccessKey)
+	assert.Equal(t, "Bearer batch-token", resultMeta.Authorization)
+
+	// 验证 Client 拦截器能自动传播
+	outgoingCtx := injectTraceToOutgoingContext(resultCtx)
+	md, ok := metadata.FromOutgoingContext(outgoingCtx)
+	require.True(t, ok, "应该有 outgoing metadata")
+	assert.Equal(t, []string{"trace-batch-1"}, md.Get(constants.MetadataTraceID))
+	assert.Equal(t, []string{"tenant-batch-3"}, md.Get(constants.MetadataTenantID))
+	assert.Equal(t, []string{"ak-batch-5"}, md.Get(constants.MetadataAccessKey))
+
+	t.Log("✅ ContextBuilder 链式构建正常工作，RequestCommonMeta 同步更新，Client 拦截器自动传播")
+}
+
+// TestContextBuilder_EmptyBuild 测试 ContextBuilder 不设置任何字段直接 Build
+func TestContextBuilder_EmptyBuild(t *testing.T) {
+	ctx := context.WithValue(context.Background(), requestCommonMetaKey{}, &RequestCommonMeta{TenantID: "original"})
+	resultCtx := NewContextBuilder(ctx).Build()
+	assert.Equal(t, "original", GetTenantID(resultCtx), "不设置字段时不应修改 context")
+}
+
+// TestContextBuilder_ExplicitEmptyValue 测试 ContextBuilder 可以显式设置空值
+func TestContextBuilder_ExplicitEmptyValue(t *testing.T) {
+	ctx := context.WithValue(context.Background(), requestCommonMetaKey{}, &RequestCommonMeta{
+		TenantID: "original-tenant",
+	})
+
+	resultCtx := NewContextBuilder(ctx).WithTenantID("").Build()
+	assert.Equal(t, "", GetTenantID(resultCtx), "显式设置空值应覆盖原值")
+}
+
+func TestOutgoingVsIncomingMetadata(t *testing.T) {
+	t.Log("=== Outgoing vs Incoming Metadata 区别 ===")
+	t.Log("")
+	t.Log("┌─────────────┐    Outgoing     ┌─────────────┐")
+	t.Log("│   Client    │ ───────────────▶│   Server    │")
+	t.Log("│             │                 │             │")
+	t.Log("│  设置 metadata│               │  读取 metadata│")
+	t.Log("│  (Outgoing) │                 │  (Incoming) │")
+	t.Log("└─────────────┘                 └─────────────┘")
+	t.Log("")
+	t.Log("Outgoing Metadata:")
+	t.Log("  - Client 拦截器自动从 RequestCommonMeta 注入")
+	t.Log("  - 使用 injectTraceToOutgoingContext()")
+	t.Log("  - 随请求发送到服务端")
+	t.Log("")
+	t.Log("Incoming Metadata:")
+	t.Log("  - 服务端接收请求时读取")
+	t.Log("  - 使用 metadata.FromIncomingContext()")
+	t.Log("  - 从客户端请求中获取")
+
+	ctx := context.WithValue(context.Background(), requestCommonMetaKey{}, &RequestCommonMeta{
+		TenantID: "test-tenant",
+	})
+	ctx = WithTenantID(ctx, "test-tenant")
+
+	// 通过 Client 拦截器注入到 outgoing metadata
+	outgoingCtx := injectTraceToOutgoingContext(ctx)
+
+	md, ok := metadata.FromOutgoingContext(outgoingCtx)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"test-tenant"}, md.Get(constants.MetadataTenantID))
+
+	t.Log("")
+	t.Log("✅ WithTenantID 更新 RequestCommonMeta，Client 拦截器自动传播到 Outgoing Metadata")
 }
