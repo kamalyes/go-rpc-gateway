@@ -12,8 +12,12 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 
@@ -339,4 +343,170 @@ func TestStructTagValidatorUnaryInterceptor_MultipleErrors(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
 	assert.Contains(t, st.Message(), "invalid argument:")
+}
+
+// ────────────────────────────────────────
+// Gateway middleware 测试
+// ────────────────────────────────────────
+
+// testGatewayMsg 用于 Gateway middleware 测试的结构体
+type testGatewayMsg struct {
+	Name  string `validate:"required,min=1" json:"name"`
+	Email string `validate:"required,email" json:"email"`
+}
+
+func TestRegisterGatewayMessageType(t *testing.T) {
+	// 清空注册表
+	gatewayMessageTypeRegistry.mu.Lock()
+	gatewayMessageTypeRegistry.data = nil
+	gatewayMessageTypeRegistry.mu.Unlock()
+
+	// 注册消息类型
+	RegisterGatewayMessageType(http.MethodPost, "/v1/test", func() any {
+		return &testGatewayMsg{}
+	})
+
+	// 验证注册成功
+	fn, found := lookupGatewayMessageType(http.MethodPost, "/v1/test")
+	assert.True(t, found)
+	assert.NotNil(t, fn)
+
+	// 验证未注册的路径
+	_, found = lookupGatewayMessageType(http.MethodGet, "/v1/other")
+	assert.False(t, found)
+
+	// 清理
+	gatewayMessageTypeRegistry.mu.Lock()
+	gatewayMessageTypeRegistry.data = nil
+	gatewayMessageTypeRegistry.mu.Unlock()
+}
+
+func TestStructTagValidatorGatewayMiddleware_UnregisteredPath(t *testing.T) {
+	// 清空注册表
+	gatewayMessageTypeRegistry.mu.Lock()
+	gatewayMessageTypeRegistry.data = nil
+	gatewayMessageTypeRegistry.mu.Unlock()
+
+	mw := StructTagValidatorGatewayMiddleware()
+	called := false
+	next := func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
+		called = true
+	}
+
+	handler := mw(next)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/unregistered", bytes.NewReader([]byte(`{"name":"test"}`)))
+	w := httptest.NewRecorder()
+
+	handler(w, req, nil)
+	assert.True(t, called, "unregistered path should pass through to next handler")
+}
+
+func TestStructTagValidatorGatewayMiddleware_EmptyBody(t *testing.T) {
+	// 清空并注册
+	gatewayMessageTypeRegistry.mu.Lock()
+	gatewayMessageTypeRegistry.data = nil
+	gatewayMessageTypeRegistry.mu.Unlock()
+	RegisterGatewayMessageType(http.MethodPost, "/v1/test", func() any {
+		return &testGatewayMsg{}
+	})
+
+	mw := StructTagValidatorGatewayMiddleware()
+	called := false
+	next := func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
+		called = true
+	}
+
+	handler := mw(next)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/test", nil)
+	w := httptest.NewRecorder()
+
+	handler(w, req, nil)
+	assert.True(t, called, "empty body should pass through to next handler")
+}
+
+func TestStructTagValidatorGatewayMiddleware_ValidBody(t *testing.T) {
+	// 清空并注册
+	gatewayMessageTypeRegistry.mu.Lock()
+	gatewayMessageTypeRegistry.data = nil
+	gatewayMessageTypeRegistry.mu.Unlock()
+	RegisterGatewayMessageType(http.MethodPost, "/v1/test", func() any {
+		return &testGatewayMsg{}
+	})
+
+	mw := StructTagValidatorGatewayMiddleware()
+	called := false
+	next := func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
+		called = true
+		// 验证 body 仍然可读
+		body, _ := io.ReadAll(r.Body)
+		assert.Equal(t, `{"name":"kronos","email":"test@example.com"}`, string(body))
+	}
+
+	handler := mw(next)
+
+	body := `{"name":"kronos","email":"test@example.com"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/test", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler(w, req, nil)
+	assert.True(t, called, "valid body should pass through to next handler")
+}
+
+func TestStructTagValidatorGatewayMiddleware_InvalidBody(t *testing.T) {
+	// 清空并注册
+	gatewayMessageTypeRegistry.mu.Lock()
+	gatewayMessageTypeRegistry.data = nil
+	gatewayMessageTypeRegistry.mu.Unlock()
+	RegisterGatewayMessageType(http.MethodPost, "/v1/test", func() any {
+		return &testGatewayMsg{}
+	})
+
+	mw := StructTagValidatorGatewayMiddleware()
+	called := false
+	next := func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
+		called = true
+	}
+
+	handler := mw(next)
+
+	// name 为空，email 格式错误
+	body := `{"name":"","email":"bad"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/test", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler(w, req, nil)
+	assert.False(t, called, "invalid body should NOT call next handler")
+	// 应该返回了错误响应
+	assert.NotEqual(t, http.StatusOK, w.Code)
+}
+
+func TestStructTagValidatorGatewayMiddleware_BodyRestored(t *testing.T) {
+	// 清空并注册
+	gatewayMessageTypeRegistry.mu.Lock()
+	gatewayMessageTypeRegistry.data = nil
+	gatewayMessageTypeRegistry.mu.Unlock()
+	RegisterGatewayMessageType(http.MethodPost, "/v1/test", func() any {
+		return &testGatewayMsg{}
+	})
+
+	mw := StructTagValidatorGatewayMiddleware()
+	var receivedBody string
+	next := func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
+		b, _ := io.ReadAll(r.Body)
+		receivedBody = string(b)
+	}
+
+	handler := mw(next)
+
+	originalBody := `{"name":"kronos","email":"test@example.com"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/test", bytes.NewReader([]byte(originalBody)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler(w, req, nil)
+	assert.Equal(t, originalBody, receivedBody, "body should be restored after validation")
 }

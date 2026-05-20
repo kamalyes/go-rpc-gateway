@@ -13,6 +13,7 @@ package middleware
 import (
 	"net/http"
 
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-config/pkg/ratelimit"
 	"github.com/kamalyes/go-rpc-gateway/errors"
@@ -165,6 +166,13 @@ func (m *Manager) GRPCStructTagValidatorInterceptor() GRPCInterceptor {
 // GRPCStructTagValidatorStreamInterceptor gRPC 流式 struct tag 参数校验拦截器
 func (m *Manager) GRPCStructTagValidatorStreamInterceptor() grpc.StreamServerInterceptor {
 	return StructTagValidatorStreamInterceptor()
+}
+
+// GRPCGatewayStructTagValidatorMiddleware grpc-gateway HTTP 层 struct tag 参数校验中间件
+// 用于本地 Handler 模式（RegisterXxxHandlerServer），HTTP 请求绕过 gRPC 拦截器链，
+// 需要通过此中间件在 gateway 层拦截校验
+func (m *Manager) GRPCGatewayStructTagValidatorMiddleware() runtime.Middleware {
+	return StructTagValidatorGatewayMiddleware()
 }
 
 // CORSMiddleware CORS 中间件

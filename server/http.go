@@ -297,6 +297,13 @@ func (s *Server) initHTTPGateway() error {
 		}
 	}
 
+	// 自动注入 struct tag 校验中间件（本地 Handler 模式下 HTTP 请求绕过 gRPC 拦截器，
+	// 需要在 gateway 层补充校验，配合 protoc-go-inject-tag 生效）
+	if s.middlewareManager != nil {
+		validatorMW := s.middlewareManager.GRPCGatewayStructTagValidatorMiddleware()
+		allMiddlewares = append(allMiddlewares, validatorMW)
+	}
+
 	// 中间件数量超过阈值时警告（warn-only 模式，不硬限制）
 	if len(allMiddlewares) > middlewareWarnThreshold {
 		global.LOGGER.WarnContext(s.ctx, "⚠️  中间件数量超过建议值",
