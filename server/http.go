@@ -55,9 +55,15 @@ func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
 				DiscardUnknown: discardUnknown, // 忽略未知字段
 			},
 		}),
-		// 🔑 将所有 HTTP Header 传递到 gRPC metadata (支持认证等功能)
+		// 🔑 将 HTTP Header 传递到 gRPC metadata（过滤 HTTP/2 禁止的头，避免 RST_STREAM PROTOCOL_ERROR）
 		runtime.WithIncomingHeaderMatcher(func(key string) (string, bool) {
-			return key, true // 传递所有 header
+			// HTTP/2 规范禁止的头，转发这些头会导致 gRPC 服务端发送 RST_STREAM
+			switch strings.ToLower(key) {
+			case "connection", "keep-alive", "proxy-connection",
+				"transfer-encoding", "upgrade", "te":
+				return key, false
+			}
+			return key, true
 		}),
 	}
 
