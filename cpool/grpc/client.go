@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 	"time"
 
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
@@ -29,6 +30,27 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
+
+// connPool 全局连接池，按服务名缓存 *grpc.ClientConn
+var (
+	connPool   = make(map[string]*grpc.ClientConn)
+	connPoolMu sync.RWMutex
+)
+
+// GetConn 从连接池获取指定服务名的 gRPC 连接
+func GetConn(serviceName string) (*grpc.ClientConn, bool) {
+	connPoolMu.RLock()
+	defer connPoolMu.RUnlock()
+	conn, ok := connPool[serviceName]
+	return conn, ok
+}
+
+// PutConn 将 gRPC 连接存入连接池
+func PutConn(serviceName string, conn *grpc.ClientConn) {
+	connPoolMu.Lock()
+	defer connPoolMu.Unlock()
+	connPool[serviceName] = conn
+}
 
 // InitClient 初始化 gRPC 客户端的泛型辅助函数
 // T: 客户端类型
@@ -47,6 +69,15 @@ func InitClient[T any](
 	clientCfg, exists := clients[serviceName]
 	if !exists || clientCfg == nil || len(clientCfg.Endpoints) == 0 {
 		return zero, false
+	}
+
+	// 优先从连接池获取已有连接
+	connPoolMu.RLock()
+	conn, connExists := connPool[serviceName]
+	connPoolMu.RUnlock()
+	if connExists {
+		gwglobal.LOGGER.Debug("♻️  %s 复用连接池中的已有连接", serviceName)
+		return factory(conn), true
 	}
 
 	endpoint := clientCfg.Endpoints[0]
@@ -69,8 +100,20 @@ func InitClient[T any](
 		healthChecker.Register(serviceName, conn, endpoint)
 	}
 
+	// 存入连接池
+	connPoolMu.Lock()
+	connPool[serviceName] = conn
+	connPoolMu.Unlock()
+
 	gwglobal.LOGGER.Debug("✅ %s 客户端已创建 -> %s (健康检查中...)", serviceName, endpoint)
 	return factory(conn), true
+}
+
+// BuildDialOptions 构建 gRPC 客户端拨号选项（公开方法）
+// 根据客户端配置构建完整的 dial options，包括 TLS、keepalive、消息大小等
+func BuildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, healthChecker *HealthChecker) []grpc.DialOption {
+	creds := buildTLSConfig(clientCfg, serviceName)
+	return buildDialOptions(clientCfg, serviceName, creds, healthChecker)
 }
 
 // BuildEndpointMap 从配置构建服务名到端点的映射

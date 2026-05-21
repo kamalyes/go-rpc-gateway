@@ -29,6 +29,7 @@ import (
 	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	grpcpool "github.com/kamalyes/go-rpc-gateway/cpool/grpc"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
@@ -53,6 +54,7 @@ type Gateway struct {
 	registeredHTTPRoutes      []string
 	grpcServiceRegistrars     []ServiceRegisterFunc
 	gatewayHandlerRegistrars  []ServerHandlerRegisterFunc
+	proxyHandlerRegistrations []proxyHandlerRegistration
 	httpRouteRegistrations    []httpRouteRegistration
 }
 
@@ -76,8 +78,11 @@ type GatewayBuilder struct {
 // ServiceRegisterFunc gRPC服务注册函数类型
 type ServiceRegisterFunc func(*grpc.Server)
 
-// HandlerRegisterFunc HTTP处理器注册函数类型
+// HandlerRegisterFunc HTTP处理器注册函数类型（基于 endpoint + dialOpts）
 type HandlerRegisterFunc func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error
+
+// ConnHandlerRegisterFunc HTTP处理器注册函数类型（基于 *grpc.ClientConn）
+type ConnHandlerRegisterFunc func(context.Context, *runtime.ServeMux, *grpc.ClientConn) error
 
 // ServerHandlerRegisterFunc 本地Server Handler注册函数类型 (不需要gRPC连接)
 type ServerHandlerRegisterFunc func(context.Context, *runtime.ServeMux) error
@@ -85,6 +90,20 @@ type ServerHandlerRegisterFunc func(context.Context, *runtime.ServeMux) error
 type httpRouteRegistration struct {
 	pattern string
 	handler http.Handler
+}
+
+// proxyHandlerRegistration 代理处理器注册信息（远程调用方式）
+type proxyHandlerRegistration struct {
+	// 基于 endpoint + dialOpts 的注册方式
+	registerFunc HandlerRegisterFunc
+	endpoint     string
+	dialOpts     []grpc.DialOption
+
+	// 基于 conn 的注册方式（共享连接）
+	connRegisterFunc ConnHandlerRegisterFunc
+	conn             *grpc.ClientConn
+	serviceName      string
+	clientCfg        *gwconfig.GRPCClient
 }
 
 // NewGateway 创建新的Gateway构建器 - 链式调用API入口
@@ -426,6 +445,134 @@ func (g *Gateway) RegisterGatewayHandler(registerFunc ServerHandlerRegisterFunc)
 	return nil
 }
 
+// RegisterProxyHandler 注册gRPC-Gateway代理处理器 (远程调用方式)
+// 与 RegisterGatewayHandler 不同，此方法通过 gRPC 客户端连接远程服务
+// 使用示例:
+//
+//	g.RegisterProxyHandler(func(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) error {
+//	    return authpb.RegisterAuthServiceHandlerFromEndpoint(ctx, mux, endpoint, opts)
+//	}, "localhost:50051")
+func (g *Gateway) RegisterProxyHandler(registerFunc HandlerRegisterFunc, endpoint string, dialOpts ...grpc.DialOption) error {
+	global.LOGGER.InfoContext(g.Context(), "开始注册gRPC-Gateway代理处理器: endpoint=%s", endpoint)
+
+	opts := dialOpts
+	if len(opts) == 0 {
+		opts = g.Server.GetDialOptions()
+	}
+
+	gwMux := g.GetGatewayMux()
+	if err := registerFunc(g.Context(), gwMux, endpoint, opts); err != nil {
+		global.LOGGER.ErrorContext(g.Context(), "❌ 注册gRPC-Gateway代理处理器失败: endpoint=%s, error=%v", endpoint, err)
+		return err
+	}
+
+	g.proxyHandlerRegistrations = append(g.proxyHandlerRegistrations, proxyHandlerRegistration{
+		registerFunc: registerFunc,
+		endpoint:     endpoint,
+		dialOpts:     opts,
+	})
+	g.registeredGatewayHandlers = append(g.registeredGatewayHandlers, "gRPC-Gateway-Proxy@"+endpoint)
+
+	global.LOGGER.InfoContext(g.Context(), "✅ gRPC-Gateway代理处理器注册成功: endpoint=%s", endpoint)
+	return nil
+}
+
+// RegisterProxyHandlerByServiceName 通过服务名注册gRPC-Gateway代理处理器
+// 从网关配置的 grpc.clients 中查找服务端点并构建完整的 dial options，无需手动指定
+// 同一服务名共享一个 gRPC 连接，多个 handler 复用同一连接
+// 使用示例:
+//
+//	g.RegisterProxyHandlerByServiceName("apex-access-control-service", func(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
+//	    return authpb.RegisterAuthServiceHandler(ctx, mux, conn)
+//	})
+func (g *Gateway) RegisterProxyHandlerByServiceName(serviceName string, registerFunc ConnHandlerRegisterFunc) error {
+	endpoint, clientCfg, ok := g.getGRPCEndpointWithConfig(serviceName)
+	if !ok {
+		return errors.NewErrorf(errors.ErrCodeInvalidConfiguration, "gRPC client endpoint not found for service: %s", serviceName)
+	}
+
+	// 优先从连接池获取已有连接（由 InitClient 创建）
+	if conn, ok := grpcpool.GetConn(serviceName); ok {
+		global.LOGGER.DebugContext(g.Context(), "♻️  复用连接池中的已有连接: service=%s", serviceName)
+		// 使用共享连接注册 handler
+		gwMux := g.GetGatewayMux()
+		if err := registerFunc(g.Context(), gwMux, conn); err != nil {
+			global.LOGGER.ErrorContext(g.Context(), "❌ 注册gRPC-Gateway代理处理器失败: service=%s, error=%v", serviceName, err)
+			return err
+		}
+
+		g.proxyHandlerRegistrations = append(g.proxyHandlerRegistrations, proxyHandlerRegistration{
+			connRegisterFunc: registerFunc,
+			conn:             conn,
+			serviceName:      serviceName,
+			clientCfg:        clientCfg,
+		})
+		g.registeredGatewayHandlers = append(g.registeredGatewayHandlers, "gRPC-Gateway-Proxy@"+serviceName)
+
+		global.LOGGER.DebugContext(g.Context(), "✅ gRPC-Gateway代理处理器注册成功(复用连接): service=%s, endpoint=%s", serviceName, endpoint)
+		return nil
+	}
+
+	// 连接池中没有，创建新连接
+	var dialOpts []grpc.DialOption
+	if clientCfg != nil {
+		dialOpts = grpcpool.BuildDialOptions(clientCfg, serviceName, nil)
+	}
+
+	var err error
+	conn, err := grpc.NewClient(endpoint, dialOpts...)
+	if err != nil {
+		return errors.NewErrorf(errors.ErrCodeInvalidConfiguration, "failed to create gRPC client for service %s: %v", serviceName, err)
+	}
+
+	// 存入连接池供后续复用
+	grpcpool.PutConn(serviceName, conn)
+
+	global.LOGGER.DebugContext(g.Context(), "创建共享 gRPC 连接: service=%s, endpoint=%s", serviceName, endpoint)
+
+	// 使用共享连接注册 handler
+	gwMux := g.GetGatewayMux()
+	if err := registerFunc(g.Context(), gwMux, conn); err != nil {
+		global.LOGGER.ErrorContext(g.Context(), "❌ 注册gRPC-Gateway代理处理器失败: service=%s, error=%v", serviceName, err)
+		return err
+	}
+
+	g.proxyHandlerRegistrations = append(g.proxyHandlerRegistrations, proxyHandlerRegistration{
+		connRegisterFunc: registerFunc,
+		conn:             conn,
+		serviceName:      serviceName,
+		clientCfg:        clientCfg,
+	})
+	g.registeredGatewayHandlers = append(g.registeredGatewayHandlers, "gRPC-Gateway-Proxy@"+serviceName)
+
+	global.LOGGER.DebugContext(g.Context(), "✅ gRPC-Gateway代理处理器注册成功: service=%s, endpoint=%s", serviceName, endpoint)
+	return nil
+}
+
+// GetGRPCEndpoint 获取gRPC客户端端点地址
+func (g *Gateway) GetGRPCEndpoint(serviceName string) (string, bool) {
+	if g.gatewayConfig == nil || g.gatewayConfig.GRPC == nil || g.gatewayConfig.GRPC.Clients == nil {
+		return "", false
+	}
+	clientCfg, exists := g.gatewayConfig.GRPC.Clients[serviceName]
+	if !exists || clientCfg == nil || len(clientCfg.Endpoints) == 0 {
+		return "", false
+	}
+	return clientCfg.Endpoints[0], true
+}
+
+// getGRPCEndpointWithConfig 获取gRPC客户端端点地址及配置
+func (g *Gateway) getGRPCEndpointWithConfig(serviceName string) (string, *gwconfig.GRPCClient, bool) {
+	if g.gatewayConfig == nil || g.gatewayConfig.GRPC == nil || g.gatewayConfig.GRPC.Clients == nil {
+		return "", nil, false
+	}
+	clientCfg, exists := g.gatewayConfig.GRPC.Clients[serviceName]
+	if !exists || clientCfg == nil || len(clientCfg.Endpoints) == 0 {
+		return "", nil, false
+	}
+	return clientCfg.Endpoints[0], clientCfg, true
+}
+
 // RegisterHandler 注册HTTP处理器
 func (g *Gateway) RegisterHandler(pattern string, handler http.Handler) {
 	global.LOGGER.DebugContext(g.Context(), "注册HTTP处理器: pattern=%s", pattern)
@@ -481,6 +628,21 @@ func (g *Gateway) replayHTTPRegistrations() error {
 		}
 		if err := registerFunc(g.Context(), g.GetGatewayMux()); err != nil {
 			return err
+		}
+	}
+
+	// 重放代理处理器注册
+	for _, proxyReg := range g.proxyHandlerRegistrations {
+		if proxyReg.connRegisterFunc != nil && proxyReg.conn != nil {
+			// 基于 conn 的注册方式（共享连接）
+			if err := proxyReg.connRegisterFunc(g.Context(), g.GetGatewayMux(), proxyReg.conn); err != nil {
+				return err
+			}
+		} else if proxyReg.registerFunc != nil {
+			// 基于 endpoint + dialOpts 的注册方式
+			if err := proxyReg.registerFunc(g.Context(), g.GetGatewayMux(), proxyReg.endpoint, proxyReg.dialOpts); err != nil {
+				return err
+			}
 		}
 	}
 
