@@ -152,8 +152,8 @@ github.com/kamalyes/go-sqlbuilder v0.3.6-0.20260417015507-b1b743590a44 h1:Dv6zX5
 github.com/kamalyes/go-sqlbuilder v0.3.6-0.20260417015507-b1b743590a44/go.mod h1:sk9ktu7mkdFiL4EKTKmrl8gOPNNK+QUgPnHTf8Pwu5U=
 github.com/kamalyes/go-toolbox v0.11.87 h1:HFbkmMTS2mdEKi4bymjGlOOrY1HKVQWyjA8tc14GaNs=
 github.com/kamalyes/go-toolbox v0.11.87/go.mod h1:T0toLZCP952jKKJFo8Rn+sZ9OktxxU7GYWFPpk/c98k=
-github.com/kamalyes/go-wsc v0.5.8-0.20260420015855-3d9c7892eaac h1:oZaDRejcPJIvsmTwByLVLWUZshtIg3Zfto5Uo2NCKoA=
-github.com/kamalyes/go-wsc v0.5.8-0.20260420015855-3d9c7892eaac/go.mod h1:2bnPIvNtEiHfQlnOCgrOp6wi81s+EeMMjrbBIxNVXcM=
+github.com/kamalyes/go-wsc v0.5.8-0.20260522105856-eaa3f48d0e78 h1:kwVLg3+FZG+NSAHawvQCscsu6KbGIRbTQSDzINjm/DE=
+github.com/kamalyes/go-wsc v0.5.8-0.20260522105856-eaa3f48d0e78/go.mod h1:2bnPIvNtEiHfQlnOCgrOp6wi81s+EeMMjrbBIxNVXcM=
 github.com/klauspost/compress v1.17.9 h1:6KIumPrER1LHsvBVuDa0r5xaG0Es51mhhB9BQB2qeMA=
 github.com/klauspost/compress v1.17.9/go.mod h1:Di0epgTjJY877eYKx5yC51cX2A2Vl2ibi7bDH9ttBbw=
 github.com/klauspost/cpuid/v2 v2.0.1/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
