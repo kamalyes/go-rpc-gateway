@@ -14,6 +14,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	gccommon "github.com/kamalyes/go-config/pkg/common"
 	"github.com/kamalyes/go-rpc-gateway/constants"
@@ -470,6 +471,20 @@ func extractOrGenerateRequestID(requestID string) string {
 		return requestID
 	}
 	return osx.HashUnixMicroCipherText()
+}
+
+// ForwardOutgoingContext 将 HTTP 请求的 Header 转发为 gRPC outgoing metadata
+func ForwardOutgoingContext(r *http.Request) context.Context {
+	md := metadata.New(nil)
+	for key, values := range r.Header {
+		if strings.EqualFold(key, "connection") {
+			continue
+		}
+		for _, value := range values {
+			md.Append(key, value)
+		}
+	}
+	return metadata.NewOutgoingContext(r.Context(), md)
 }
 
 // ============================================================================
