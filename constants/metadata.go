@@ -39,6 +39,7 @@ const (
 	MetadataXNsID             = "x-ns-id"
 	MetadataGrpcMetadataXNsID = "grpc-metadata-x-ns-id"
 	MetadataAuthorization     = "authorization"
+	MetadataAuthPayload       = "x-auth-payload"
 	MetadataTimestamp         = "x-timestamp"
 	MetadataSignature         = "x-signature"
 	MetadataAccessKey         = "x-access-key"

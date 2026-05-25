@@ -68,7 +68,6 @@ type PoolManager interface {
     GetStorage() oss.StorageHandler
     GetMQTT() mqtt.Client
     GetSnowflake() *snowflake.Node
-    GetCasbin() casbin.IEnforcer
     GetSMTP() smtp.MailHandler
     GetClickHouse() clickhouse.Conn
     GetNats() *natsclient.NatsConn

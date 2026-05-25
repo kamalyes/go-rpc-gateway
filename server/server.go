@@ -37,6 +37,9 @@ type Server struct {
 	pprofServer *middleware.PProfServer
 	httpMux     *http.ServeMux // 添加HTTP路由管理器
 
+	// 命名监听器（多端口支持，如 Ops/Tenant 分离）
+	namedListeners map[string]*namedListener
+
 	// 中间件管理器
 	middlewareManager *middleware.Manager
 

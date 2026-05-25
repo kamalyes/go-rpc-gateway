@@ -56,6 +56,9 @@ func (s *Server) Start() error {
 		}
 	}()
 
+	// 启动命名监听器（多端口支持）
+	s.startNamedListeners()
+
 	// 启动 WebSocket 服务（如果已初始化）
 	if s.webSocketService != nil {
 		if err := s.webSocketService.Start(); err != nil {
@@ -124,6 +127,15 @@ func (s *Server) Start() error {
 		}
 	}
 
+	// 添加命名监听器信息
+	for _, nl := range s.namedListeners {
+		endpoints = append(endpoints, map[string]any{
+			"服务类型": fmt.Sprintf("Listener[%s]", nl.name),
+			"地址":   nl.server.Addr,
+			"URL":  nl.config.GetEndpoint(),
+		})
+	}
+
 	cg.Table(endpoints)
 	cg.GroupEnd()
 
@@ -157,6 +169,9 @@ func (s *Server) Stop() error {
 	if err := s.stopHTTPServer(); err != nil {
 		logger.WithError(err).ErrorMsg("Failed to stop HTTP server")
 	}
+
+	// 停止命名监听器
+	s.stopNamedListeners()
 
 	// 停止gRPC服务器
 	s.stopGRPCServer()

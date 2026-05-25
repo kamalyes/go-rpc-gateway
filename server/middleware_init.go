@@ -70,6 +70,11 @@ func (s *Server) initServers() error {
 		return errors.Wrap(err, errors.ErrCodeHTTPGatewayInitFailed)
 	}
 
+	// 初始化命名监听器（多端口支持）
+	if err := s.initNamedListeners(); err != nil {
+		global.LOGGER.WithError(err).WarnMsg("命名监听器初始化失败，将跳过启动")
+	}
+
 	// 初始化 WebSocket 服务（如果启用）
 	if err := s.initWebSocket(); err != nil {
 		global.LOGGER.WithError(err).WarnMsg("WebSocket 服务初始化失败，将跳过启动")

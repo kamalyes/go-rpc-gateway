@@ -31,6 +31,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/kamalyes/go-toolbox/pkg/desensitize"
 	"github.com/kamalyes/go-toolbox/pkg/httpx"
+	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -425,9 +426,16 @@ func (s *Server) registerComponentHealthChecks() {
 }
 
 // startHTTPServer 启动HTTP服务器
+// 当 HTTPServer.Port == 0 时跳过启动（适用于仅使用命名监听器的场景）
 func (s *Server) startHTTPServer() error {
 	httpServer := s.httpServer
 	if httpServer == nil {
+		return nil
+	}
+
+	// port=0 表示禁用主 HTTP 服务器
+	if s.config.HTTPServer.Port == 0 {
+		global.LOGGER.InfoMsg("主 HTTP 服务器已禁用（port=0），流量由命名监听器接管")
 		return nil
 	}
 
@@ -613,5 +621,102 @@ func (s *Server) buildHTTP2Server() *http2.Server {
 		MaxConcurrentStreams: h2cfg.MaxConcurrentStreams,
 		MaxReadFrameSize:     h2cfg.MaxReadFrameSize,
 		IdleTimeout:          time.Duration(s.config.HTTPServer.IdleTimeout) * time.Second,
+	}
+}
+
+// namedListener 命名监听器，绑定独立的 http.Server 和 handler
+type namedListener struct {
+	name   string
+	config *gwconfig.Listener
+	server *http.Server
+}
+
+// initNamedListeners 初始化命名监听器
+// 每个命名监听器复用主 HTTP 网关的 gwMux 和中间件链，
+// 但监听独立的 Host:Port，适用于 Ops/Tenant 端口分离等场景
+func (s *Server) initNamedListeners() error {
+	if len(s.config.Listeners) == 0 {
+		return nil
+	}
+
+	s.namedListeners = make(map[string]*namedListener, len(s.config.Listeners))
+
+	for _, l := range s.config.Listeners {
+		if l == nil || l.Name == "" {
+			continue
+		}
+
+		// 复用主 HTTP 网关的 handler（包含中间件链和 gwMux）
+		var handler http.Handler = s.httpMux
+		if s.middlewareManager != nil {
+			handler = middleware.ApplyMiddlewares(handler, s.middlewareManager.GetMiddlewares()...)
+		}
+		if s.config.HTTPServer.EnableGzipCompress {
+			handler = s.gzipMiddleware(handler)
+		}
+		if s.config.HTTPServer.EnableHTTP2 {
+			h2s := s.buildHTTP2Server()
+			handler = h2c.NewHandler(handler, h2s)
+		}
+
+		addr := fmt.Sprintf("%s:%d", l.Host, l.Port)
+		srv := &http.Server{
+			Addr:              addr,
+			Handler:           handler,
+			ReadTimeout:       time.Duration(s.config.HTTPServer.ReadTimeout) * time.Second,
+			ReadHeaderTimeout: time.Duration(s.config.HTTPServer.ReadHeaderTimeout) * time.Second,
+			WriteTimeout:      time.Duration(s.config.HTTPServer.WriteTimeout) * time.Second,
+			IdleTimeout:       time.Duration(s.config.HTTPServer.IdleTimeout) * time.Second,
+			MaxHeaderBytes:    s.config.HTTPServer.MaxHeaderBytes,
+		}
+
+		s.namedListeners[l.Name] = &namedListener{
+			name:   l.Name,
+			config: l,
+			server: srv,
+		}
+
+		global.LOGGER.InfoKV("命名监听器已初始化", "name", l.Name, "address", addr)
+	}
+
+	return nil
+}
+
+// startNamedListeners 启动所有命名监听器
+func (s *Server) startNamedListeners() {
+	for _, nl := range s.namedListeners {
+		nl := nl
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			addr := nl.server.Addr
+			network := mathx.IfEmpty(nl.config.Network, "tcp4")
+			listener, err := net.Listen(network, addr)
+			if err != nil {
+				global.LOGGER.WithError(err).ErrorKV("命名监听器启动失败", "name", nl.name, "address", addr)
+				return
+			}
+			defer listener.Close()
+
+			global.LOGGER.InfoKV("命名监听器已启动", "name", nl.name, "address", addr)
+			if err := nl.server.Serve(listener); err != nil && err != http.ErrServerClosed {
+				global.LOGGER.WithError(err).ErrorKV("命名监听器异常退出", "name", nl.name)
+			}
+		}()
+	}
+}
+
+// stopNamedListeners 停止所有命名监听器
+func (s *Server) stopNamedListeners() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	for _, nl := range s.namedListeners {
+		if nl.server != nil {
+			global.LOGGER.InfoKV("停止命名监听器", "name", nl.name)
+			if err := nl.server.Shutdown(ctx); err != nil {
+				global.LOGGER.WithError(err).WarnKV("命名监听器关闭失败", "name", nl.name)
+			}
+		}
 	}
 }

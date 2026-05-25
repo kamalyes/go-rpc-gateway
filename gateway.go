@@ -332,6 +332,11 @@ func refreshGatewayDerivedFields(config *gwconfig.Gateway) {
 	if config.GRPC != nil && config.GRPC.Server != nil {
 		_ = config.GRPC.Server.AfterLoad()
 	}
+	for _, l := range config.Listeners {
+		if l != nil {
+			_ = l.AfterLoad()
+		}
+	}
 }
 
 // initializeGlobalState 初始化全局状态
@@ -857,6 +862,22 @@ func (g *Gateway) PrintAPIRegistrationSummary() {
 // GetGatewayConfig 获取网关配置
 func (g *Gateway) GetGatewayConfig() *gwconfig.Gateway {
 	return g.gatewayConfig
+}
+
+// GetListener 按名称获取监听器配置
+func (g *Gateway) GetListener(name string) *gwconfig.Listener {
+	if g.gatewayConfig == nil {
+		return nil
+	}
+	return g.gatewayConfig.GetListener(name)
+}
+
+// GetListenerEndpoint 按名称获取监听器端点地址
+func (g *Gateway) GetListenerEndpoint(name string) string {
+	if l := g.GetListener(name); l != nil {
+		return l.GetEndpoint()
+	}
+	return ""
 }
 
 // RegisterConfigCallbacks 注册配置变更回调

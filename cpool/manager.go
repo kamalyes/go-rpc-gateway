@@ -2,7 +2,7 @@
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-17 15:56:59
+ * @LastEditTime: 2026-05-25 10:55:42
  * @FilePath: \go-rpc-gateway\cpool\manager.go
  * @Description: 连接池管理器，统一管理数据库、Redis、OSS等客户端连接
  *
@@ -17,7 +17,6 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/bwmarrin/snowflake"
-	"github.com/casbin/casbin/v2"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	cachex "github.com/kamalyes/go-cachex"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
@@ -60,9 +59,6 @@ type PoolManager interface {
 	// 获取雪花ID生成器
 	GetSnowflake() *snowflake.Node
 
-	// 获取Casbin执行器
-	GetCasbin() casbin.IEnforcer
-
 	// 获取SMTP客户端
 	GetSMTP() smtp.MailHandler
 
@@ -92,9 +88,6 @@ type PoolManager interface {
 
 	// 设置雪花ID生成器
 	SetSnowflake(node *snowflake.Node)
-
-	// 设置Casbin执行器
-	SetCasbin(enforcer casbin.IEnforcer)
 
 	// 设置SMTP客户端
 	SetSMTP(smtp smtp.MailHandler)
@@ -132,7 +125,6 @@ type Manager struct {
 	smtp       smtp.MailHandler
 	mqtt       mqtt.Client
 	snowflake  *snowflake.Node
-	casbin     casbin.IEnforcer
 	i18n       interface{}
 	clickhouse clickhouse.Conn
 	nats       *natsclient.NatsConn
@@ -200,10 +192,6 @@ func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
 
 	if err := m.initSnowflake(); err != nil {
 		return fmt.Errorf("failed to initialize snowflake: %w", err)
-	}
-
-	if err := m.initCasbin(); err != nil {
-		return fmt.Errorf("failed to initialize casbin: %w", err)
 	}
 
 	// 初始化 ClickHouse 连接（时序数据库，用于日志和指标存储）
@@ -333,14 +321,6 @@ func (m *Manager) initSnowflake() error {
 	return nil
 }
 
-// initCasbin 初始化权限管理
-func (m *Manager) initCasbin() error {
-	ctx := context.Background()
-	// Casbin初始化暂时跳过，等待具体实现
-	m.logger.InfoContext(ctx, "Casbin initialization skipped (not implemented)")
-	return nil
-}
-
 // initClickHouse 初始化 ClickHouse 连接
 // ClickHouse 是列式存储的时序数据库，适用于日志分析和指标存储场景
 func (m *Manager) initClickHouse(ctx context.Context) error {
@@ -414,12 +394,6 @@ func (m *Manager) GetSnowflake() *snowflake.Node {
 	return m.snowflake
 }
 
-func (m *Manager) GetCasbin() casbin.IEnforcer {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.casbin
-}
-
 func (m *Manager) GetSMTP() smtp.MailHandler {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -487,12 +461,6 @@ func (m *Manager) SetSnowflake(node *snowflake.Node) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.snowflake = node
-}
-
-func (m *Manager) SetCasbin(enforcer casbin.IEnforcer) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.casbin = enforcer
 }
 
 func (m *Manager) SetSMTP(smtpClient smtp.MailHandler) {
