@@ -285,6 +285,25 @@ func TestRequestContextMiddleware_CachesRequestCommonMeta(t *testing.T) {
 	assert.Equal(t, "cache-test-request", info.RequestID)
 }
 
+func TestWithRequestCommonMeta_CachesWithReadableKey(t *testing.T) {
+	expectedInfo := &RequestCommonMeta{
+		TraceID:           "cached-trace",
+		RequestID:         "cached-request",
+		Timestamp:         "1700000000",
+		Signature:         "cached-signature",
+		AccessKey:         "cached-access-key",
+		XNsID:             "cached-ns",
+		GrpcMetadataXNsID: "cached-grpc-ns",
+	}
+
+	ctx := WithRequestCommonMeta(context.Background(), expectedInfo)
+	info := GetRequestCommonMeta(ctx)
+
+	assert.Same(t, expectedInfo, info)
+	assert.Equal(t, "cached-ns", info.XNsID)
+	assert.Equal(t, "cached-grpc-ns", info.GrpcMetadataXNsID)
+}
+
 // TestFullChain_HTTPToContext 测试完整链路：HTTP 请求到 context
 func TestFullChain_HTTPToContext(t *testing.T) {
 	// 模拟完整的 HTTP → Service → Repository 链路
@@ -1299,6 +1318,11 @@ func TestFullChain_AllFields(t *testing.T) {
 	req.Header.Set(constants.HeaderXRegionId, "full-region-id")
 	req.Header.Set(constants.HeaderXRegionCode, "full-region-code")
 	req.Header.Set(constants.HeaderXNonce, "full-nonce")
+	req.Header.Set(constants.HeaderXJti, "full-jti")
+	req.Header.Set(constants.HeaderXFamilyId, "full-family")
+	req.Header.Set(constants.HeaderXTimestamp, "1700000000")
+	req.Header.Set(constants.HeaderXSignature, "full-signature")
+	req.Header.Set(constants.HeaderXAccessKey, "full-access-key")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -1321,6 +1345,11 @@ func TestFullChain_AllFields(t *testing.T) {
 	assert.Equal(t, "full-region-id", meta.RegionID)
 	assert.Equal(t, "full-region-code", meta.RegionCode)
 	assert.Equal(t, "full-nonce", meta.Nonce)
+	assert.Equal(t, "full-jti", meta.Jti)
+	assert.Equal(t, "full-family", meta.FamilyId)
+	assert.Equal(t, "1700000000", meta.Timestamp)
+	assert.Equal(t, "full-signature", meta.Signature)
+	assert.Equal(t, "full-access-key", meta.AccessKey)
 }
 
 // TestWithMethods_SetContextValueAndSyncRequestCommonMeta 测试 With* 方法同时设置 context value 和同步更新 RequestCommonMeta

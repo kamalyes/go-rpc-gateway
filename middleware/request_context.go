@@ -63,7 +63,7 @@ type requestCommonMetaKey struct{}
 
 // WithRequestCommonMeta 为上下文添加请求公共元信息
 func WithRequestCommonMeta(ctx context.Context, requestCommonMeta *RequestCommonMeta) context.Context {
-	return contextx.WithValue(ctx, &requestCommonMetaKey{}, requestCommonMeta)
+	return contextx.WithValue(ctx, requestCommonMetaKey{}, requestCommonMeta)
 }
 
 // RequestContextMiddleware HTTP 层统一的请求上下文中间件
@@ -90,6 +90,8 @@ func RequestContextMiddleware() HTTPMiddleware {
 				Timestamp:     gccommon.ExtractAttribute(r, requestContext.TimestampSources),
 				Signature:     gccommon.ExtractAttribute(r, requestContext.SignatureSources),
 				Authorization: gccommon.ExtractAttribute(r, requestContext.AuthorizationSources),
+				Jti:           gccommon.ExtractAttribute(r, requestContext.JtiSources),
+				FamilyId:      gccommon.ExtractAttribute(r, requestContext.FamilyIdSources),
 				AccessKey:     gccommon.ExtractAttribute(r, requestContext.AccessKeySources),
 				AppID:         gccommon.ExtractAttribute(r, requestContext.AppIDSources),
 				DeviceID:      gccommon.ExtractAttribute(r, requestContext.DeviceIDSources),
@@ -125,7 +127,12 @@ func RequestContextMiddleware() HTTPMiddleware {
 				WithRegionID(requestCommonMeta.RegionID).
 				WithRegionCode(requestCommonMeta.RegionCode).
 				WithNonce(requestCommonMeta.Nonce).
+				WithJti(requestCommonMeta.Jti).
+				WithFamilyId(requestCommonMeta.FamilyId).
 				WithUserAgent(requestCommonMeta.UserAgent).
+				WithTimestamp(requestCommonMeta.Timestamp).
+				WithSignature(requestCommonMeta.Signature).
+				WithAccessKey(requestCommonMeta.AccessKey).
 				Build()
 			ctx = WithRequestCommonMeta(ctx, requestCommonMeta)
 

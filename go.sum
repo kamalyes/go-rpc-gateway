@@ -135,8 +135,8 @@ github.com/jpillora/backoff v1.0.0 h1:uvFg412JmmHBHw7iwprIxkPMI+sGQ4kzOWsMeHnm2E
 github.com/jpillora/backoff v1.0.0/go.mod h1:J/6gKK9jxlEcS3zixgDgUAsiuZ7yrSoa/FX5e0EB2j4=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
-github.com/kamalyes/go-argus v0.1.0 h1:4Ba0EZCSL7+biEiYhIowGaYUXnP2jCu/M9DNV6fLoZk=
-github.com/kamalyes/go-argus v0.1.0/go.mod h1:dG5ttCh6wVn1u5qq4NEvoFtibgQ5Bj3PT8rw7HKX8c0=
+github.com/kamalyes/go-argus v0.2.0 h1:xyH7lbdxTMuTMGrHUyiE9kwCXXWx7UDJeVXXpa8HoDQ=
+github.com/kamalyes/go-argus v0.2.0/go.mod h1:dG5ttCh6wVn1u5qq4NEvoFtibgQ5Bj3PT8rw7HKX8c0=
 github.com/kamalyes/go-cachex v0.2.1 h1:qh9CqLyTU6pJnL8sAOV+NPoDhrrCpKQOh+Kcn6ry5WE=
 github.com/kamalyes/go-cachex v0.2.1/go.mod h1:q7EyLAwHbhK1o4amzq8Bxkp2/JzRp3uaWWqOIU2n8hY=
 github.com/kamalyes/go-config v0.21.1-0.20260525033659-d4e50a333951 h1:ut1rSaj+jA7WtcXvg+DhgOB5SRdV6HQ0gBlakWekj+c=
@@ -153,8 +153,8 @@ github.com/kamalyes/go-sqlbuilder v0.5.0 h1:HAq2SLLN04cHyihpiYPeQ5Xk9/N5tmpSkA3Z
 github.com/kamalyes/go-sqlbuilder v0.5.0/go.mod h1:mfeDyGR7IQhporeYCcIKLJ1c6fbWIxYqhnDE0FHGXms=
 github.com/kamalyes/go-swagger v0.1.0 h1:7BWD48B/eyxejt75Xz2AWvONku9wg/L6hwU19tj9aSg=
 github.com/kamalyes/go-swagger v0.1.0/go.mod h1:BsP/c0TPNRGEYvTxeqg/Ex6nbfWyfoiPPpLykO9QGMQ=
-github.com/kamalyes/go-toolbox v0.15.0 h1:LqdikKi3DbwAlEdZy9T9usBVEZqpUHTBA8xOzFpzWj8=
-github.com/kamalyes/go-toolbox v0.15.0/go.mod h1:N8mM+Cv0HZmtQcE9k5zk7O63dzE/zJy0HDx5bZbm7ZA=
+github.com/kamalyes/go-toolbox v0.15.1 h1:MSdQzz7NMWzdzcbt0vFtwsdLkmmj+dcGL13lRzaRS/w=
+github.com/kamalyes/go-toolbox v0.15.1/go.mod h1:Mepa3KH5/brwYVgxZB7UkiLrSG8loHwfUPAQWRNMJiM=
 github.com/kamalyes/go-wsc v0.9.1 h1:kbXP11j8CyxTYVEVZ9oWAzBYfW2L6nn77o11Wt4+2+0=
 github.com/kamalyes/go-wsc v0.9.1/go.mod h1:x+AUxZgbxc+OqBvT8iKPeYN6v8F9yZtOA/N86zWPgE4=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=

@@ -13,14 +13,14 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-argus v0.1.0
+	github.com/kamalyes/go-argus v0.2.0
 	github.com/kamalyes/go-config v0.21.1-0.20260525033659-d4e50a333951
 	github.com/kamalyes/go-i18n v0.2.0
 	github.com/kamalyes/go-logger v0.5.0
 	github.com/kamalyes/go-natsx v0.1.0
 	github.com/kamalyes/go-pbmo v0.1.0
 	github.com/kamalyes/go-swagger v0.1.0
-	github.com/kamalyes/go-toolbox v0.15.0
+	github.com/kamalyes/go-toolbox v0.15.1
 	github.com/kamalyes/go-wsc v0.9.1
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
