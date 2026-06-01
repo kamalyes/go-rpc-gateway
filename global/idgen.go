@@ -22,7 +22,9 @@ const defaultSnowflakeShortIDLength = 8
 var (
 	snowflakeWorkerID     = osx.GetWorkerIdForSnowflake()                                         // 当前进程 Snowflake 使用的 workerID
 	snowflakeDatacenterID = osx.GetDatacenterId()                                                 // 当前进程 Snowflake 使用的 datacenterID
+	shortFlakeNodeID      = osx.GetWorkerId() & 0x3F                                              // 当前进程 ShortFlake 使用的 nodeID，限制在 0~63
 	snowflakeGen          = idgen.NewSnowflakeGenerator(snowflakeWorkerID, snowflakeDatacenterID) // Snowflake ID生成器
+	shortFlakeGen         = idgen.NewShortFlakeGenerator(shortFlakeNodeID)                        // ShortFlake ID生成器
 )
 
 // NewSnowflakeID 生成一个新的短 ID 字符串
@@ -48,4 +50,32 @@ func GetSnowflakeWorkerID() int64 {
 // GetSnowflakeDatacenterID 获取当前进程 Snowflake 使用的 datacenterID
 func GetSnowflakeDatacenterID() int64 {
 	return snowflakeDatacenterID
+}
+
+// NewShortFlakeID 生成一个新的 ShortFlake 短 ID 字符串
+// 适合用于日志链路、轻量请求标识等需要更短字符串的场景
+//
+// 真实运行示例：
+//
+//	nodeID := GetShortFlakeNodeID()       // 25
+//	id := NewShortFlakeID()               // "206546a9f7640"
+//	requestID := NewShortFlakeRequestID() // "569909589276225-1"
+//	rawID := NewShortFlakeRawID()         // 569909589276226
+func NewShortFlakeID() string {
+	return shortFlakeGen.GenerateTraceID()
+}
+
+// NewShortFlakeRequestID 生成一个新的 ShortFlake 请求 ID 字符串
+func NewShortFlakeRequestID() string {
+	return shortFlakeGen.GenerateRequestID()
+}
+
+// NewShortFlakeRawID 生成一个新的 ShortFlake 原始数字 ID
+func NewShortFlakeRawID() int64 {
+	return shortFlakeGen.Generate()
+}
+
+// GetShortFlakeNodeID 获取当前进程 ShortFlake 使用的 nodeID
+func GetShortFlakeNodeID() int64 {
+	return shortFlakeNodeID
 }
