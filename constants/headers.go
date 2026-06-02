@@ -28,39 +28,8 @@ const (
 	// 自定义请求头
 	HeaderXRequestID      = "X-Request-Id"
 	HeaderXTraceID        = "X-Trace-Id"
-	HeaderXRealIP         = "X-Real-IP"
 	HeaderXForwardedFor   = "X-Forwarded-For"
-	HeaderXForwardedProto = "X-Forwarded-Proto"
 	HeaderWWWAuthenticate = "WWW-Authenticate"
-
-	// 用户上下文相关头部
-	HeaderXClientID   = "X-Client-ID"
-	HeaderXUserID     = "X-User-ID"
-	HeaderXUserType   = "X-User-Type"
-	HeaderXDomain     = "X-Domain"
-	HeaderXRoleCode   = "X-Role-Code"
-	HeaderXTenantID   = "X-Tenant-ID"
-	HeaderXTenantCode = "X-Tenant-Code"
-	HeaderXSessionID  = "X-Session-ID"
-	HeaderXTimezone   = "X-Timezone"
-	HeaderXID         = "X-ID"
-
-	// 设备和应用相关头部
-	HeaderXDeviceID       = "X-Device-Id"
-	HeaderXDeviceIDLegacy = "X-Device-ID"
-	HeaderXAppID          = "X-App-Id"
-	HeaderXAppVersion     = "X-App-Version"
-	HeaderXPlatformId     = "X-Platform-Id"
-	HeaderXPlatformCode   = "X-Platform-Code"
-	HeaderXRegionId       = "X-Region-Id"
-	HeaderXRegionCode     = "X-Region-Code"
-	HeaderXTimestamp      = "X-Timestamp"
-	HeaderXSignature      = "X-Signature"
-	HeaderXNonce          = "X-Nonce"
-	HeaderXAccessKey      = "X-Access-Key"
-	HeaderXResponseFormat = "X-Response-Format"
-	HeaderXJti            = "X-Jti"
-	HeaderXFamilyId       = "X-Family-Id"
 
 	// 安全相关头部
 	HeaderXFrameOptions           = "X-Frame-Options"

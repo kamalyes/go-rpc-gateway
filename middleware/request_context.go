@@ -57,6 +57,8 @@ type RequestCommonMeta struct {
 	XNsID             string `json:"xNsID" header:"X-Ns-ID"`                           // 命名空间ID
 	GrpcMetadataXNsID string `json:"grpcMetadataXNsID" header:"Grpc-Metadata-X-Ns-ID"` // gRPC元数据命名空间ID
 	UserAgent         string `json:"userAgent" header:"User-Agent"`                    // 用户代理
+	PushToken         string `json:"pushToken" header:"X-Push-Token"`                  // 推送Token
+	Token             string `json:"token" header:"X-Token"`                           // Token
 }
 
 type requestCommonMetaKey struct{}
@@ -103,6 +105,8 @@ func RequestContextMiddleware() HTTPMiddleware {
 				IPAddress:     netx.GetClientIP(r),
 				Nonce:         gccommon.ExtractAttribute(r, requestContext.NonceSources),
 				UserAgent:     r.UserAgent(),
+				PushToken:     gccommon.ExtractAttribute(r, requestContext.PushTokenSources),
+				Token:         gccommon.ExtractAttribute(r, requestContext.TokenSources),
 			}
 
 			// 将核心链路字段注入 context，便于日志和下游组件统一获取
@@ -130,6 +134,8 @@ func RequestContextMiddleware() HTTPMiddleware {
 				WithJti(requestCommonMeta.Jti).
 				WithFamilyId(requestCommonMeta.FamilyId).
 				WithUserAgent(requestCommonMeta.UserAgent).
+				WithPushToken(requestCommonMeta.PushToken).
+				WithToken(requestCommonMeta.Token).
 				WithTimestamp(requestCommonMeta.Timestamp).
 				WithSignature(requestCommonMeta.Signature).
 				WithAccessKey(requestCommonMeta.AccessKey).
@@ -181,6 +187,8 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 		XNsID:             contextx.GetValue[string](ctx, constants.MetadataXNsID),
 		GrpcMetadataXNsID: contextx.GetValue[string](ctx, constants.MetadataGrpcMetadataXNsID),
 		UserAgent:         contextx.GetValue[string](ctx, constants.MetadataUserAgent),
+		PushToken:         contextx.GetValue[string](ctx, constants.MetadataPushToken),
+		Token:             contextx.GetValue[string](ctx, constants.MetadataToken),
 		Timestamp:         contextx.GetValue[string](ctx, constants.MetadataTimestamp),
 		Signature:         contextx.GetValue[string](ctx, constants.MetadataSignature),
 		AccessKey:         contextx.GetValue[string](ctx, constants.MetadataAccessKey),
@@ -269,6 +277,8 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	xNsID := firstMetadataValue(constants.MetadataXNsID)
 	grpcMetadataXNsID := firstMetadataValue(constants.MetadataGrpcMetadataXNsID)
 	userAgent := firstMetadataValue(constants.MetadataUserAgent)
+	pushToken := firstMetadataValue(constants.MetadataPushToken)
+	token := firstMetadataValue(constants.MetadataToken)
 	timestamp := firstMetadataValue(constants.MetadataTimestamp)
 	signature := firstMetadataValue(constants.MetadataSignature)
 	accessKey := firstMetadataValue(constants.MetadataAccessKey)
@@ -299,6 +309,8 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		WithXNsID(xNsID).
 		WithGrpcMetadataXNsID(grpcMetadataXNsID).
 		WithUserAgent(userAgent).
+		WithPushToken(pushToken).
+		WithToken(token).
 		WithTimestamp(timestamp).
 		WithSignature(signature).
 		WithAccessKey(accessKey).
@@ -330,6 +342,8 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		XNsID:             xNsID,
 		GrpcMetadataXNsID: grpcMetadataXNsID,
 		UserAgent:         userAgent,
+		PushToken:         pushToken,
+		Token:             token,
 		Timestamp:         timestamp,
 		Signature:         signature,
 		AccessKey:         accessKey,
@@ -366,6 +380,8 @@ func setResponseMetadata(ctx context.Context) {
 		constants.MetadataXNsID, requestCommonMeta.XNsID,
 		constants.MetadataGrpcMetadataXNsID, requestCommonMeta.GrpcMetadataXNsID,
 		constants.MetadataUserAgent, requestCommonMeta.UserAgent,
+		constants.MetadataPushToken, requestCommonMeta.PushToken,
+		constants.MetadataToken, requestCommonMeta.Token,
 		constants.MetadataTimestamp, requestCommonMeta.Timestamp,
 		constants.MetadataSignature, requestCommonMeta.Signature,
 		constants.MetadataAccessKey, requestCommonMeta.AccessKey,
@@ -442,6 +458,8 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 		constants.MetadataXNsID, requestCommonMeta.XNsID,
 		constants.MetadataGrpcMetadataXNsID, requestCommonMeta.GrpcMetadataXNsID,
 		constants.MetadataUserAgent, requestCommonMeta.UserAgent,
+		constants.MetadataPushToken, requestCommonMeta.PushToken,
+		constants.MetadataToken, requestCommonMeta.Token,
 		constants.MetadataTimestamp, requestCommonMeta.Timestamp,
 		constants.MetadataSignature, requestCommonMeta.Signature,
 		constants.MetadataAccessKey, requestCommonMeta.AccessKey,
@@ -666,6 +684,18 @@ func GetAccessKey(ctx context.Context) string {
 	return requestCommonMeta.AccessKey
 }
 
+// GetPushToken 从 context 获取 PushToken
+func GetPushToken(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.PushToken
+}
+
+// GetToken 从 context 获取 Token
+func GetToken(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.Token
+}
+
 // updateRequestCommonMetaField 同步更新 RequestCommonMeta 中对应字段
 func updateRequestCommonMetaField(ctx context.Context, update func(*RequestCommonMeta)) {
 	if meta, ok := ctx.Value(requestCommonMetaKey{}).(*RequestCommonMeta); ok && meta != nil {
@@ -869,6 +899,20 @@ func WithAccessKey(ctx context.Context, accessKey string) context.Context {
 	return ctx
 }
 
+// WithPushToken 将 PushToken 设置到 context 并同步更新 RequestCommonMeta
+func WithPushToken(ctx context.Context, pushToken string) context.Context {
+	ctx = contextx.WithValue(ctx, constants.MetadataPushToken, pushToken)
+	updateRequestCommonMetaField(ctx, func(m *RequestCommonMeta) { m.PushToken = pushToken })
+	return ctx
+}
+
+// WithToken 将 Token 设置到 context 并同步更新 RequestCommonMeta
+func WithToken(ctx context.Context, token string) context.Context {
+	ctx = contextx.WithValue(ctx, constants.MetadataToken, token)
+	updateRequestCommonMetaField(ctx, func(m *RequestCommonMeta) { m.Token = token })
+	return ctx
+}
+
 // ContextBuilder 上下文字段链式构建器
 type ContextBuilder struct {
 	ctx context.Context
@@ -1031,5 +1075,15 @@ func (b *ContextBuilder) WithGrpcMetadataXNsID(grpcMetadataXNsID string) *Contex
 
 func (b *ContextBuilder) WithUserAgent(userAgent string) *ContextBuilder {
 	b.ctx = WithUserAgent(b.ctx, userAgent)
+	return b
+}
+
+func (b *ContextBuilder) WithPushToken(pushToken string) *ContextBuilder {
+	b.ctx = WithPushToken(b.ctx, pushToken)
+	return b
+}
+
+func (b *ContextBuilder) WithToken(token string) *ContextBuilder {
+	b.ctx = WithToken(b.ctx, token)
 	return b
 }

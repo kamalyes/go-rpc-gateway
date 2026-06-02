@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/kamalyes/go-rpc-gateway/constants"
+	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
@@ -30,6 +31,7 @@ import (
 
 // TestRequestContextMiddleware_GeneratesIDs 测试中间件生成 trace_id 和 request_id
 func TestRequestContextMiddleware_GeneratesIDs(t *testing.T) {
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
 	middleware := RequestContextMiddleware()
 
 	var capturedCtx context.Context
@@ -51,12 +53,13 @@ func TestRequestContextMiddleware_GeneratesIDs(t *testing.T) {
 	assert.NotEmpty(t, requestID, "request_id 应该被生成")
 
 	// 验证响应头中也有这些值
-	assert.Equal(t, traceID, rec.Header().Get(constants.HeaderXTraceID), "响应头应包含 trace_id")
-	assert.Equal(t, requestID, rec.Header().Get(constants.HeaderXRequestID), "响应头应包含 request_id")
+	assert.Equal(t, traceID, rec.Header().Get(sk.TraceID.Header), "响应头应包含 trace_id")
+	assert.Equal(t, requestID, rec.Header().Get(sk.RequestID.Header), "响应头应包含 request_id")
 }
 
 // TestRequestContextMiddleware_UsesExistingIDs 测试中间件使用请求中已有的 ID
 func TestRequestContextMiddleware_UsesExistingIDs(t *testing.T) {
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
 	middleware := RequestContextMiddleware()
 
 	existingTraceID := "existing-trace-id-12345"
@@ -69,8 +72,8 @@ func TestRequestContextMiddleware_UsesExistingIDs(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set(constants.HeaderXTraceID, existingTraceID)
-	req.Header.Set(constants.HeaderXRequestID, existingRequestID)
+	req.Header.Set(sk.TraceID.Header, existingTraceID)
+	req.Header.Set(sk.RequestID.Header, existingRequestID)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -80,12 +83,13 @@ func TestRequestContextMiddleware_UsesExistingIDs(t *testing.T) {
 	assert.Equal(t, existingRequestID, GetRequestID(capturedCtx), "应使用已有的 request_id")
 
 	// 验证响应头
-	assert.Equal(t, existingTraceID, rec.Header().Get(constants.HeaderXTraceID))
-	assert.Equal(t, existingRequestID, rec.Header().Get(constants.HeaderXRequestID))
+	assert.Equal(t, existingTraceID, rec.Header().Get(sk.TraceID.Header))
+	assert.Equal(t, existingRequestID, rec.Header().Get(sk.RequestID.Header))
 }
 
 // TestRequestContextMiddleware_ExtractsOptionalFields 测试中间件提取可选字段
 func TestRequestContextMiddleware_ExtractsOptionalFields(t *testing.T) {
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
 	middleware := RequestContextMiddleware()
 
 	var capturedCtx context.Context
@@ -95,13 +99,13 @@ func TestRequestContextMiddleware_ExtractsOptionalFields(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set(constants.HeaderXForwardedFor, "192.168.1.100")
-	req.Header.Set(constants.HeaderXUserID, "user-123")
-	req.Header.Set(constants.HeaderXDomain, "tenant")
-	req.Header.Set(constants.HeaderXRoleCode, "admin")
-	req.Header.Set(constants.HeaderXTenantID, "tenant-456")
-	req.Header.Set(constants.HeaderXSessionID, "session-789")
-	req.Header.Set(constants.HeaderXTimezone, "Asia/Shanghai")
+	req.Header.Set(sk.ForwardedFor.Header, "192.168.1.100")
+	req.Header.Set(sk.UserID.Header, "user-123")
+	req.Header.Set(sk.Domain.Header, "tenant")
+	req.Header.Set(sk.RoleCode.Header, "admin")
+	req.Header.Set(sk.TenantID.Header, "tenant-456")
+	req.Header.Set(sk.SessionID.Header, "session-789")
+	req.Header.Set(sk.Timezone.Header, "Asia/Shanghai")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -263,6 +267,7 @@ func TestUtilityFunctions(t *testing.T) {
 
 // TestRequestContextMiddleware_CachesRequestCommonMeta 测试中间件缓存 RequestCommonMeta
 func TestRequestContextMiddleware_CachesRequestCommonMeta(t *testing.T) {
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
 	middleware := RequestContextMiddleware()
 
 	var capturedCtx context.Context
@@ -272,8 +277,8 @@ func TestRequestContextMiddleware_CachesRequestCommonMeta(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set(constants.HeaderXTraceID, "cache-test-trace")
-	req.Header.Set(constants.HeaderXRequestID, "cache-test-request")
+	req.Header.Set(sk.TraceID.Header, "cache-test-trace")
+	req.Header.Set(sk.RequestID.Header, "cache-test-request")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -306,6 +311,7 @@ func TestWithRequestCommonMeta_CachesWithReadableKey(t *testing.T) {
 
 // TestFullChain_HTTPToContext 测试完整链路：HTTP 请求到 context
 func TestFullChain_HTTPToContext(t *testing.T) {
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
 	// 模拟完整的 HTTP → Service → Repository 链路
 	middleware := RequestContextMiddleware()
 
@@ -326,8 +332,8 @@ func TestFullChain_HTTPToContext(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest("POST", "/api/messages", nil)
-	req.Header.Set(constants.HeaderXTraceID, "chain-trace-id")
-	req.Header.Set(constants.HeaderXRequestID, "chain-request-id")
+	req.Header.Set(sk.TraceID.Header, "chain-trace-id")
+	req.Header.Set(sk.RequestID.Header, "chain-request-id")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -692,6 +698,7 @@ func TestRealWorldScenario_CreateUser(t *testing.T) {
 	t.Log("========== 测试场景：创建用户（完整链路追踪） ==========")
 
 	// 1. 初始化业务组件
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
 	repo := NewUserRepository()
 	service := NewUserService(repo)
 	handler := NewUserHandler(service)
@@ -710,7 +717,7 @@ func TestRealWorldScenario_CreateUser(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/users", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 	// 模拟客户端传入 trace_id
-	req.Header.Set(constants.HeaderXTraceID, "client-trace-123")
+	req.Header.Set(sk.TraceID.Header, "client-trace-123")
 
 	rec := httptest.NewRecorder()
 
@@ -746,6 +753,7 @@ func TestRealWorldScenario_DuplicateUser(t *testing.T) {
 	handler := NewUserHandler(service)
 
 	middleware := RequestContextMiddleware()
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
 	router := middleware(http.HandlerFunc(handler.CreateUser))
 
 	// 第一次创建
@@ -758,7 +766,7 @@ func TestRealWorldScenario_DuplicateUser(t *testing.T) {
 	t.Log(">>> 第一次创建用户...")
 	req1 := httptest.NewRequest("POST", "/api/users", bytes.NewReader(bodyBytes))
 	req1.Header.Set("Content-Type", "application/json")
-	req1.Header.Set(constants.HeaderXTraceID, "trace-duplicate-1")
+	req1.Header.Set(sk.TraceID.Header, "trace-duplicate-1")
 	rec1 := httptest.NewRecorder()
 	router.ServeHTTP(rec1, req1)
 
@@ -769,7 +777,7 @@ func TestRealWorldScenario_DuplicateUser(t *testing.T) {
 	bodyBytes2, _ := json.Marshal(reqBody)
 	req2 := httptest.NewRequest("POST", "/api/users", bytes.NewReader(bodyBytes2))
 	req2.Header.Set("Content-Type", "application/json")
-	req2.Header.Set(constants.HeaderXTraceID, "trace-duplicate-2")
+	req2.Header.Set(sk.TraceID.Header, "trace-duplicate-2")
 	rec2 := httptest.NewRecorder()
 	router.ServeHTTP(rec2, req2)
 
@@ -788,6 +796,9 @@ func TestRealWorldScenario_DuplicateUser(t *testing.T) {
 // TestRealWorldScenario_ConcurrentRequests 测试真实场景：并发请求
 func TestRealWorldScenario_ConcurrentRequests(t *testing.T) {
 	t.Log("========== 测试场景：并发请求（trace_id 隔离） ==========")
+
+	// 1. 初始化业务组件
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
 
 	repo := NewUserRepository()
 	service := NewUserService(repo)
@@ -811,7 +822,7 @@ func TestRealWorldScenario_ConcurrentRequests(t *testing.T) {
 
 			req := httptest.NewRequest("POST", "/api/users", bytes.NewReader(bodyBytes))
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set(constants.HeaderXTraceID, traceIDs[index])
+			req.Header.Set(sk.TraceID.Header, traceIDs[index])
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -837,6 +848,8 @@ func TestRealWorldScenario_ConcurrentRequests(t *testing.T) {
 
 // TestRealWorldScenario_TraceIDPropagation 测试 trace_id 传播
 func TestRealWorldScenario_TraceIDPropagation(t *testing.T) {
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
+
 	t.Log("========== 测试场景：trace_id 跨层传播验证 ==========")
 
 	// 收集各层的 trace_id
@@ -874,7 +887,7 @@ func TestRealWorldScenario_TraceIDPropagation(t *testing.T) {
 	bodyBytes, _ := json.Marshal(reqBody)
 	req := httptest.NewRequest("POST", "/api/users", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(constants.HeaderXTraceID, "propagation-trace-999")
+	req.Header.Set(sk.TraceID.Header, "propagation-trace-999")
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -927,6 +940,8 @@ func TestRealWorldScenario_WithoutTraceID(t *testing.T) {
 		resp.TraceID, resp.RequestID)
 } // TestRealWorldScenario_CompleteRequestFlow 完整请求流程演示
 func TestRealWorldScenario_CompleteRequestFlow(t *testing.T) {
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
+
 	t.Log(strings.Repeat("=", 80))
 	t.Log("完整请求流程演示 - HTTP → Handler → Service → Repository")
 	t.Log(strings.Repeat("=", 80))
@@ -953,8 +968,8 @@ func TestRealWorldScenario_CompleteRequestFlow(t *testing.T) {
 	bodyBytes, _ := json.Marshal(reqBody)
 	req := httptest.NewRequest("POST", "/api/users", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(constants.HeaderXTraceID, "demo-trace-12345")
-	req.Header.Set(constants.HeaderXUserID, "client-user-999")
+	req.Header.Set(sk.TraceID.Header, "demo-trace-12345")
+	req.Header.Set(sk.UserID.Header, "client-user-999")
 	rec := httptest.NewRecorder()
 
 	t.Log(">>> 开始执行请求...")
@@ -1074,6 +1089,7 @@ func TestExtractOrGenerateRequestID(t *testing.T) {
 
 // TestNewFields_HTTPMiddleware 测试新增字段的 HTTP 中间件提取
 func TestNewFields_HTTPMiddleware(t *testing.T) {
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
 	middleware := RequestContextMiddleware()
 
 	var capturedCtx context.Context
@@ -1083,13 +1099,13 @@ func TestNewFields_HTTPMiddleware(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set(constants.HeaderXID, "test-id-123")
-	req.Header.Set(constants.HeaderXTenantCode, "tenant-code-abc")
-	req.Header.Set(constants.HeaderXPlatformId, "platform-123")
-	req.Header.Set(constants.HeaderXPlatformCode, "platform-code-xyz")
-	req.Header.Set(constants.HeaderXRegionId, "region-456")
-	req.Header.Set(constants.HeaderXRegionCode, "region-code-def")
-	req.Header.Set(constants.HeaderXNonce, "nonce-789")
+	req.Header.Set(sk.ID.Header, "test-id-123")
+	req.Header.Set(sk.TenantCode.Header, "tenant-code-abc")
+	req.Header.Set(sk.PlatformID.Header, "platform-123")
+	req.Header.Set(sk.PlatformCode.Header, "platform-code-xyz")
+	req.Header.Set(sk.RegionID.Header, "region-456")
+	req.Header.Set(sk.RegionCode.Header, "region-code-def")
+	req.Header.Set(sk.Nonce.Header, "nonce-789")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -1293,6 +1309,7 @@ func TestRequestCommonMeta_AllFields(t *testing.T) {
 
 // TestFullChain_AllFields 测试完整链路传递所有字段
 func TestFullChain_AllFields(t *testing.T) {
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
 	middleware := RequestContextMiddleware()
 
 	var serviceCtx context.Context
@@ -1302,27 +1319,27 @@ func TestFullChain_AllFields(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest("POST", "/api/test", nil)
-	req.Header.Set(constants.HeaderXID, "full-id")
-	req.Header.Set(constants.HeaderXTraceID, "full-trace")
-	req.Header.Set(constants.HeaderXRequestID, "full-request")
-	req.Header.Set(constants.HeaderXUserID, "full-user")
-	req.Header.Set(constants.HeaderXTenantID, "full-tenant")
-	req.Header.Set(constants.HeaderXTenantCode, "full-tenant-code")
-	req.Header.Set(constants.HeaderXSessionID, "full-session")
-	req.Header.Set(constants.HeaderXTimezone, "Asia/Shanghai")
-	req.Header.Set(constants.HeaderXAppID, "full-app")
-	req.Header.Set(constants.HeaderXDeviceID, "full-device")
-	req.Header.Set(constants.HeaderXAppVersion, "1.0.0")
-	req.Header.Set(constants.HeaderXPlatformId, "full-platform-id")
-	req.Header.Set(constants.HeaderXPlatformCode, "full-platform-code")
-	req.Header.Set(constants.HeaderXRegionId, "full-region-id")
-	req.Header.Set(constants.HeaderXRegionCode, "full-region-code")
-	req.Header.Set(constants.HeaderXNonce, "full-nonce")
-	req.Header.Set(constants.HeaderXJti, "full-jti")
-	req.Header.Set(constants.HeaderXFamilyId, "full-family")
-	req.Header.Set(constants.HeaderXTimestamp, "1700000000")
-	req.Header.Set(constants.HeaderXSignature, "full-signature")
-	req.Header.Set(constants.HeaderXAccessKey, "full-access-key")
+	req.Header.Set(sk.ID.Header, "full-id")
+	req.Header.Set(sk.TraceID.Header, "full-trace")
+	req.Header.Set(sk.RequestID.Header, "full-request")
+	req.Header.Set(sk.UserID.Header, "full-user")
+	req.Header.Set(sk.TenantID.Header, "full-tenant")
+	req.Header.Set(sk.TenantCode.Header, "full-tenant-code")
+	req.Header.Set(sk.SessionID.Header, "full-session")
+	req.Header.Set(sk.Timezone.Header, "Asia/Shanghai")
+	req.Header.Set(sk.AppID.Header, "full-app")
+	req.Header.Set(sk.DeviceID.Header, "full-device")
+	req.Header.Set(sk.AppVersion.Header, "1.0.0")
+	req.Header.Set(sk.PlatformID.Header, "full-platform-id")
+	req.Header.Set(sk.PlatformCode.Header, "full-platform-code")
+	req.Header.Set(sk.RegionID.Header, "full-region-id")
+	req.Header.Set(sk.RegionCode.Header, "full-region-code")
+	req.Header.Set(sk.Nonce.Header, "full-nonce")
+	req.Header.Set(sk.Jti.Header, "full-jti")
+	req.Header.Set(sk.FamilyId.Header, "full-family")
+	req.Header.Set(sk.Timestamp.Header, "1700000000")
+	req.Header.Set(sk.Signature.Header, "full-signature")
+	req.Header.Set(sk.AccessKey.Header, "full-access-key")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)

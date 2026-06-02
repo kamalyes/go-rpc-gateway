@@ -14,9 +14,9 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-argus v0.2.0
-	github.com/kamalyes/go-config v0.21.1-0.20260525033659-d4e50a333951
+	github.com/kamalyes/go-config v0.21.1-0.20260602025702-9753055a034d
 	github.com/kamalyes/go-i18n v0.2.0
-	github.com/kamalyes/go-logger v0.5.0
+	github.com/kamalyes/go-logger v0.5.2
 	github.com/kamalyes/go-natsx v0.1.0
 	github.com/kamalyes/go-pbmo v0.1.1-0.20260530132310-63d62e2110e4
 	github.com/kamalyes/go-swagger v0.1.0

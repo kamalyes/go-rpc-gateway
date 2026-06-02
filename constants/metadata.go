@@ -46,6 +46,8 @@ const (
 	MetadataJti               = "x-jti"
 	MetadataFamilyId          = "x-family-id"
 	MetadataUserAgent         = "x-user-agent"
+	MetadataPushToken         = "x-push-token"
+	MetadataToken             = "x-token"
 )
 
 // ============================================================================
@@ -79,6 +81,8 @@ const (
 	LogFieldAuthorization     = "authorization"
 	LogFieldJti               = "jti"
 	LogFieldFamilyId          = "family_id"
+	LogFieldPushToken         = "push_token"
+	LogFieldToken             = "token"
 )
 
 // 请求相关字段
