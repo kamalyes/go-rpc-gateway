@@ -12,14 +12,18 @@ package middleware
 
 import (
 	"context"
-	gci18n "github.com/kamalyes/go-config/pkg/i18n"
-	goi18n "github.com/kamalyes/go-i18n"
-	gwerrors "github.com/kamalyes/go-rpc-gateway/errors"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	gci18n "github.com/kamalyes/go-config/pkg/i18n"
+	goi18n "github.com/kamalyes/go-i18n"
+	"github.com/kamalyes/go-rpc-gateway/constants"
+	gwerrors "github.com/kamalyes/go-rpc-gateway/errors"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestI18nResolveLanguage(t *testing.T) {
@@ -198,4 +202,158 @@ func TestNewLocalizedAppErrorWithMap(t *testing.T) {
 	require.NotNil(t, appErr)
 	assert.Equal(t, gwerrors.ErrCodeTooManyRequests, appErr.GetCode())
 	assert.Equal(t, "open-app 的限流已触发", appErr.GetDetails())
+}
+
+// ============================================================================
+// gRPC i18n 拦截器测试
+// ============================================================================
+
+func newTestI18nManager(t *testing.T) *goi18n.Manager {
+	t.Helper()
+	loader, err := goi18n.NewJSONLoader(`{"en":{"hello":"Hello","error.xxx":"Error"},"zh":{"hello":"你好","error.xxx":"错误"}}`)
+	require.NoError(t, err)
+	manager, err := NewI18nManager(&gci18n.I18N{
+		DefaultLanguage:    "en",
+		SupportedLanguages: []string{"en", "zh"},
+		MessageLoader:      loader,
+	})
+	require.NoError(t, err)
+	return manager
+}
+
+func TestUnaryServerI18nInterceptor(t *testing.T) {
+	manager := newTestI18nManager(t)
+	interceptor := UnaryServerI18nInterceptor(manager)
+
+	t.Run("从 metadata 提取语言并创建 i18n context", func(t *testing.T) {
+		md := metadata.Pairs(constants.MetadataAcceptLanguage, "zh")
+		ctx := metadata.NewIncomingContext(context.Background(), md)
+
+		var gotLang string
+		_, err := interceptor(ctx, nil, nil, func(ctx context.Context, req interface{}) (interface{}, error) {
+			gotLang = GetLanguage(ctx)
+			return nil, nil
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, "zh", gotLang)
+	})
+
+	t.Run("metadata 无语言时使用默认语言", func(t *testing.T) {
+		ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs())
+
+		var gotLang string
+		_, err := interceptor(ctx, nil, nil, func(ctx context.Context, req interface{}) (interface{}, error) {
+			gotLang = GetLanguage(ctx)
+			return nil, nil
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, "en", gotLang)
+	})
+
+	t.Run("metadata 语言不受支持时使用默认语言", func(t *testing.T) {
+		md := metadata.Pairs(constants.MetadataAcceptLanguage, "fr")
+		ctx := metadata.NewIncomingContext(context.Background(), md)
+
+		var gotLang string
+		_, err := interceptor(ctx, nil, nil, func(ctx context.Context, req interface{}) (interface{}, error) {
+			gotLang = GetLanguage(ctx)
+			return nil, nil
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, "en", gotLang)
+	})
+
+	t.Run("已有 i18n context 时保留不覆盖", func(t *testing.T) {
+		md := metadata.Pairs(constants.MetadataAcceptLanguage, "en")
+		ctx := metadata.NewIncomingContext(context.Background(), md)
+		// 先注入一个 zh 的 i18n context
+		ctx = goi18n.NewContext(ctx, "zh", manager)
+
+		var gotLang string
+		_, err := interceptor(ctx, nil, nil, func(ctx context.Context, req interface{}) (interface{}, error) {
+			gotLang = GetLanguage(ctx)
+			return nil, nil
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, "zh", gotLang) // 不应被 metadata 的 en 覆盖
+	})
+
+	t.Run("无 metadata 时使用默认语言", func(t *testing.T) {
+		var gotLang string
+		_, err := interceptor(context.Background(), nil, nil, func(ctx context.Context, req interface{}) (interface{}, error) {
+			gotLang = GetLanguage(ctx)
+			return nil, nil
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, "en", gotLang)
+	})
+
+	t.Run("i18n context 可正常翻译", func(t *testing.T) {
+		md := metadata.Pairs(constants.MetadataAcceptLanguage, "zh")
+		ctx := metadata.NewIncomingContext(context.Background(), md)
+
+		var translated string
+		_, err := interceptor(ctx, nil, nil, func(ctx context.Context, req interface{}) (interface{}, error) {
+			translated = T(ctx, "hello")
+			return nil, nil
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, "你好", translated)
+	})
+}
+
+func TestStreamServerI18nInterceptor(t *testing.T) {
+	manager := newTestI18nManager(t)
+	interceptor := StreamServerI18nInterceptor(manager)
+
+	t.Run("Stream 拦截器从 metadata 提取语言", func(t *testing.T) {
+		md := metadata.Pairs(constants.MetadataAcceptLanguage, "zh")
+		ctx := metadata.NewIncomingContext(context.Background(), md)
+
+		mockStream := &i18nMockServerStream{ctx: ctx}
+
+		var gotLang string
+		err := interceptor(nil, mockStream, nil, func(srv interface{}, ss grpc.ServerStream) error {
+			gotLang = GetLanguage(ss.Context())
+			return nil
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, "zh", gotLang)
+	})
+}
+
+// i18nMockServerStream 用于测试的 mock ServerStream
+type i18nMockServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (m *i18nMockServerStream) Context() context.Context {
+	return m.ctx
+}
+
+func TestEnrichI18nContextFromMetadata(t *testing.T) {
+	manager := newTestI18nManager(t)
+
+	t.Run("从 metadata 提取语言", func(t *testing.T) {
+		md := metadata.Pairs(constants.MetadataAcceptLanguage, "zh")
+		ctx := metadata.NewIncomingContext(context.Background(), md)
+
+		ctx = enrichI18nContextFromMetadata(ctx, manager)
+		assert.Equal(t, "zh", GetLanguage(ctx))
+	})
+
+	t.Run("无 metadata 时默认语言", func(t *testing.T) {
+		ctx := enrichI18nContextFromMetadata(context.Background(), manager)
+		assert.Equal(t, "en", GetLanguage(ctx))
+	})
+
+	t.Run("已有 i18n context 不覆盖", func(t *testing.T) {
+		md := metadata.Pairs(constants.MetadataAcceptLanguage, "en")
+		ctx := metadata.NewIncomingContext(context.Background(), md)
+		ctx = goi18n.NewContext(ctx, "zh", manager)
+
+		ctx = enrichI18nContextFromMetadata(ctx, manager)
+		assert.Equal(t, "zh", GetLanguage(ctx))
+	})
 }

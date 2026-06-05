@@ -244,6 +244,22 @@ func (m *Manager) I18nMiddleware() MiddlewareFunc {
 	return I18n() // 回退到默认配置
 }
 
+// GRPCUnaryI18nInterceptor 返回 gRPC 服务端 i18n 一元调用拦截器
+func (m *Manager) GRPCUnaryI18nInterceptor() grpc.UnaryServerInterceptor {
+	if m.i18nManager != nil {
+		return UnaryServerI18nInterceptor(m.i18nManager)
+	}
+	return nil
+}
+
+// GRPCStreamI18nInterceptor 返回 gRPC 服务端 i18n 流式调用拦截器
+func (m *Manager) GRPCStreamI18nInterceptor() grpc.StreamServerInterceptor {
+	if m.i18nManager != nil {
+		return StreamServerI18nInterceptor(m.i18nManager)
+	}
+	return nil
+}
+
 // BreakerMiddleware 熔断中间件
 func (m *Manager) BreakerMiddleware() MiddlewareFunc {
 	return MiddlewareFunc(BreakerMiddleware(m.cfg.Middleware.CircuitBreaker))

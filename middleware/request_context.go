@@ -17,9 +17,11 @@ import (
 	"strings"
 
 	gccommon "github.com/kamalyes/go-config/pkg/common"
+	goi18n "github.com/kamalyes/go-i18n"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/contextx"
+	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"github.com/kamalyes/go-toolbox/pkg/osx"
 	"go.opentelemetry.io/otel/trace"
@@ -59,6 +61,7 @@ type RequestCommonMeta struct {
 	UserAgent         string `json:"userAgent" header:"User-Agent"`                    // 用户代理
 	PushToken         string `json:"pushToken" header:"X-Push-Token"`                  // 推送Token
 	Token             string `json:"token" header:"X-Token"`                           // Token
+	AcceptLanguage    string `json:"acceptLanguage" header:"Accept-Language"`          // 语言环境
 }
 
 type requestCommonMetaKey struct{}
@@ -192,6 +195,7 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 		Timestamp:         contextx.GetValue[string](ctx, constants.MetadataTimestamp),
 		Signature:         contextx.GetValue[string](ctx, constants.MetadataSignature),
 		AccessKey:         contextx.GetValue[string](ctx, constants.MetadataAccessKey),
+		AcceptLanguage:    contextx.GetValue[string](ctx, constants.MetadataAcceptLanguage),
 	}
 }
 
@@ -282,6 +286,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	timestamp := firstMetadataValue(constants.MetadataTimestamp)
 	signature := firstMetadataValue(constants.MetadataSignature)
 	accessKey := firstMetadataValue(constants.MetadataAccessKey)
+	acceptLanguage := firstMetadataValue(constants.MetadataAcceptLanguage)
 
 	ctx = NewContextBuilder(ctx).
 		WithID(id).
@@ -314,6 +319,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		WithTimestamp(timestamp).
 		WithSignature(signature).
 		WithAccessKey(accessKey).
+		WithAcceptLanguage(acceptLanguage).
 		Build()
 
 	return context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
@@ -347,6 +353,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		Timestamp:         timestamp,
 		Signature:         signature,
 		AccessKey:         accessKey,
+		AcceptLanguage:    acceptLanguage,
 	})
 }
 
@@ -385,6 +392,7 @@ func setResponseMetadata(ctx context.Context) {
 		constants.MetadataTimestamp, requestCommonMeta.Timestamp,
 		constants.MetadataSignature, requestCommonMeta.Signature,
 		constants.MetadataAccessKey, requestCommonMeta.AccessKey,
+		constants.MetadataAcceptLanguage, requestCommonMeta.AcceptLanguage,
 	)
 
 	// 发送 metadata（忽略错误，因为可能已经发送过）
@@ -431,6 +439,9 @@ func StreamClientRequestContextInterceptor() grpc.StreamClientInterceptor {
 func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 	requestCommonMeta := GetRequestCommonMeta(ctx)
 
+	// 优先使用 RequestCommonMeta 中的 Accept Language，若为空则从 i18n context 获取
+	acceptLanguage := mathx.IfEmpty(requestCommonMeta.AcceptLanguage, goi18n.GetLanguage(ctx))
+
 	// 直接注入所有字段，空值也可以传递
 	md := metadata.Pairs(
 		constants.MetadataID, requestCommonMeta.ID,
@@ -463,6 +474,7 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 		constants.MetadataTimestamp, requestCommonMeta.Timestamp,
 		constants.MetadataSignature, requestCommonMeta.Signature,
 		constants.MetadataAccessKey, requestCommonMeta.AccessKey,
+		constants.MetadataAcceptLanguage, acceptLanguage,
 	)
 
 	// 合并已有的 outgoing metadata
@@ -913,6 +925,21 @@ func WithToken(ctx context.Context, token string) context.Context {
 	return ctx
 }
 
+// WithAcceptLanguage 将 Accept Language 设置到 context 并同步更新 RequestCommonMeta
+func WithAcceptLanguage(ctx context.Context, language string) context.Context {
+	ctx = contextx.WithValue(ctx, constants.MetadataAcceptLanguage, language)
+	updateRequestCommonMetaField(ctx, func(m *RequestCommonMeta) { m.AcceptLanguage = language })
+	return ctx
+}
+
+// GetAcceptLanguageFromMeta 从 RequestCommonMeta 获取 Accept Language
+func GetAcceptLanguageFromMeta(ctx context.Context) string {
+	if meta := GetRequestCommonMeta(ctx); meta != nil {
+		return meta.AcceptLanguage
+	}
+	return ""
+}
+
 // ContextBuilder 上下文字段链式构建器
 type ContextBuilder struct {
 	ctx context.Context
@@ -1085,5 +1112,10 @@ func (b *ContextBuilder) WithPushToken(pushToken string) *ContextBuilder {
 
 func (b *ContextBuilder) WithToken(token string) *ContextBuilder {
 	b.ctx = WithToken(b.ctx, token)
+	return b
+}
+
+func (b *ContextBuilder) WithAcceptLanguage(acceptLanguage string) *ContextBuilder {
+	b.ctx = WithAcceptLanguage(b.ctx, acceptLanguage)
 	return b
 }

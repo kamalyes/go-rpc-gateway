@@ -103,6 +103,11 @@ func (s *Server) initGRPCServer() error {
 			middleware.UnaryServerLoggingInterceptor(),        // 2. 日志记录
 		}
 
+		// 添加 i18n 拦截器（如果启用国际化，在 RequestContext 之后注入 i18n context）
+		if i18nInterceptor := s.middlewareManager.GRPCUnaryI18nInterceptor(); i18nInterceptor != nil {
+			unaryInterceptors = append(unaryInterceptors, i18nInterceptor)
+		}
+
 		// 添加监控拦截器（如果启用）
 		if metricsInterceptor := s.middlewareManager.GRPCMetricsInterceptor(); metricsInterceptor != nil {
 			unaryInterceptors = append(unaryInterceptors, metricsInterceptor)
@@ -128,6 +133,11 @@ func (s *Server) initGRPCServer() error {
 			middleware.StreamServerRequestContextInterceptor(), // 1. RequestContext 注入
 			middleware.StreamServerLoggingInterceptor(),        // 2. 日志记录
 			s.middlewareManager.GRPCStructTagValidatorStreamInterceptor(),
+		}
+
+		// 添加 i18n Stream 拦截器（如果启用国际化）
+		if i18nStreamInterceptor := s.middlewareManager.GRPCStreamI18nInterceptor(); i18nStreamInterceptor != nil {
+			streamInterceptors = append(streamInterceptors, i18nStreamInterceptor)
 		}
 
 		// 添加 Stream 压缩拦截器

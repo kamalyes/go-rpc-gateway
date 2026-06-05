@@ -21,6 +21,8 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 type I18nManager = goi18n.Manager
@@ -190,4 +192,61 @@ func NewLocalizedAppErrorWithMap(ctx context.Context, code errors.ErrorCode, key
 	}
 
 	return appErr
+}
+
+// ============================================================================
+// gRPC i18n 拦截器 - 从 gRPC metadata 提取语言并注入 i18n context
+// ============================================================================
+
+// UnaryServerI18nInterceptor 创建 gRPC 服务端一元调用 i18n 拦截器
+// 从 incoming metadata 中提取 x-language，创建 i18n context
+// 如果 metadata 中没有语言信息，则使用 i18n 管理器的默认语言
+func UnaryServerI18nInterceptor(manager *goi18n.Manager) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		ctx = enrichI18nContextFromMetadata(ctx, manager)
+		return handler(ctx, req)
+	}
+}
+
+// StreamServerI18nInterceptor 创建 gRPC 服务端流式调用 i18n 拦截器
+func StreamServerI18nInterceptor(manager *goi18n.Manager) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		ctx := enrichI18nContextFromMetadata(ss.Context(), manager)
+		return handler(srv, &i18nWrappedStream{ServerStream: ss, ctx: ctx})
+	}
+}
+
+// enrichI18nContextFromMetadata 从 gRPC metadata 提取语言信息并创建 i18n context
+func enrichI18nContextFromMetadata(ctx context.Context, manager *goi18n.Manager) context.Context {
+	// 如果已有 i18n context，直接返回
+	if goi18n.FromContext(ctx) != nil {
+		return ctx
+	}
+
+	language := ""
+
+	// 从 incoming metadata 提取 x-language
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if values := md.Get(constants.MetadataAcceptLanguage); len(values) > 0 {
+			language = values[0]
+		}
+	}
+
+	// 验证语言是否受支持，不支持则使用默认语言
+	if language == "" || !manager.IsLanguageSupported(language) {
+		language = manager.GetDefaultLanguage()
+	}
+
+	// 创建 i18n context
+	return goi18n.NewContext(ctx, language, manager)
+}
+
+// i18nWrappedStream 包装 grpc.ServerStream 以覆盖 Context
+type i18nWrappedStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (w *i18nWrappedStream) Context() context.Context {
+	return w.ctx
 }

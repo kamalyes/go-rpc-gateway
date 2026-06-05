@@ -48,6 +48,7 @@ const (
 	MetadataUserAgent         = "x-user-agent"
 	MetadataPushToken         = "x-push-token"
 	MetadataToken             = "x-token"
+	MetadataAcceptLanguage    = "accept-language"
 )
 
 // ============================================================================
