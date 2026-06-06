@@ -225,10 +225,18 @@ func enrichI18nContextFromMetadata(ctx context.Context, manager *goi18n.Manager)
 
 	language := ""
 
-	// 从 incoming metadata 提取 x-language
+	// 从 incoming metadata 提取 accept-language
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
 		if values := md.Get(constants.MetadataAcceptLanguage); len(values) > 0 {
-			language = values[0]
+			acceptLanguage := values[0]
+			// 使用 i18n 配置解析 Accept-Language header（与 HTTP 中间件保持一致）
+			// 支持 "zh-CN,zh;q=0.9" 等复杂格式，以及语言映射（zh-cn → zh）
+			config := manager.GetConfig()
+			if config != nil {
+				language = config.ParseAcceptLanguage(acceptLanguage)
+			} else {
+				language = acceptLanguage
+			}
 		}
 	}
 

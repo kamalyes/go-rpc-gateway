@@ -356,4 +356,29 @@ func TestEnrichI18nContextFromMetadata(t *testing.T) {
 		ctx = enrichI18nContextFromMetadata(ctx, manager)
 		assert.Equal(t, "zh", GetLanguage(ctx))
 	})
+
+	t.Run("从复杂 Accept-Language header 解析语言", func(t *testing.T) {
+		md := metadata.Pairs(constants.MetadataAcceptLanguage, "zh-CN,zh;q=0.9,en;q=0.8")
+		ctx := metadata.NewIncomingContext(context.Background(), md)
+
+		ctx = enrichI18nContextFromMetadata(ctx, manager)
+		assert.Equal(t, "zh", GetLanguage(ctx))
+	})
+
+	t.Run("从带语言映射的 Accept-Language header 解析", func(t *testing.T) {
+		// 创建带语言映射的 manager
+		config := gci18n.Default()
+		config.SupportedLanguages = []string{"en", "zh"}
+		config.AddLanguageMapping("zh-cn", "zh").AddLanguageMapping("en-us", "en")
+		config.ResolutionOrder = []gci18n.MappingType{gci18n.StandardMapping}
+		config.MessageLoader, _ = goi18n.NewJSONLoader(`{"en":{"t":"test"},"zh":{"t":"测试"}}`)
+		mappedManager, err := NewI18nManager(config)
+		require.NoError(t, err)
+
+		md := metadata.Pairs(constants.MetadataAcceptLanguage, "zh-CN")
+		ctx := metadata.NewIncomingContext(context.Background(), md)
+
+		ctx = enrichI18nContextFromMetadata(ctx, mappedManager)
+		assert.Equal(t, "zh", GetLanguage(ctx))
+	})
 }
