@@ -28,6 +28,7 @@ const (
 	MetadataSessionID         = "x-session-id"
 	MetadataTimezone          = "x-timezone"
 	MetadataIPAddress         = "x-ip-address"
+	MetadataForwardedHost     = "x-forwarded-host"
 	MetadataAppID             = "x-app-id"
 	MetadataDeviceID          = "x-device-id"
 	MetadataAppVersion        = "x-app-version"

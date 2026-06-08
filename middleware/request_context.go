@@ -62,6 +62,7 @@ type RequestCommonMeta struct {
 	PushToken         string `json:"pushToken" header:"X-Push-Token"`                  // 推送Token
 	Token             string `json:"token" header:"X-Token"`                           // Token
 	AcceptLanguage    string `json:"acceptLanguage" header:"Accept-Language"`          // 语言环境
+	ForwardedHost     string `json:"forwardedHost" header:"X-Forwarded-Host"`          // 转发域名
 }
 
 type requestCommonMetaKey struct{}
@@ -110,6 +111,7 @@ func RequestContextMiddleware() HTTPMiddleware {
 				UserAgent:     r.UserAgent(),
 				PushToken:     gccommon.ExtractAttribute(r, requestContext.PushTokenSources),
 				Token:         gccommon.ExtractAttribute(r, requestContext.TokenSources),
+				ForwardedHost: gccommon.ExtractAttribute(r, requestContext.ForwardedHostSources),
 			}
 
 			// 将核心链路字段注入 context，便于日志和下游组件统一获取
@@ -142,6 +144,7 @@ func RequestContextMiddleware() HTTPMiddleware {
 				WithTimestamp(requestCommonMeta.Timestamp).
 				WithSignature(requestCommonMeta.Signature).
 				WithAccessKey(requestCommonMeta.AccessKey).
+				WithForwardedHost(requestCommonMeta.ForwardedHost).
 				Build()
 			ctx = WithRequestCommonMeta(ctx, requestCommonMeta)
 
@@ -196,6 +199,7 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 		Signature:         contextx.GetValue[string](ctx, constants.MetadataSignature),
 		AccessKey:         contextx.GetValue[string](ctx, constants.MetadataAccessKey),
 		AcceptLanguage:    contextx.GetValue[string](ctx, constants.MetadataAcceptLanguage),
+		ForwardedHost:     contextx.GetValue[string](ctx, constants.MetadataForwardedHost),
 	}
 }
 
@@ -320,6 +324,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		WithSignature(signature).
 		WithAccessKey(accessKey).
 		WithAcceptLanguage(acceptLanguage).
+		WithForwardedHost(firstMetadataValue(constants.MetadataForwardedHost)).
 		Build()
 
 	return context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
@@ -354,6 +359,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		Signature:         signature,
 		AccessKey:         accessKey,
 		AcceptLanguage:    acceptLanguage,
+		ForwardedHost:     firstMetadataValue(constants.MetadataForwardedHost),
 	})
 }
 
@@ -393,6 +399,7 @@ func setResponseMetadata(ctx context.Context) {
 		constants.MetadataSignature, requestCommonMeta.Signature,
 		constants.MetadataAccessKey, requestCommonMeta.AccessKey,
 		constants.MetadataAcceptLanguage, requestCommonMeta.AcceptLanguage,
+		constants.MetadataForwardedHost, requestCommonMeta.ForwardedHost,
 	)
 
 	// 发送 metadata（忽略错误，因为可能已经发送过）
@@ -940,6 +947,21 @@ func GetAcceptLanguageFromMeta(ctx context.Context) string {
 	return ""
 }
 
+// WithForwardedHost 为上下文添加转发域名
+func WithForwardedHost(ctx context.Context, host string) context.Context {
+	ctx = contextx.WithValue(ctx, constants.MetadataForwardedHost, host)
+	updateRequestCommonMetaField(ctx, func(m *RequestCommonMeta) { m.ForwardedHost = host })
+	return ctx
+}
+
+// GetForwardedHost 从上下文获取转发域名
+func GetForwardedHost(ctx context.Context) string {
+	if meta := GetRequestCommonMeta(ctx); meta != nil {
+		return meta.ForwardedHost
+	}
+	return contextx.GetValue[string](ctx, constants.MetadataForwardedHost)
+}
+
 // ContextBuilder 上下文字段链式构建器
 type ContextBuilder struct {
 	ctx context.Context
@@ -1117,5 +1139,10 @@ func (b *ContextBuilder) WithToken(token string) *ContextBuilder {
 
 func (b *ContextBuilder) WithAcceptLanguage(acceptLanguage string) *ContextBuilder {
 	b.ctx = WithAcceptLanguage(b.ctx, acceptLanguage)
+	return b
+}
+
+func (b *ContextBuilder) WithForwardedHost(forwardedHost string) *ContextBuilder {
+	b.ctx = WithForwardedHost(b.ctx, forwardedHost)
 	return b
 }
