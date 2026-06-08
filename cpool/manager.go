@@ -324,13 +324,17 @@ func (m *Manager) initSnowflake() error {
 // initClickHouse 初始化 ClickHouse 连接
 // ClickHouse 是列式存储的时序数据库，适用于日志分析和指标存储场景
 func (m *Manager) initClickHouse(ctx context.Context) error {
+	if m.cfg == nil || m.cfg.ClickHouse == nil || !m.cfg.ClickHouse.Enabled {
+		m.logger.InfoContext(ctx, "ClickHouse disabled, skipping initialization")
+		return nil
+	}
+
 	conn := chclient.NewClickHouse(ctx, m.cfg, m.logger)
 	if conn != nil {
 		m.clickhouse = conn
 		m.logger.InfoContext(ctx, "ClickHouse initialized successfully")
 	} else {
-		// ClickHouse 未配置或连接失败不阻止启动，仅记录警告
-		m.logger.WarnContext(ctx, "ClickHouse initialization skipped (not configured or connection failed)")
+		return fmt.Errorf("ClickHouse is enabled but connection initialization failed")
 	}
 	return nil
 }
@@ -339,12 +343,17 @@ func (m *Manager) initClickHouse(ctx context.Context) error {
 // NATS 是高性能轻量级消息队列，支持发布/订阅和 JetStream 持久化消息流
 // 默认启用 go-natsx 易用性封装客户端，提供泛型发布/订阅、批量流式消费等高级功能
 func (m *Manager) initNats(ctx context.Context) error {
+	if m.cfg == nil || m.cfg.Nats == nil || !m.cfg.Nats.Enabled {
+		m.logger.InfoContext(ctx, "NATS disabled, skipping initialization")
+		return nil
+	}
+
 	result := natsclient.NewNats(ctx, m.logger, m.cfg.Nats)
 	if result != nil {
 		m.nats = result
 		m.logger.InfoContext(ctx, "NATS initialized successfully")
 	} else {
-		m.logger.WarnContext(ctx, "NATS initialization skipped (not configured or connection failed)")
+		return fmt.Errorf("NATS is enabled but connection initialization failed")
 	}
 	return nil
 }
