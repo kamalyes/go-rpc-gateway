@@ -255,6 +255,7 @@ func TestUtilityFunctions(t *testing.T) {
 	ctx = WithTenantID(ctx, "util-tenant")
 	ctx = WithSessionID(ctx, "util-session")
 	ctx = WithTimezone(ctx, "Europe/London")
+	ctx = WithAgentLineID(ctx, "agent-line-001")
 
 	// 测试 GetXXX 函数
 	assert.Equal(t, "util-trace", GetTraceID(ctx))
@@ -263,6 +264,125 @@ func TestUtilityFunctions(t *testing.T) {
 	assert.Equal(t, "util-tenant", GetTenantID(ctx))
 	assert.Equal(t, "util-session", GetSessionID(ctx))
 	assert.Equal(t, "Europe/London", GetTimezone(ctx))
+	assert.Equal(t, "agent-line-001", GetAgentLineID(ctx))
+}
+
+// TestRequestContextMiddleware_ExtractsAgentLineID 测试中间件提取代理线ID
+func TestRequestContextMiddleware_ExtractsAgentLineID(t *testing.T) {
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
+	middleware := RequestContextMiddleware()
+
+	var capturedCtx context.Context
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCtx = r.Context()
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set(sk.AgentLineID.Header, "agent-line-test-123")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	// 验证 AgentLineID 被提取
+	assert.Equal(t, "agent-line-test-123", GetAgentLineID(capturedCtx), "应提取 agent_line_id")
+}
+
+// TestEnrichContextFromMetadata_ExtractsAgentLineID 测试从 gRPC metadata 提取代理线ID
+func TestEnrichContextFromMetadata_ExtractsAgentLineID(t *testing.T) {
+	// 创建带有 metadata 的 context
+	md := metadata.Pairs(
+		constants.MetadataTraceID, "grpc-trace-123",
+		constants.MetadataRequestID, "grpc-request-456",
+		constants.MetadataAgentLineID, "grpc-agent-line-789",
+	)
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	// 调用函数
+	enrichedCtx := enrichContextFromMetadata(ctx)
+
+	// 验证提取的 AgentLineID
+	assert.Equal(t, "grpc-agent-line-789", GetAgentLineID(enrichedCtx))
+}
+
+// TestInjectTraceToOutgoingContext_InjectsAgentLineID 测试将代理线ID注入到 outgoing metadata
+func TestInjectTraceToOutgoingContext_InjectsAgentLineID(t *testing.T) {
+	// 创建带有 AgentLineID 的 RequestCommonMeta
+	ctx := context.WithValue(context.Background(), requestCommonMetaKey{}, &RequestCommonMeta{
+		TraceID:     "outgoing-trace-123",
+		RequestID:   "outgoing-request-456",
+		AgentLineID: "outgoing-agent-line-789",
+	})
+
+	// 注入到 outgoing context
+	outgoingCtx := injectTraceToOutgoingContext(ctx)
+
+	// 验证 metadata 中有 AgentLineID
+	md, ok := metadata.FromOutgoingContext(outgoingCtx)
+	assert.True(t, ok, "应该有 outgoing metadata")
+	assert.Equal(t, []string{"outgoing-agent-line-789"}, md.Get(constants.MetadataAgentLineID))
+}
+
+// TestSetResponseMetadata_ContainsAgentLineID 测试响应 metadata 包含代理线ID
+func TestSetResponseMetadata_ContainsAgentLineID(t *testing.T) {
+	ctx := context.Background()
+	ctx = WithTraceID(ctx, "response-trace")
+	ctx = WithRequestID(ctx, "response-request")
+	ctx = WithAgentLineID(ctx, "response-agent-line")
+
+	// 缓存 RequestCommonMeta
+	ctx = context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
+		TraceID:     "response-trace",
+		RequestID:   "response-request",
+		AgentLineID: "response-agent-line",
+	})
+
+	// 调用 setResponseMetadata
+	setResponseMetadata(ctx)
+
+	// 验证不会 panic
+	assert.NotPanics(t, func() {
+		setResponseMetadata(ctx)
+	})
+}
+
+// TestFullChain_AgentLineID 测试完整链路中代理线ID的传递
+func TestFullChain_AgentLineID(t *testing.T) {
+	sk := global.GATEWAY.RequestContext.GetSourceKeys()
+	// 测试 HTTP → Context 链路
+	middleware := RequestContextMiddleware()
+
+	var capturedCtx context.Context
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCtx = r.Context()
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set(sk.AgentLineID.Header, "full-chain-agent-line")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	// 验证 HTTP 层提取
+	assert.Equal(t, "full-chain-agent-line", GetAgentLineID(capturedCtx))
+
+	// 测试 gRPC metadata → Context 链路
+	md := metadata.Pairs(
+		constants.MetadataAgentLineID, "grpc-full-chain-agent-line",
+	)
+	grpcCtx := metadata.NewIncomingContext(context.Background(), md)
+	enrichedCtx := enrichContextFromMetadata(grpcCtx)
+
+	// 验证 gRPC 层提取
+	assert.Equal(t, "grpc-full-chain-agent-line", GetAgentLineID(enrichedCtx))
+
+	// 测试 Context → outgoing metadata 链路
+	outgoingCtx := injectTraceToOutgoingContext(enrichedCtx)
+	outgoingMD, _ := metadata.FromOutgoingContext(outgoingCtx)
+
+	// 验证传递到下游
+	assert.Equal(t, []string{"grpc-full-chain-agent-line"}, outgoingMD.Get(constants.MetadataAgentLineID))
 }
 
 // TestRequestContextMiddleware_CachesRequestCommonMeta 测试中间件缓存 RequestCommonMeta

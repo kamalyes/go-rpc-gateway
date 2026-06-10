@@ -53,6 +53,7 @@ type RequestCommonMeta struct {
 	PlatformCode      string `json:"platformCode" header:"X-Platform-Code"`            // 平台编码
 	RegionID          string `json:"regionID" header:"X-Region-ID"`                    // 区域ID
 	RegionCode        string `json:"regionCode" header:"X-Region-Code"`                // 区域编码
+	AgentLineID       string `json:"agentLineID" header:"X-Agent-Line-ID"`             // 代理线ID
 	Nonce             string `json:"nonce" header:"X-Nonce"`                           // 随机数
 	Jti               string `json:"jti" header:"X-Jti"`                               // JWT ID (Token唯一标识)
 	FamilyId          string `json:"familyId" header:"X-Family-ID"`                    // Token家族ID
@@ -106,6 +107,7 @@ func RequestContextMiddleware() HTTPMiddleware {
 				PlatformCode:  gccommon.ExtractAttribute(r, requestContext.PlatformCodeSources),
 				RegionID:      gccommon.ExtractAttribute(r, requestContext.RegionIDSources),
 				RegionCode:    gccommon.ExtractAttribute(r, requestContext.RegionCodeSources),
+				AgentLineID:   gccommon.ExtractAttribute(r, requestContext.AgentLineIDSources),
 				IPAddress:     netx.GetClientIP(r),
 				Nonce:         gccommon.ExtractAttribute(r, requestContext.NonceSources),
 				UserAgent:     r.UserAgent(),
@@ -135,6 +137,7 @@ func RequestContextMiddleware() HTTPMiddleware {
 				WithPlatformCode(requestCommonMeta.PlatformCode).
 				WithRegionID(requestCommonMeta.RegionID).
 				WithRegionCode(requestCommonMeta.RegionCode).
+				WithAgentLineID(requestCommonMeta.AgentLineID).
 				WithNonce(requestCommonMeta.Nonce).
 				WithJti(requestCommonMeta.Jti).
 				WithFamilyId(requestCommonMeta.FamilyId).
@@ -187,6 +190,7 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 		PlatformCode:      contextx.GetValue[string](ctx, constants.MetadataPlatformCode),
 		RegionID:          contextx.GetValue[string](ctx, constants.MetadataRegionID),
 		RegionCode:        contextx.GetValue[string](ctx, constants.MetadataRegionCode),
+		AgentLineID:       contextx.GetValue[string](ctx, constants.MetadataAgentLineID),
 		Nonce:             contextx.GetValue[string](ctx, constants.MetadataNonce),
 		Jti:               contextx.GetValue[string](ctx, constants.MetadataJti),
 		FamilyId:          contextx.GetValue[string](ctx, constants.MetadataFamilyId),
@@ -279,6 +283,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	platformCode := firstMetadataValue(constants.MetadataPlatformCode)
 	regionID := firstMetadataValue(constants.MetadataRegionID)
 	regionCode := firstMetadataValue(constants.MetadataRegionCode)
+	agentLineID := firstMetadataValue(constants.MetadataAgentLineID)
 	nonce := firstMetadataValue(constants.MetadataNonce)
 	jti := firstMetadataValue(constants.MetadataJti)
 	familyId := firstMetadataValue(constants.MetadataFamilyId)
@@ -312,6 +317,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		WithPlatformCode(platformCode).
 		WithRegionID(regionID).
 		WithRegionCode(regionCode).
+		WithAgentLineID(agentLineID).
 		WithNonce(nonce).
 		WithJti(jti).
 		WithFamilyId(familyId).
@@ -347,6 +353,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		PlatformCode:      platformCode,
 		RegionID:          regionID,
 		RegionCode:        regionCode,
+		AgentLineID:       agentLineID,
 		Nonce:             nonce,
 		Jti:               jti,
 		FamilyId:          familyId,
@@ -387,6 +394,7 @@ func setResponseMetadata(ctx context.Context) {
 		constants.MetadataPlatformCode, requestCommonMeta.PlatformCode,
 		constants.MetadataRegionID, requestCommonMeta.RegionID,
 		constants.MetadataRegionCode, requestCommonMeta.RegionCode,
+		constants.MetadataAgentLineID, requestCommonMeta.AgentLineID,
 		constants.MetadataNonce, requestCommonMeta.Nonce,
 		constants.MetadataJti, requestCommonMeta.Jti,
 		constants.MetadataFamilyId, requestCommonMeta.FamilyId,
@@ -470,6 +478,7 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 		constants.MetadataPlatformCode, requestCommonMeta.PlatformCode,
 		constants.MetadataRegionID, requestCommonMeta.RegionID,
 		constants.MetadataRegionCode, requestCommonMeta.RegionCode,
+		constants.MetadataAgentLineID, requestCommonMeta.AgentLineID,
 		constants.MetadataNonce, requestCommonMeta.Nonce,
 		constants.MetadataJti, requestCommonMeta.Jti,
 		constants.MetadataFamilyId, requestCommonMeta.FamilyId,
@@ -629,6 +638,12 @@ func GetRegionID(ctx context.Context) string {
 func GetRegionCode(ctx context.Context) string {
 	requestCommonMeta := GetRequestCommonMeta(ctx)
 	return requestCommonMeta.RegionCode
+}
+
+// GetAgentLineID 从 context 获取 AgentLineID
+func GetAgentLineID(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.AgentLineID
 }
 
 // GetXNsID 从 context 获取 XNsID
@@ -831,6 +846,13 @@ func WithRegionID(ctx context.Context, regionID string) context.Context {
 func WithRegionCode(ctx context.Context, regionCode string) context.Context {
 	ctx = contextx.WithValue(ctx, constants.MetadataRegionCode, regionCode)
 	updateRequestCommonMetaField(ctx, func(m *RequestCommonMeta) { m.RegionCode = regionCode })
+	return ctx
+}
+
+// WithAgentLineID 将 AgentLineID 设置到 context 并同步更新 RequestCommonMeta
+func WithAgentLineID(ctx context.Context, agentLineID string) context.Context {
+	ctx = contextx.WithValue(ctx, constants.MetadataAgentLineID, agentLineID)
+	updateRequestCommonMetaField(ctx, func(m *RequestCommonMeta) { m.AgentLineID = agentLineID })
 	return ctx
 }
 
@@ -1094,6 +1116,11 @@ func (b *ContextBuilder) WithRegionID(regionID string) *ContextBuilder {
 
 func (b *ContextBuilder) WithRegionCode(regionCode string) *ContextBuilder {
 	b.ctx = WithRegionCode(b.ctx, regionCode)
+	return b
+}
+
+func (b *ContextBuilder) WithAgentLineID(agentLineID string) *ContextBuilder {
+	b.ctx = WithAgentLineID(b.ctx, agentLineID)
 	return b
 }
 

@@ -36,6 +36,7 @@ const (
 	MetadataPlatformCode      = "x-platform-code"
 	MetadataRegionID          = "x-region-id"
 	MetadataRegionCode        = "x-region-code"
+	MetadataAgentLineID       = "x-agent-line-id"
 	MetadataNonce             = "x-nonce"
 	MetadataXNsID             = "x-ns-id"
 	MetadataGrpcMetadataXNsID = "grpc-metadata-x-ns-id"
