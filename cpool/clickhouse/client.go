@@ -27,6 +27,7 @@ import (
 
 // NewClickHouse 创建 ClickHouse 原生连接（clickhouse-go/v2 驱动）
 // 纯工厂函数，每次调用创建新连接，由调用方管理连接生命周期
+// 连接前会先确保目标数据库存在，不存在则自动创建
 // 参数:
 //   - ctx: 上下文，用于超时控制和取消
 //   - cfg: 网关配置，包含 ClickHouse 连接参数
@@ -40,6 +41,12 @@ func NewClickHouse(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogge
 	}
 
 	chCfg := cfg.ClickHouse
+
+	if err := ensureClickHouseDatabase(ctx, chCfg, log); err != nil {
+		log.ErrorContextKV(ctx, "ClickHouse database prepare failed", "host", chCfg.Host, "dbname", chCfg.Dbname, "err", err)
+		return nil
+	}
+
 	opts := buildClickHouseOptions(chCfg)
 
 	conn, err := clickhouse.Open(opts)
@@ -63,6 +70,36 @@ func NewClickHouse(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogge
 	return conn
 }
 
+// ensureClickHouseDatabase 确保目标数据库存在，不存在则自动创建
+// 先连接到 ClickHouse 内置的 default 数据库，执行 CREATE DATABASE IF NOT EXISTS
+func ensureClickHouseDatabase(ctx context.Context, cfg *tsdb.ClickHouse, log logger.ILogger) error {
+	dbname := cfg.Dbname
+	if dbname == "" || dbname == "default" {
+		return nil
+	}
+
+	maintenanceOpts := buildClickHouseOptions(cfg)
+	maintenanceOpts.Auth.Database = "default"
+
+	maintenanceConn, err := clickhouse.Open(maintenanceOpts)
+	if err != nil {
+		return fmt.Errorf("connect to default database failed: %w", err)
+	}
+	defer maintenanceConn.Close()
+
+	if err := maintenanceConn.Ping(ctx); err != nil {
+		return fmt.Errorf("ping default database failed: %w", err)
+	}
+
+	createSQL := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", dbname)
+	if err := maintenanceConn.Exec(ctx, createSQL); err != nil {
+		return fmt.Errorf("ensure database %q failed: %w", dbname, err)
+	}
+
+	log.InfoContextKV(ctx, "ClickHouse database is ready", "dbname", dbname)
+	return nil
+}
+
 // NewClickHouseDB 创建 ClickHouse 标准库连接（database/sql 接口）
 // 适用于需要使用标准 SQL 接口或兼容 database/sql 生态的场景
 // 支持连接池配置（最大空闲连接、最大打开连接、连接生命周期等）
@@ -79,6 +116,12 @@ func NewClickHouseDB(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILog
 	}
 
 	chCfg := cfg.ClickHouse
+
+	if err := ensureClickHouseDatabase(ctx, chCfg, log); err != nil {
+		log.ErrorContextKV(ctx, "ClickHouse database prepare failed", "host", chCfg.Host, "dbname", chCfg.Dbname, "err", err)
+		return nil
+	}
+
 	dsn := buildClickHouseDSN(chCfg)
 
 	db, err := sql.Open("clickhouse", dsn)
