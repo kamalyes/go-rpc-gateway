@@ -18,7 +18,7 @@ require (
 	github.com/kamalyes/go-i18n v0.2.3
 	github.com/kamalyes/go-logger v0.5.3
 	github.com/kamalyes/go-natsx v0.1.0
-	github.com/kamalyes/go-pbmo v0.1.1
+	github.com/kamalyes/go-pbmo v0.1.4
 	github.com/kamalyes/go-swagger v0.1.2
 	github.com/kamalyes/go-toolbox v0.15.3
 	github.com/kamalyes/go-wsc v0.9.3
@@ -134,7 +134,7 @@ require (
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
 	gopkg.in/yaml.v3 v3.0.1
 )

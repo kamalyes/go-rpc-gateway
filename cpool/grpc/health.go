@@ -33,8 +33,9 @@ type ClientHealth struct {
 
 // HealthChecker gRPC 健康检查管理器
 type HealthChecker struct {
-	clients map[string]*ClientHealth
-	mu      sync.RWMutex
+	clients   map[string]*ClientHealth
+	onRecover func(serviceName string) // 服务从不可用恢复为可用时的回调
+	mu        sync.RWMutex
 }
 
 // NewHealthChecker 创建健康检查管理器
@@ -42,6 +43,15 @@ func NewHealthChecker() *HealthChecker {
 	return &HealthChecker{
 		clients: make(map[string]*ClientHealth),
 	}
+}
+
+// SetOnRecover 设置服务恢复回调
+// 当服务在定期检查中从不可用变为可用时，回调会被调用
+// 用于服务恢复后重新发现服务和注册 HTTP 路由
+func (hc *HealthChecker) SetOnRecover(fn func(serviceName string)) {
+	hc.mu.Lock()
+	hc.onRecover = fn
+	hc.mu.Unlock()
 }
 
 // Register 注册客户端到健康检查
@@ -133,6 +143,7 @@ func (hc *HealthChecker) StartPeriodicCheck(interval time.Duration, endpoints ma
 						conn, err := net.DialTimeout("tcp", ep, 3*time.Second)
 
 						h.mu.Lock()
+						wasHealthy := h.healthy
 						if err == nil {
 							h.healthy = true
 							conn.Close()
@@ -142,6 +153,16 @@ func (hc *HealthChecker) StartPeriodicCheck(interval time.Duration, endpoints ma
 						}
 						h.lastCheck = time.Now()
 						h.mu.Unlock()
+
+						// 服务从不可用恢复为可用，触发回调（重新发现服务和注册路由）
+						if err == nil && !wasHealthy {
+							hc.mu.RLock()
+							callback := hc.onRecover
+							hc.mu.RUnlock()
+							if callback != nil {
+								callback(name)
+							}
+						}
 					}(serviceName, endpoint, health)
 				}
 			}

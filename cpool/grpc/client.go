@@ -116,6 +116,50 @@ func BuildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, health
 	return buildDialOptions(clientCfg, serviceName, creds, healthChecker)
 }
 
+// InitClientAny 初始化 gRPC 客户端（返回 interface{}，用于自动注册场景）
+// 与 InitClient 逻辑相同，但工厂函数和返回值均为 interface{}，便于反射调用
+func InitClientAny(
+	healthChecker *HealthChecker,
+	clients map[string]*gwconfig.GRPCClient,
+	serviceName string,
+	factory func(grpc.ClientConnInterface) interface{},
+) (interface{}, bool) {
+	clientCfg, exists := clients[serviceName]
+	if !exists || clientCfg == nil || len(clientCfg.Endpoints) == 0 {
+		return nil, false
+	}
+
+	// 优先从连接池获取已有连接
+	connPoolMu.RLock()
+	conn, connExists := connPool[serviceName]
+	connPoolMu.RUnlock()
+	if connExists {
+		gwglobal.LOGGER.Debug("♻️  %s 复用连接池中的已有连接", serviceName)
+		return factory(conn), true
+	}
+
+	endpoint := clientCfg.Endpoints[0]
+	creds := buildTLSConfig(clientCfg, serviceName)
+	dialOpts := buildDialOptions(clientCfg, serviceName, creds, healthChecker)
+
+	conn, err := grpc.NewClient(endpoint, dialOpts...)
+	if err != nil {
+		gwglobal.LOGGER.Warn("⚠️  %s 创建连接失败: %v", serviceName, err)
+		return nil, false
+	}
+
+	if healthChecker != nil {
+		healthChecker.Register(serviceName, conn, endpoint)
+	}
+
+	connPoolMu.Lock()
+	connPool[serviceName] = conn
+	connPoolMu.Unlock()
+
+	gwglobal.LOGGER.Debug("✅ %s 客户端已创建 -> %s (健康检查中...)", serviceName, endpoint)
+	return factory(conn), true
+}
+
 // BuildEndpointMap 从配置构建服务名到端点的映射
 func BuildEndpointMap(clients map[string]*gwconfig.GRPCClient) map[string]string {
 	endpoints := make(map[string]string)

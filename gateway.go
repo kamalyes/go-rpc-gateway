@@ -196,7 +196,7 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 		return nil, errors.NewError(errors.ErrCodeInitializationError, errors.FormatInitError("日志器", err))
 	}
 
-	// 创建配置实例：先放入默认值，再让配置文件覆盖。
+	// 创建配置实例：先放入默认值，再让配置文件覆盖
 	// 这样嵌套的数据库配置不会在后续初始化时退回到框架默认库名
 	config := gwconfig.Default()
 
@@ -601,6 +601,77 @@ func (g *Gateway) RegisterHTTPRoutes(routes map[string]http.HandlerFunc) {
 	for pattern, handler := range routes {
 		g.RegisterHTTPRoute(pattern, handler)
 	}
+}
+
+// AutoRegister 自动注册所有 gRPC 客户端和 HTTP Gateway Handler
+// 基于 gRPC Server Reflection 自动发现服务，业务层无需写任何注册代码
+// 前提: gRPC server 需要启用 reflection (reflection.Register(server))
+//
+// 使用示例:
+//
+//	gw, _ := gateway.NewGateway().WithSearchPath("config").Build()
+//	result := gw.AutoRegister()  // 一行搞定所有注册
+//	fmt.Println(result.Summary())
+func (g *Gateway) AutoRegister() *grpcpool.AutoRegisterResult {
+	return g.AutoRegisterWithHealthCheck(nil)
+}
+
+// AutoRegisterWithHealthCheck 自动注册（带健康检查器）
+// 与 AutoRegister 相同，但支持传入自定义健康检查器
+func (g *Gateway) AutoRegisterWithHealthCheck(healthChecker *grpcpool.HealthChecker) *grpcpool.AutoRegisterResult {
+	global.LOGGER.InfoContext(g.Context(), "正在自动注册 gRPC 客户端和 HTTP Handler...")
+	config := g.GetConfig()
+	if config == nil || config.GRPC == nil || config.GRPC.Clients == nil {
+		global.LOGGER.WarnContext(g.Context(), "gRPC client config is empty, skip auto register")
+		return &grpcpool.AutoRegisterResult{}
+	}
+
+	// 先初始化连接和发现服务（不注册 handler）
+	clientNames := grpcpool.InitConnectionsAndDiscover(g.Context(), healthChecker, config.GRPC.Clients)
+
+	// 将动态 handler 注册函数加入 gatewayHandlerRegistrars，确保 RebuildHTTPGateway 时能重放
+	gatewayMux := g.GetGatewayMux()
+	dynamicRegisterFunc := func(ctx context.Context, mux *runtime.ServeMux) error {
+		handlers, err := grpcpool.RegisterDynamicHandlers(ctx, mux, config.GRPC.Clients)
+		if err != nil {
+			return err
+		}
+		global.LOGGER.InfoContext(ctx, "✅ 动态注册 %d 个 HTTP handler", len(handlers))
+		return nil
+	}
+	// 立即注册一次（到当前 mux）
+	if err := dynamicRegisterFunc(g.Context(), gatewayMux); err != nil {
+		global.LOGGER.WarnContext(g.Context(), "动态注册 HTTP handler 失败: %v", err)
+	}
+	// 加入 registrars 以便重建时重放
+	g.gatewayHandlerRegistrars = append(g.gatewayHandlerRegistrars, dynamicRegisterFunc)
+
+	result := &grpcpool.AutoRegisterResult{
+		Clients:       clientNames,
+		TotalClients:  len(config.GRPC.Clients),
+		SkippedManual: 0,
+	}
+
+	global.LOGGER.InfoContext(g.Context(), "📋 %s", result.Summary())
+
+	for _, name := range result.Clients {
+		g.registeredGRPCServices = append(g.registeredGRPCServices, "auto-client:"+name)
+	}
+
+	// 设置服务恢复回调：服务从不可用恢复为可用时，重新发现服务和注册 HTTP 路由
+	if healthChecker != nil {
+		healthChecker.SetOnRecover(func(serviceName string) {
+			mux := g.GetGatewayMux()
+			if err := grpcpool.RediscoverAndRegisterService(g.Context(), mux, serviceName); err != nil {
+				global.LOGGER.WarnContext(g.Context(), "服务 %s 恢复后重新注册失败: %v", serviceName, err)
+			}
+		})
+	}
+
+	endpoints := grpcpool.BuildEndpointMap(config.GRPC.Clients)
+	healthChecker.StartPeriodicCheck(grpcpool.DefaultHealthCheckInterval, endpoints)
+
+	return result
 }
 
 // AddGrpcGatewayMiddleware 添加 gRPC-Gateway 中间件
