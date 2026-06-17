@@ -13,6 +13,7 @@ package observability
 import (
 	"context"
 	"database/sql/driver"
+	"encoding/json"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -135,7 +136,14 @@ func DispatchAccessLog(ctx context.Context, rec *AccessRecord) {
 // 仅在 HasAccessLogHandlers() 为 true 时调用，零钩子场景零开销
 func captureAccessLog(ctx context.Context, r *http.Request, rw *core.ResponseWriter, start time.Time, duration time.Duration, reqBody, respBody []byte, slowThreshold time.Duration) {
 	meta := core.GetRequestCommonMeta(ctx)
-	masker := global.DATAMASKER
+	// 走 activeMasker 而不是直接读 global.DATAMASKER：后者只由网关的完整初始化链赋值，
+	// 而中间件是导出的、可以被单独使用 activeMasker 在它为 nil 时给一个兜底脱敏器，
+	// 这里直接解引用等于把那层保护绕过去
+	// [EN] activeMasker rather than a direct read of global.DATAMASKER: that variable is only
+	// assigned by the gateway's full init chain while the middlewares are exported and usable on
+	// their own. activeMasker supplies a fallback masker when it is nil, and dereferencing the
+	// variable here walks straight around that protection.
+	masker := activeMasker()
 
 	serviceName := ""
 	if cfg := global.GetGatewayConfig(); cfg != nil {
@@ -152,7 +160,7 @@ func captureAccessLog(ctx context.Context, r *http.Request, rw *core.ResponseWri
 		Method:       r.Method,
 		Path:         r.URL.Path,
 		Query:        r.URL.RawQuery,
-		Headers:      sqltypes.CompressedTextMap(r.Header),
+		Headers:      maskHeaders(r.Header),
 		Body:         sqltypes.CompressedText(masker.Mask(reqBody)),
 		UserAgent:    r.Header.Get(constants.HeaderUserAgent),
 		Source:       mathx.IfEmpty(r.Header.Get(constants.HeaderXSource), meta.Domain),
@@ -171,4 +179,80 @@ func captureAccessLog(ctx context.Context, r *http.Request, rw *core.ResponseWri
 	}
 
 	DispatchAccessLog(ctx, rec)
+}
+
+// maskHeaders 请求头脱敏后再入库
+//
+// 改造前这里是 sqltypes.CompressedTextMap(r.Header)：请求体与响应体都过了 masker.Mask，
+// 唯独请求头原样入库 —— 也就是 Authorization、Cookie、X-Token、签名头全以明文落在审计库里，
+// 而审计库恰恰是会被导出、被下游分析、保留期最长的那一份数据
+//
+// 走脱敏器的 JSON 结构化路径而不是自己维护一份敏感头名单：脱敏器内置的键名规则表已经覆盖
+// authorization / cookie / set_cookie / token / signature / api_key / session 这些，
+// 键名规范化时把 - _ . 都当分隔符，所以 HTTP 头的写法（X-Token、Set-Cookie）本来就能命中；
+// 用户在 logging.sensitive-keys 里追加的键名也一并生效 自己再列一份必然和它漂移
+//
+// 顺带去掉一处别名：CompressedTextMap(r.Header) 是类型转换，不复制底层 map，
+// 等于把请求的 header map 直接交给可能异步消费的钩子现在返回的是新建的 map
+//
+// 脱敏后解析不回来时返回 nil：审计日志里宁可缺这一列，也不能漏出凭据
+//
+// [EN] This used to be sqltypes.CompressedTextMap(r.Header): request and response bodies both
+// went through masker.Mask while the headers went in verbatim, so Authorization, Cookie,
+// X-Token and the signature headers all landed in the audit store in clear — and the audit
+// store is precisely the data that gets exported, analysed downstream and retained longest.
+//
+// It goes through the masker's structured JSON path rather than keeping a private list of
+// sensitive header names: the masker's built-in key table already covers authorization, cookie,
+// set_cookie, token, signature, api_key and session, and its key normalisation treats -, _ and
+// . as separators, so HTTP spellings such as X-Token and Set-Cookie match as they are. Keys the
+// user adds under logging.sensitive-keys apply too. A second list would inevitably drift.
+//
+// It also removes an aliasing issue: CompressedTextMap(r.Header) is a type conversion and does
+// not copy the underlying map, handing the request's own header map to hooks that may consume
+// it asynchronously. The returned map is freshly built.
+//
+// On a parse failure it returns nil: better to miss this column in the audit log than to leak
+// credentials into it.
+func maskHeaders(header http.Header) sqltypes.CompressedTextMap {
+	if len(header) == 0 {
+		return nil
+	}
+
+	raw, err := json.Marshal(map[string][]string(header))
+	if err != nil {
+		return nil
+	}
+
+	// 解析目标是 map[string]any 而不是 map[string][]string：敏感键名命中时，脱敏器把
+	// 整个值替换成一个掩码字符串，于是 {"Authorization":["Bearer x"]} 出来是
+	// {"Authorization":"***REDACTED***"} —— 数组变成了字符串，按 []string 解析会直接失败
+	// 失败的后果不是「少脱敏」而是整列丢失，所以这一层形状归一是必须的
+	//
+	// [EN] The unmarshal target is map[string]any rather than map[string][]string: on a
+	// sensitive key the masker replaces the whole value with a mask string, so
+	// {"Authorization":["Bearer x"]} comes back as {"Authorization":"***REDACTED***"} — an array
+	// turned into a string, which fails outright when parsed as []string. The failure would cost
+	// the entire column rather than merely some masking, so normalising the shape is required.
+	var masked map[string]any
+	if err := json.Unmarshal([]byte(activeHeaderMasker().Mask(raw)), &masked); err != nil {
+		return nil
+	}
+
+	out := make(map[string][]string, len(masked))
+	for name, value := range masked {
+		switch v := value.(type) {
+		case string:
+			out[name] = []string{v}
+		case []any:
+			values := make([]string, 0, len(v))
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					values = append(values, s)
+				}
+			}
+			out[name] = values
+		}
+	}
+	return out
 }

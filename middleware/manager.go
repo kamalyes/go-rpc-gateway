@@ -567,10 +567,21 @@ func (m *Manager) GetMiddlewares() []MiddlewareFunc {
 	// 3. Context 追踪中间件（始终启用）
 	middlewares = append(middlewares, m.RequestContextMiddlewareFunc())
 
-	// 4. 日志中间件（根据配置）
-	if m.cfg.Middleware.Logging.Enabled {
-		middlewares = append(middlewares, m.LoggingMiddleware())
-	}
+	// 4. 日志中间件（始终装上，开关由中间件在请求路径上判）
+	//
+	// 不在这里按 Enabled 决定装不装：装不装是建链时一次性的决定，而建链只在启动与
+	// 「HTTP/Swagger 运行期配置变了」时发生（见 gateway.go 的 httpRuntimeChanged，
+	// 它只比 HTTPServer 与 Swagger 两棵子树，不含 Middleware）
+	// 于是启动时关着日志，之后在配置里打开根本不会生效 —— 这一层从来没被装上
+	// 现在恒定装上，由 LoggingMiddleware 每请求读一次 Enabled，两个方向都能热切
+	//
+	// [EN] Enabled is deliberately not consulted here. Whether a layer is installed is decided
+	// once while the chain is built, and the chain is only built at startup and when the HTTP or
+	// Swagger runtime config changes (see httpRuntimeChanged in gateway.go, which compares only
+	// the HTTPServer and Swagger subtrees and not Middleware). So logging that was off at
+	// startup could never be switched on later: the layer was never installed. It is now always
+	// installed and LoggingMiddleware reads Enabled once per request, so both directions work.
+	middlewares = append(middlewares, m.LoggingMiddleware())
 
 	// 5. 国际化中间件（根据配置）
 	if m.cfg.Middleware.I18N.Enabled {

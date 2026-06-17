@@ -332,6 +332,55 @@ func activeMasker() *desensitize.DataMasker {
 	return fallbackMasker
 }
 
+// maxHeaderMaskSize 请求头脱敏时允许的报文上限
+//
+// 取 64 KiB：请求头的真实上限由 http.Server.MaxHeaderBytes 决定（标准库默认 1 MiB，
+// 实际部署远小于此），64 KiB 足够容纳一份带 Cookie 的浏览器请求头而不被截断
+//
+// [EN] 64 KiB: the real ceiling on request headers is http.Server.MaxHeaderBytes (1 MiB by
+// default in the standard library, far less in practice), and 64 KiB holds a browser's headers
+// with cookies without truncation
+const maxHeaderMaskSize = 64 << 10
+
+// headerMaskerEntry 按配置缓存的请求头脱敏器
+type headerMaskerEntry struct {
+	src    *gcmiddleware.Logging
+	masker *desensitize.DataMasker
+}
+
+var headerMaskerCache atomic.Pointer[headerMaskerEntry]
+
+// activeHeaderMasker 请求头专用的脱敏器，按配置建一次
+//
+// 为什么不直接复用 global.DATAMASKER：它的 MaxBodySize 来自 logging.max-body-size
+// （默认 2048），那是给请求体定的尺寸 一份带 Cookie 的浏览器请求头很容易超过 2 KiB，
+// 超了就会在脱敏入口被截断成非法 JSON，于是整表退回文本脱敏，结果既不是 JSON、
+// 也没法再解析回 map —— 只有敏感键名规则是要共用的，尺寸不是
+//
+// 缓存按配置指针判失效，与 request_attr_index 的做法一致：热重载换了配置就重建
+//
+// [EN] Not simply reusing global.DATAMASKER because its MaxBodySize comes from
+// logging.max-body-size (2048 by default), a size meant for request bodies. A browser's headers
+// with cookies easily exceed 2 KiB, and once truncated at the masking entry point they are no
+// longer valid JSON, so the whole map falls back to text masking and can no longer be parsed
+// back into a map. What should be shared is the sensitive-key rules, not the size.
+//
+// The cache is invalidated by config pointer identity, the same way request_attr_index does it:
+// a hot reload replacing the config triggers a rebuild.
+func activeHeaderMasker() *desensitize.DataMasker {
+	cfg := getLoggingConfig()
+	if entry := headerMaskerCache.Load(); entry != nil && entry.src == cfg {
+		return entry.masker
+	}
+	masker := desensitize.NewMasker(&desensitize.MaskerConfig{
+		SensitiveKeys: cfg.SensitiveKeys,
+		SensitiveMask: cfg.SensitiveMask,
+		MaxBodySize:   maxHeaderMaskSize,
+	})
+	headerMaskerCache.Store(&headerMaskerEntry{src: cfg, masker: masker})
+	return masker
+}
+
 // prefixedBody 把「已读进内存的前缀」与「尚未读取的剩余」拼成一个 ReadCloser
 // Close 转交给原始 body，否则连接不会被正确释放
 //
@@ -374,20 +423,42 @@ func (b *prefixedBody) Close() error {
 }
 
 // LoggingMiddleware HTTP 日志中间件
+//
+// 开关在请求路径上判，而不是在构造期判掉
+//
+// 原先这里先读一次配置，Enabled 为 false 就直接返回透传、根本不装这一层；装上之后又
+// 再也不看 reqConfig.Enabled 于是两个方向的热重载都是失效的：启动时关着的，之后在
+// 配置里打开不会生效（这一层压根没装）；启动时开着的，之后在配置里关掉也停不下来
+// （装上的那一层不看开关）注释写着「每次请求读取一次配置，支持热重载」，
+// 唯独 Enabled 这个开关被排除在外
+//
+// 代价是关着日志时每个请求多一次透传调用与一次 getLoggingConfig（几次指针解引用），
+// 换来的是运行期真的能开关 —— 出故障时临时关掉日志降载是实际会用到的操作
+//
+// [EN] The switch is evaluated on the request path rather than decided at construction.
+//
+// This used to read the config once, return a pass-through when Enabled was false and never
+// install the layer at all; once installed it never looked at reqConfig.Enabled again. Hot
+// reload was therefore broken in both directions: enabling it later had no effect because the
+// layer was never installed, and disabling it later had no effect because the installed layer
+// ignored the switch. The comment said "the config is read once per request to support hot
+// reload" while that one switch was the exception.
+//
+// The cost is one pass-through call and one getLoggingConfig (a few pointer dereferences) per
+// request while logging is off, in exchange for the switch actually working at runtime —
+// turning logging off to shed load during an incident is a real operation.
 func LoggingMiddleware() core.HTTPMiddleware {
-	config := getLoggingConfig()
-	if !config.Enabled {
-		return func(next http.Handler) http.Handler {
-			return next
-		}
-	}
-
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			ctx := r.Context()
 			// 每次请求读取一次配置，支持热重载且避免后续重复读取
 			reqConfig := getLoggingConfig()
+
+			if !reqConfig.Enabled {
+				next.ServeHTTP(w, r)
+				return
+			}
 
 			// 跳过路径检查
 			if isSkipPath(reqConfig, r.URL.Path) {
