@@ -14,6 +14,7 @@ package global
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/snowflake"
@@ -26,8 +27,46 @@ import (
 	"gorm.io/gorm"
 )
 
+// gatewayConfig 网关配置的权威存储
+//
+// 为什么要原子指针而不是直接用下面的 GATEWAY 变量：这份配置会热重载 ——
+// gateway.go 的配置变更回调会整体换掉它，而请求路径上每个请求都要读一次
+// （RequestContextMiddleware 每请求读 RequestContext 子树建提取索引）
+// 一个普通的包级指针变量摆在这两者之间就是数据竞态，race detector 实测可复现：
+//
+//	WARNING: DATA RACE
+//	Read at ...  middleware/core/request_context.go:160
+//	Previous write at ...  gateway.go
+//
+// 这不只是「指针会不会被撕开」的问题 换上去的那份 Gateway，它的字段写入与指针写入之间
+// 没有任何屏障，读侧完全可能看到指针已经换了、而结构体字段还没可见，
+// 读到一份半初始化的配置 —— 而这条路径决定的是请求属性怎么提取
+//
+// [EN] Why an atomic pointer rather than the plain GATEWAY variable below: this config is
+// hot-reloadable — the config-change callbacks in gateway.go replace it wholesale — while every
+// request reads it on the request path (RequestContextMiddleware reads the RequestContext
+// subtree per request to build its extraction index). A plain package-level pointer sitting
+// between those two is a data race, reproducible under the race detector.
+//
+// It is not merely a question of whether the pointer can tear. There is no barrier between the
+// field writes of the incoming Gateway and the write of the pointer itself, so a reader can
+// perfectly well observe the new pointer while the struct's fields are not yet visible, and
+// read a half-initialised config — on the very path that decides how request attributes are
+// extracted.
+var gatewayConfig atomic.Pointer[gwconfig.Gateway]
+
 var (
-	GATEWAY        *gwconfig.Gateway                       // 网关配置
+	// GATEWAY 网关配置
+	//
+	// 仅为兼容保留：它是导出的，外部代码可能直接读它，所以 SetGatewayConfig 仍会同步写一次
+	// 仓库内部一律走 GetGatewayConfig / GetConfig，不要新增对这个变量的直接读取 ——
+	// 直接读它就是把上面那条竞态重新引进来
+	//
+	// [EN] Kept for compatibility only: it is exported and external code may read it directly,
+	// so SetGatewayConfig keeps writing it. Everything inside this repository goes through
+	// GetGatewayConfig or GetConfig; do not add new direct reads of this variable, because a
+	// direct read is exactly how the race above comes back.
+	GATEWAY        *gwconfig.Gateway
 	LOGGER         logger.ILogger                          // 日志器
 	POOL_MANAGER   *cpool.Manager                          // 连接池管理器（所有连接的唯一管理者）
 	CONFIG_MANAGER *config.IntegratedConfigManager         // 统一配置管理器
@@ -90,6 +129,7 @@ func CleanupGlobal() {
 	}
 
 	// 清理全局变量（便捷引用置空即可，实际连接已由 PoolManager.Close() 释放）
+	gatewayConfig.Store(nil)
 	GATEWAY = nil
 	CONFIG_MANAGER = nil
 	POOL_MANAGER = nil
@@ -106,9 +146,22 @@ func CleanupGlobal() {
 	}
 }
 
+// SetGatewayConfig 设置网关配置
+//
+// 启动与热重载都必须走这里：原子存储是权威来源，GATEWAY 变量同步更新只为兼容
+// 外部直接读它的代码 两者顺序不能反 —— 先存原子，读侧才不会在新旧之间看到空档
+//
+// [EN] Both startup and hot reload must go through here: the atomic store is the source of
+// truth and the GATEWAY variable is updated alongside it only for code that reads it directly.
+// The order matters: the atomic is stored first so readers never see a gap between old and new.
+func SetGatewayConfig(cfg *gwconfig.Gateway) {
+	gatewayConfig.Store(cfg)
+	GATEWAY = cfg
+}
+
 // GetConfig 获取当前配置
 func GetConfig() *gwconfig.Gateway {
-	return GATEWAY
+	return GetGatewayConfig()
 }
 
 // GetLogger 获取日志器
@@ -148,7 +201,19 @@ func GetServerNode() string {
 }
 
 // GetGatewayConfig 获取网关配置
+//
+// 原子存储为空时回退读 GATEWAY：单元测试与「只用中间件、不起整个网关」的场景里，
+// 直接 `global.GATEWAY = cfg` 是既有写法，这条回退让它们照旧可用
+// 这一支只在从未调用过 SetGatewayConfig 时才会走到，所以正常生命周期里不会去读那个变量
+//
+// [EN] Falls back to GATEWAY when the atomic is empty: assigning global.GATEWAY = cfg directly
+// is the established pattern in unit tests and in setups that use the middlewares without
+// starting the whole gateway, and this keeps them working. The branch is only reached when
+// SetGatewayConfig was never called, so the normal lifecycle never reads that variable.
 func GetGatewayConfig() *gwconfig.Gateway {
+	if cfg := gatewayConfig.Load(); cfg != nil {
+		return cfg
+	}
 	return GATEWAY
 }
 
@@ -159,7 +224,7 @@ func GetConfigManager() *config.IntegratedConfigManager {
 
 // IsInitialized 检查是否已初始化
 func IsInitialized() bool {
-	return GATEWAY != nil && LOGGER != nil && CONFIG_MANAGER != nil
+	return GetGatewayConfig() != nil && LOGGER != nil && CONFIG_MANAGER != nil
 }
 
 // ReloadConfig 手动重新加载配置

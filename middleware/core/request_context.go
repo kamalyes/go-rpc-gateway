@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"strings"
 
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/contextx"
@@ -157,7 +158,21 @@ func RequestContextMiddleware() HTTPMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			requestContext := global.GATEWAY.RequestContext
+
+			// 走 GetGatewayConfig 而不是直接读 global.GATEWAY：后者是普通包级变量，
+			// 与热重载的写入构成数据竞态，race detector 实测就指在这一行
+			// 顺带补上 nil 保护 —— 原先 global.GATEWAY 为 nil 时这里直接 panic，
+			// 而 buildAttrIndex 本来就能接受 nil 配置（返回一张空索引）
+			//
+			// [EN] GetGatewayConfig rather than a direct read of global.GATEWAY: that plain
+			// package-level variable races with the hot-reload write, and the race detector
+			// pointed at this very line. The nil guard comes along for free: this used to panic
+			// outright when global.GATEWAY was nil, while buildAttrIndex already accepts a nil
+			// config and answers with an empty index.
+			var requestContext *gwconfig.RequestContext
+			if cfg := global.GetGatewayConfig(); cfg != nil {
+				requestContext = cfg.RequestContext
+			}
 
 			// 按来源提取的 28 个属性走反转索引：只遍历请求实际带的 header，
 			// 而不是把配置里 80 个来源逐个试一遍

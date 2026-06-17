@@ -138,8 +138,8 @@ func captureAccessLog(ctx context.Context, r *http.Request, rw *core.ResponseWri
 	masker := global.DATAMASKER
 
 	serviceName := ""
-	if global.GATEWAY != nil {
-		serviceName = global.GATEWAY.Name
+	if cfg := global.GetGatewayConfig(); cfg != nil {
+		serviceName = cfg.Name
 	}
 
 	rec := &AccessRecord{

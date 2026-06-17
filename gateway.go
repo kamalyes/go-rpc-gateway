@@ -347,7 +347,7 @@ func (b *GatewayBuilder) initializeGlobalState(manager *config.IntegratedConfigM
 
 	// 设置全局变量
 	global.CONFIG_MANAGER = manager
-	global.GATEWAY = *config
+	global.SetGatewayConfig(*config)
 
 	// 初始化全局上下文
 	global.CTX, global.CANCEL = context.WithCancel(context.Background())
@@ -373,7 +373,7 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *config.Integrate
 			// 合并默认配置
 			newConfig = mergeGatewayConfigWithDefaults(newConfig)
 			global.LOGGER.InfoContext(b.Context(), "📋 配置已更新: %s", newConfig.Name)
-			global.GATEWAY = newConfig
+			global.SetGatewayConfig(newConfig)
 
 			// 重新初始化日志器（如果日志配置发生变化）
 			loggerInit := &global.LoggerInitializer{}
@@ -418,7 +418,7 @@ func (b *GatewayBuilder) initializeComponents() error {
 	ctx, cancel := context.WithTimeout(global.CTX, 30*time.Second)
 	defer cancel()
 
-	return chain.InitializeAll(ctx, global.GATEWAY)
+	return chain.InitializeAll(ctx, global.GetGatewayConfig())
 }
 
 // RegisterService 注册gRPC服务
@@ -998,7 +998,7 @@ func (g *Gateway) applyReloadedConfig(ctx context.Context, newConfig *gwconfig.G
 	cg := global.LOGGER.NewConsoleGroup()
 	cg.Info("%s", errors.FormatConfigUpdateInfo(newConfig.Name))
 	g.gatewayConfig = newConfig
-	global.GATEWAY = newConfig
+	global.SetGatewayConfig(newConfig)
 
 	httpChanged := httpRuntimeChanged(oldConfig, newConfig) || swaggerRuntimeChanged(oldConfig, newConfig)
 	grpcChanged := grpcRuntimeChanged(oldConfig, newConfig)

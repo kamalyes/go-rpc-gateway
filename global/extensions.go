@@ -26,11 +26,12 @@ import (
 //	num, ok := global.GetExtensionAs[int]("max-retry")
 //	flag, ok := global.GetExtensionAs[bool]("enabled")
 func GetExtensionAs[T types.Convertible](key string) (T, bool) {
-	if GATEWAY == nil {
+	cfg := GetGatewayConfig()
+	if cfg == nil {
 		var zero T
 		return zero, false
 	}
-	return gwconfig.GetExtensionAs[T](GATEWAY, key)
+	return gwconfig.GetExtensionAs[T](cfg, key)
 }
 
 // GetEnvOrExtension 先读环境变量，为空则回退到 gateway extensions 配置（字符串类型）
