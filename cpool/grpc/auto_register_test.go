@@ -12,10 +12,15 @@
 package grpc
 
 import (
+	"context"
+	"net/http"
+	"strings"
 	"testing"
 
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestClearRegistry(t *testing.T) {
@@ -141,4 +146,35 @@ func TestSetFieldValue(t *testing.T) {
 
 	// 测试 grpcStatusToHTTP 的默认值
 	assert.Equal(t, 500, grpcStatusToHTTP(codes.Code(999)))
+}
+
+func TestAnnotateContextForwardsHeaders(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "/api/v1/test", nil)
+	assert.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer token")
+	req.Header.Set("X-User-ID", "user-1")
+	req.Header.Set("Connection", "keep-alive")
+
+	// 使用与实际网关相同的 incomingHeaderMatcher 配置
+	// 注意：Authorization 必须排除，因为 grpc-gateway 的 annotateContext 已对其做无条件转发，
+	// 此处再匹配会导致 metadata 中出现重复值
+	mux := runtime.NewServeMux(runtime.WithIncomingHeaderMatcher(func(key string) (string, bool) {
+		switch strings.ToLower(key) {
+		case "connection", "keep-alive", "proxy-connection",
+			"transfer-encoding", "upgrade", "te":
+			return key, false
+		case "authorization":
+			return key, false
+		}
+		return key, true
+	}))
+	ctx, err := runtime.AnnotateContext(context.Background(), mux, req, "/test.Service/Method")
+	assert.NoError(t, err)
+
+	md, ok := metadata.FromOutgoingContext(ctx)
+	assert.True(t, ok)
+	// Authorization 由 grpc-gateway 的向后兼容逻辑转发，只出现一次
+	assert.Equal(t, []string{"Bearer token"}, md.Get("authorization"))
+	assert.Equal(t, []string{"user-1"}, md.Get("x-user-id"))
+	assert.Empty(t, md.Get("connection"))
 }

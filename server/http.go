@@ -63,6 +63,11 @@ func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
 			case "connection", "keep-alive", "proxy-connection",
 				"transfer-encoding", "upgrade", "te":
 				return key, false
+			case "authorization":
+				// grpc-gateway 的 AnnotateContext 已对 Authorization 做无条件转发（向后兼容），
+				// 此处再匹配会导致 metadata 中出现重复的 authorization 值，
+				// 下游服务解析 token 失败 → 认证失败 → 无数据权限
+				return key, false
 			}
 			return key, true
 		}),

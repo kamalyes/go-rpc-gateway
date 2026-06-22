@@ -133,6 +133,10 @@ func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
             },
         }),
         runtime.WithIncomingHeaderMatcher(func(key string) (string, bool) {
+            // Authorization 由 grpc-gateway 的 AnnotateContext 无条件转发，此处匹配会导致重复
+            if strings.EqualFold(key, "authorization") {
+                return key, false
+            }
             return key, true
         }),
     }
