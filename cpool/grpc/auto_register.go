@@ -35,6 +35,7 @@ import (
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -99,6 +100,14 @@ var routeRegistry = &struct {
 	mu     sync.RWMutex
 	routes []HTTPRoute
 }{}
+
+// defaultJSONPb 默认 JSON 序列化器（protojson.MarshalOptions 为只读配置，并发安全）
+var defaultJSONPb = &runtime.JSONPb{
+	MarshalOptions: protojson.MarshalOptions{
+		UseProtoNames:   true,
+		EmitUnpopulated: true,
+	},
+}
 
 // GetReflectionRegistry 获取已发现的服务列表
 func GetReflectionRegistry(serviceName string) []ReflectionServiceInfo {
@@ -186,33 +195,51 @@ func initAllConnections(ctx context.Context, healthChecker *HealthChecker, clien
 
 // registerFileDescriptors 注册未在 GlobalFiles 中的 FileDescriptorProto
 // 业务 import 的 proto 包已在 GlobalFiles 中，跳过；只注册 reflection 获取的新文件
-// 用 recover 防 panic（文件可能依赖未注册的文件，或 RegisterFile panic）
+// 多趟注册解决文件间依赖顺序问题（被依赖的文件需先注册），用 recover 防 panic
 // 返回新注册数和跳过数
 func registerFileDescriptors(fileDescriptors map[string]*descriptorpb.FileDescriptorProto) (registered, skipped int) {
-	for _, fdp := range fileDescriptors {
-		// 先检查是否已在 GlobalFiles 中
-		if _, err := protoregistry.GlobalFiles.FindFileByPath(fdp.GetName()); err == nil {
+	if len(fileDescriptors) == 0 {
+		return
+	}
+
+	// 第一趟：过滤已在 GlobalFiles 中的文件
+	remaining := make(map[string]*descriptorpb.FileDescriptorProto, len(fileDescriptors))
+	for name, fdp := range fileDescriptors {
+		if _, err := protoregistry.GlobalFiles.FindFileByPath(name); err == nil {
 			skipped++
 			continue
 		}
+		remaining[name] = fdp
+	}
 
-		// 用 recover 防 panic（文件可能依赖未注册的文件，或 RegisterFile panic）
-		func() {
-			defer func() { _ = recover() }()
-
-			fd, err := protodesc.NewFile(fdp, protoregistry.GlobalFiles)
-			if err != nil {
-				return
-			}
-
-			func() {
+	// 后续趟：反复尝试注册，每趟注册依赖已满足的文件，直到无进展
+	for len(remaining) > 0 {
+		progress := false
+		for name, fdp := range remaining {
+			ok := func() (succeeded bool) {
 				defer func() { _ = recover() }()
-				if err := protoregistry.GlobalFiles.RegisterFile(fd); err != nil {
-					return
+				fd, err := protodesc.NewFile(fdp, protoregistry.GlobalFiles)
+				if err != nil {
+					return false
 				}
-				registered++
+				if err := protoregistry.GlobalFiles.RegisterFile(fd); err != nil {
+					return false
+				}
+				return true
 			}()
-		}()
+			if ok {
+				registered++
+				delete(remaining, name)
+				progress = true
+			}
+		}
+		if !progress {
+			// 剩余文件存在无法解析的依赖，跳过并记录
+			for name := range remaining {
+				gwglobal.LOGGER.Warn("registerFileDescriptors: 文件 %s 依赖未注册，跳过", name)
+			}
+			break
+		}
 	}
 	return
 }
@@ -282,6 +309,7 @@ func DiscoverAllServices(ctx context.Context, clients map[string]*gwconfig.GRPCC
 
 // discoverServices 通过 gRPC Server Reflection 发现单个 gRPC server 的所有服务
 // 返回服务列表和所有相关的 FileDescriptorProto（含依赖文件）
+// 使用流水线模式：批量发送所有 FileContainingSymbol 请求后批量接收响应，将 N 次 RTT 降为 1 次
 func discoverServices(ctx context.Context, conn *grpc.ClientConn) ([]ReflectionServiceInfo, map[string]*descriptorpb.FileDescriptorProto, error) {
 	client := grpc_reflection_v1alpha.NewServerReflectionClient(conn)
 	stream, err := client.ServerReflectionInfo(ctx)
@@ -291,10 +319,9 @@ func discoverServices(ctx context.Context, conn *grpc.ClientConn) ([]ReflectionS
 	defer stream.CloseSend()
 
 	// 1. 获取服务列表
-	err = stream.Send(&grpc_reflection_v1alpha.ServerReflectionRequest{
+	if err := stream.Send(&grpc_reflection_v1alpha.ServerReflectionRequest{
 		MessageRequest: &grpc_reflection_v1alpha.ServerReflectionRequest_ListServices{},
-	})
-	if err != nil {
+	}); err != nil {
 		return nil, nil, fmt.Errorf("发送 ListServices 请求失败: %w", err)
 	}
 
@@ -318,56 +345,67 @@ func discoverServices(ctx context.Context, conn *grpc.ClientConn) ([]ReflectionS
 	}
 	sort.Strings(serviceNames)
 
+	if len(serviceNames) == 0 {
+		return nil, nil, nil
+	}
+
 	gwglobal.LOGGER.InfoContext(ctx, "🔍 reflection 发现 %d 个服务: %v", len(serviceNames), serviceNames)
 
-	// 2. 获取每个服务的 FileDescriptorProto（含所有依赖文件）
-	var result []ReflectionServiceInfo
+	// 2. 流水线获取所有服务的 FileDescriptorProto（批量发送 + 批量接收）
 	fileCache := map[string]*descriptorpb.FileDescriptorProto{}
+	failed := make(map[string]bool, len(serviceNames))
 
+	// 批量发送所有 FileContainingSymbol 请求
 	for _, svcName := range serviceNames {
-		_, err := fetchFileDescriptor(stream, svcName, fileCache)
-		if err != nil {
-			gwglobal.LOGGER.WarnContext(ctx, "获取服务 %s 的 FileDescriptor 失败: %v", svcName, err)
+		if err := stream.Send(&grpc_reflection_v1alpha.ServerReflectionRequest{
+			MessageRequest: &grpc_reflection_v1alpha.ServerReflectionRequest_FileContainingSymbol{
+				FileContainingSymbol: svcName,
+			},
+		}); err != nil {
+			failed[svcName] = true
+			gwglobal.LOGGER.WarnContext(ctx, "发送 FileContainingSymbol 请求失败 %s: %v", svcName, err)
+		}
+	}
+
+	// 批量接收所有响应（与发送顺序一一对应）
+	for _, svcName := range serviceNames {
+		if failed[svcName] {
 			continue
 		}
-		result = append(result, ReflectionServiceInfo{
-			ServiceName: svcName,
-		})
+		resp, err := stream.Recv()
+		if err != nil {
+			failed[svcName] = true
+			gwglobal.LOGGER.WarnContext(ctx, "接收 FileContainingSymbol 响应失败 %s: %v", svcName, err)
+			continue
+		}
+		if err := parseFileDescriptorResponse(resp, fileCache); err != nil {
+			failed[svcName] = true
+			gwglobal.LOGGER.WarnContext(ctx, "解析 FileDescriptor 失败 %s: %v", svcName, err)
+		}
+	}
+
+	// 构建结果（跳过失败的服务）
+	result := make([]ReflectionServiceInfo, 0, len(serviceNames))
+	for _, svcName := range serviceNames {
+		if !failed[svcName] {
+			result = append(result, ReflectionServiceInfo{ServiceName: svcName})
+		}
 	}
 
 	return result, fileCache, nil
 }
 
-// fetchFileDescriptor 通过 reflection 获取符号所在的 FileDescriptorProto
-func fetchFileDescriptor(
-	stream grpc_reflection_v1alpha.ServerReflection_ServerReflectionInfoClient,
-	symbol string,
-	cache map[string]*descriptorpb.FileDescriptorProto,
-) (*descriptorpb.FileDescriptorProto, error) {
-	err := stream.Send(&grpc_reflection_v1alpha.ServerReflectionRequest{
-		MessageRequest: &grpc_reflection_v1alpha.ServerReflectionRequest_FileContainingSymbol{
-			FileContainingSymbol: symbol,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("发送 FileContainingSymbol 请求失败: %w", err)
-	}
-
-	resp, err := stream.Recv()
-	if err != nil {
-		return nil, fmt.Errorf("接收 FileContainingSymbol 响应失败: %w", err)
-	}
-
+// parseFileDescriptorResponse 解析 ServerReflectionResponse 中的 FileDescriptorProto，写入 cache
+func parseFileDescriptorResponse(resp *grpc_reflection_v1alpha.ServerReflectionResponse, cache map[string]*descriptorpb.FileDescriptorProto) error {
 	fdResp, ok := resp.MessageResponse.(*grpc_reflection_v1alpha.ServerReflectionResponse_FileDescriptorResponse)
 	if !ok {
-		return nil, fmt.Errorf("意外的响应类型: %T", resp.MessageResponse)
+		return fmt.Errorf("意外的响应类型: %T", resp.MessageResponse)
 	}
 
 	if len(fdResp.FileDescriptorResponse.FileDescriptorProto) == 0 {
-		return nil, fmt.Errorf("空的 FileDescriptorProto")
+		return fmt.Errorf("空的 FileDescriptorProto")
 	}
 
-	// 解析所有 FileDescriptorProto（可能有依赖的文件）
 	for _, raw := range fdResp.FileDescriptorResponse.FileDescriptorProto {
 		fdp := &descriptorpb.FileDescriptorProto{}
 		if err := proto.Unmarshal(raw, fdp); err != nil {
@@ -380,23 +418,7 @@ func fetchFileDescriptor(
 			cache[fdp.GetName()] = fdp
 		}
 	}
-
-	// 返回包含该符号的文件
-	for _, fdp := range cache {
-		for _, svc := range fdp.Service {
-			fullName := fdp.GetPackage() + "." + svc.GetName()
-			if fullName == symbol {
-				return fdp, nil
-			}
-		}
-	}
-
-	// fallback: 返回第一个文件
-	for _, fdp := range cache {
-		return fdp, nil
-	}
-
-	return nil, fmt.Errorf("未找到包含符号 %s 的文件", symbol)
+	return nil
 }
 
 // =============================================================================
@@ -449,7 +471,11 @@ func registerClientHandlers(ctx context.Context, mux *runtime.ServeMux, serviceN
 }
 
 // RegisterDynamicHandlers 基于 reflection 结果动态注册 HTTP handler
-// 遍历所有已发现的服务，提取 HTTP 路由，注册到 runtime.ServeMux
+// Phase 1: 并行提取所有服务的 HTTP 路由（CPU 密集，无共享状态）
+// Phase 2: 串行注册到 runtime.ServeMux
+//
+// runtime.ServeMux.handlers 是 map[string][]handler，Handle/HandlePath 对其直接读写，
+// 无任何互斥保护，并发调用会触发 Go map 的 concurrent write panic，因此必须串行注册。
 func RegisterDynamicHandlers(
 	ctx context.Context,
 	mux *runtime.ServeMux,
@@ -463,16 +489,78 @@ func RegisterDynamicHandlers(
 	services := reflectionRegistry.services
 	reflectionRegistry.mu.RUnlock()
 
-	var registered []string
+	// Phase 1: 并行提取所有服务的 HTTP 路由
+	type svcRoutes struct {
+		conn    *grpc.ClientConn
+		svcDesc protoreflect.ServiceDescriptor
+		routes  []HTTPRoute
+	}
 
-	// 遍历所有服务
+	ch := make(chan svcRoutes)
+	var wg sync.WaitGroup
+
 	for serviceName, svcInfos := range services {
-		registered = append(registered, registerClientHandlers(ctx, mux, serviceName, svcInfos)...)
+		conn, ok := GetConn(serviceName)
+		if !ok {
+			gwglobal.LOGGER.WarnContext(ctx, "动态注册: 服务 %s 未建立连接，跳过", serviceName)
+			continue
+		}
+
+		for _, svcInfo := range svcInfos {
+			wg.Add(1)
+			go func(svcName string, conn *grpc.ClientConn) {
+				defer wg.Done()
+
+				fullName := protoreflect.FullName(svcName)
+				desc, err := protoregistry.GlobalFiles.FindDescriptorByName(fullName)
+				if err != nil {
+					gwglobal.LOGGER.WarnContext(ctx, "查找 ServiceDescriptor %s 失败: %v", fullName, err)
+					return
+				}
+
+				svcDesc, ok := desc.(protoreflect.ServiceDescriptor)
+				if !ok {
+					return
+				}
+
+				routes := extractHTTPRoutes(svcDesc)
+				if len(routes) == 0 {
+					return
+				}
+
+				ch <- svcRoutes{conn: conn, svcDesc: svcDesc, routes: routes}
+			}(svcInfo.ServiceName, conn)
+		}
+	}
+
+	// 后台关闭 channel，使收集循环能正常退出
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+
+	var allRoutes []svcRoutes
+	for sr := range ch {
+		allRoutes = append(allRoutes, sr)
+	}
+
+	// Phase 2: 串行注册到 mux（ServeMux.handlers 为 map[string][]handler，非线程安全）
+	var registered []string
+	var newRoutes []HTTPRoute
+	for _, sr := range allRoutes {
+		for _, route := range sr.routes {
+			if err := registerSingleRoute(mux, sr.conn, sr.svcDesc, route); err != nil {
+				gwglobal.LOGGER.WarnContext(ctx, "注册路由 %s %s 失败: %v", route.HTTPMethod, route.HTTPPath, err)
+				continue
+			}
+			registered = append(registered, fmt.Sprintf("%s %s", route.HTTPMethod, route.HTTPPath))
+			newRoutes = append(newRoutes, route)
+		}
 	}
 
 	// 缓存路由
 	routeRegistry.mu.Lock()
-	routeRegistry.routes = append(routeRegistry.routes, collectRoutes(registered)...)
+	routeRegistry.routes = append(routeRegistry.routes, newRoutes...)
 	routeRegistry.mu.Unlock()
 
 	sort.Strings(registered)
@@ -575,7 +663,7 @@ func extractHTTPRoutes(svcDesc protoreflect.ServiceDescriptor) []HTTPRoute {
 			route.HTTPMethod = "PATCH"
 			route.HTTPPath = pattern.Patch
 		case *annotations.HttpRule_Custom:
-			route.HTTPMethod = pattern.Custom.GetPath()
+			route.HTTPMethod = pattern.Custom.GetKind()
 			route.HTTPPath = pattern.Custom.GetPath()
 		default:
 			continue
@@ -604,6 +692,9 @@ func extractHTTPRoutes(svcDesc protoreflect.ServiceDescriptor) []HTTPRoute {
 			case *annotations.HttpRule_Patch:
 				extraRoute.HTTPMethod = "PATCH"
 				extraRoute.HTTPPath = pattern.Patch
+			case *annotations.HttpRule_Custom:
+				extraRoute.HTTPMethod = pattern.Custom.GetKind()
+				extraRoute.HTTPPath = pattern.Custom.GetPath()
 			}
 			if extraRoute.HTTPPath != "" {
 				extraRoute.BodyField = binding.GetBody()
@@ -705,7 +796,7 @@ func createDynamicHandler(
 
 		// 5. 调用 gRPC 方法
 		outputMsg := dynamicpb.NewMessage(outputType)
-		err := conn.Invoke(ctx, fullMethodName, inputMsg, outputMsg)
+		err := conn.Invoke(ForwardOutgoingContext(r), fullMethodName, inputMsg, outputMsg)
 		if err != nil {
 			st, ok := status.FromError(err)
 			if ok {
@@ -717,16 +808,9 @@ func createDynamicHandler(
 			return
 		}
 
-		// 8. 序列化响应
-		marshaler := &runtime.JSONPb{
-			MarshalOptions: protojson.MarshalOptions{
-				UseProtoNames:   true,
-				EmitUnpopulated: true,
-			},
-		}
-
+		// 8. 序列化响应（复用 package 级 marshaler，避免每次请求创建）
 		w.Header().Set("Content-Type", "application/json")
-		data, err := marshaler.Marshal(outputMsg)
+		data, err := defaultJSONPb.Marshal(outputMsg)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("序列化响应失败: %v", err))
 			return
@@ -735,6 +819,20 @@ func createDynamicHandler(
 		w.WriteHeader(http.StatusOK)
 		w.Write(data)
 	}
+}
+
+// ForwardOutgoingContext 将 HTTP 请求的 Header 转发为 gRPC outgoing metadata
+func ForwardOutgoingContext(r *http.Request) context.Context {
+	md := metadata.New(nil)
+	for key, values := range r.Header {
+		if strings.EqualFold(key, "connection") {
+			continue
+		}
+		for _, value := range values {
+			md.Append(key, value)
+		}
+	}
+	return metadata.NewOutgoingContext(r.Context(), md)
 }
 
 // =============================================================================

@@ -668,8 +668,10 @@ func (g *Gateway) AutoRegisterWithHealthCheck(healthChecker *grpcpool.HealthChec
 		})
 	}
 
-	endpoints := grpcpool.BuildEndpointMap(config.GRPC.Clients)
-	healthChecker.StartPeriodicCheck(grpcpool.DefaultHealthCheckInterval, endpoints)
+	if healthChecker != nil {
+		endpoints := grpcpool.BuildEndpointMap(config.GRPC.Clients)
+		healthChecker.StartPeriodicCheck(grpcpool.DefaultHealthCheckInterval, endpoints)
+	}
 
 	return result
 }

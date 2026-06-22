@@ -12,10 +12,13 @@
 package grpc
 
 import (
+	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestClearRegistry(t *testing.T) {
@@ -141,4 +144,23 @@ func TestSetFieldValue(t *testing.T) {
 
 	// 测试 grpcStatusToHTTP 的默认值
 	assert.Equal(t, 500, grpcStatusToHTTP(codes.Code(999)))
+}
+
+func TestForwardOutgoingContextForwardsHeaders(t *testing.T) {
+	type ctxKey struct{}
+
+	req, err := http.NewRequestWithContext(context.WithValue(context.Background(), ctxKey{}, "kept"), http.MethodGet, "/api/v1/test", nil)
+	assert.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer token")
+	req.Header.Set("X-User-ID", "user-1")
+	req.Header.Set("Connection", "keep-alive")
+
+	ctx := ForwardOutgoingContext(req)
+
+	assert.Equal(t, "kept", ctx.Value(ctxKey{}))
+	md, ok := metadata.FromOutgoingContext(ctx)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"Bearer token"}, md.Get("authorization"))
+	assert.Equal(t, []string{"user-1"}, md.Get("x-user-id"))
+	assert.Empty(t, md.Get("connection"))
 }
