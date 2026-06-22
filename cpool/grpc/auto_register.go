@@ -21,12 +21,15 @@ package grpc
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/utilities"
@@ -768,12 +771,23 @@ func createDynamicHandler(
 					// body 映射到特定字段
 					field := inputType.Fields().ByName(protoreflect.Name(route.BodyField))
 					if field != nil {
-						fieldMsg := dynamicpb.NewMessage(field.Message())
-						if err := protojson.Unmarshal(bodyData, fieldMsg); err != nil {
-							writeError(w, http.StatusBadRequest, fmt.Sprintf("解析请求体字段失败: %v", err))
-							return
+						if field.Kind() == protoreflect.MessageKind {
+							// message 类型字段：body 是该 message 的 JSON 表示
+							fieldMsg := dynamicpb.NewMessage(field.Message())
+							if err := protojson.Unmarshal(bodyData, fieldMsg); err != nil {
+								writeError(w, http.StatusBadRequest, fmt.Sprintf("解析请求体字段失败: %v", err))
+								return
+							}
+							inputMsg.Set(field, protoreflect.ValueOfMessage(fieldMsg))
+						} else {
+							// scalar/bytes/enum 类型字段：body 是该字段的 JSON 值
+							// 构造 {"field": <body>} 交给 protojson 解析，bytes 字段会自动 base64 解码
+							wrappedJSON := fmt.Sprintf(`{%q: %s}`, route.BodyField, bodyData)
+							if err := protojson.Unmarshal([]byte(wrappedJSON), inputMsg); err != nil {
+								writeError(w, http.StatusBadRequest, fmt.Sprintf("解析请求体字段失败: %v", err))
+								return
+							}
 						}
-						inputMsg.Set(field, protoreflect.ValueOfMessage(fieldMsg))
 					}
 				}
 			}
@@ -920,6 +934,55 @@ func setFieldValue(msg protoreflect.Message, field protoreflect.FieldDescriptor,
 		var v float64
 		fmt.Sscanf(value, "%f", &v)
 		msg.Set(field, protoreflect.ValueOfFloat64(v))
+	case protoreflect.EnumKind:
+		// 路径参数中的 enum 值可能是枚举名（如 WEBHOOK_TYPE_CF_DOMAIN_BIND）或数字
+		// 优先按枚举名查找，找不到再按数字解析，与 grpc-gateway 的 runtime.Enum 行为一致
+		if enumDesc := field.Enum(); enumDesc != nil {
+			if evd := enumDesc.Values().ByName(protoreflect.Name(value)); evd != nil {
+				msg.Set(field, protoreflect.ValueOfEnum(evd.Number()))
+				return
+			}
+		}
+		var v int32
+		if _, err := fmt.Sscanf(value, "%d", &v); err == nil {
+			msg.Set(field, protoreflect.ValueOfEnum(protoreflect.EnumNumber(v)))
+		}
+	case protoreflect.BytesKind:
+		// 路径参数中的 bytes 为 base64 编码，先尝试标准编码再尝试 URL 安全编码
+		// 与 grpc-gateway 的 runtime.Bytes 行为一致
+		if b, err := base64.StdEncoding.DecodeString(value); err == nil {
+			msg.Set(field, protoreflect.ValueOfBytes(b))
+		} else if b, err := base64.URLEncoding.DecodeString(value); err == nil {
+			msg.Set(field, protoreflect.ValueOfBytes(b))
+		}
+	case protoreflect.MessageKind, protoreflect.GroupKind:
+		// message 类型路径参数：优先用 protojson 解析（包装成 JSON string 后，
+		// Timestamp/FieldMask/各种 Wrapper 等 well-known 类型都能原生处理），
+		// 仅对 Go duration 格式（1h30m）做专用回退，因为 protojson 只接受 "1800s" 格式
+		if fieldMsg := field.Message(); fieldMsg != nil {
+			// 1. 先尝试 protojson：把裸字符串包装成 JSON string
+			//    protojson 对 well-known 类型会自动识别并按对应格式解析
+			wrapped := strconv.Quote(value)
+			dynMsg := dynamicpb.NewMessage(fieldMsg)
+			if err := protojson.Unmarshal([]byte(wrapped), dynMsg); err == nil {
+				msg.Set(field, protoreflect.ValueOfMessage(dynMsg))
+				return
+			}
+
+			// 2. protojson 失败时，对 Duration 做 Go duration 格式回退
+			if fieldMsg.FullName() == "google.protobuf.Duration" {
+				if d, err := time.ParseDuration(value); err == nil {
+					dur := dynamicpb.NewMessage(fieldMsg)
+					if secsField := fieldMsg.Fields().ByName("seconds"); secsField != nil {
+						dur.Set(secsField, protoreflect.ValueOfInt64(int64(d/time.Second)))
+					}
+					if nanosField := fieldMsg.Fields().ByName("nanos"); nanosField != nil {
+						dur.Set(nanosField, protoreflect.ValueOfInt32(int32(d%time.Second)))
+					}
+					msg.Set(field, protoreflect.ValueOfMessage(dur))
+				}
+			}
+		}
 	}
 }
 
