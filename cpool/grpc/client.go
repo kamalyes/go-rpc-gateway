@@ -109,6 +109,31 @@ func InitClient[T any](
 	return factory(conn), true
 }
 
+// InitClientTo 初始化 gRPC 客户端并赋值到目标指针，同时记录日志
+// 是 InitClient 的便捷封装，用于减少调用方的样板代码（自动注入风格）
+// 成功时将客户端赋值到 *target 并记录 Info 日志，失败时记录 Warn 日志
+//
+// 使用示例:
+//
+//	grpcpool.InitClientTo(g.healthChecker, clients, "user-service", "UserService",
+//	    userpb.NewUserServiceClient, &g.userClient)
+func InitClientTo[T any](
+	healthChecker *HealthChecker,
+	clients map[string]*gwconfig.GRPCClient,
+	serviceName, label string,
+	factory func(grpc.ClientConnInterface) T,
+	target *T,
+) bool {
+	client, ok := InitClient(healthChecker, clients, serviceName, factory)
+	if ok {
+		*target = client
+		gwglobal.LOGGER.Info("%s client initialized", label)
+	} else {
+		gwglobal.LOGGER.Warn("%s client initialization failed, check config", label)
+	}
+	return ok
+}
+
 // BuildDialOptions 构建 gRPC 客户端拨号选项（公开方法）
 // 根据客户端配置构建完整的 dial options，包括 TLS、keepalive、消息大小等
 func BuildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, healthChecker *HealthChecker) []grpc.DialOption {
