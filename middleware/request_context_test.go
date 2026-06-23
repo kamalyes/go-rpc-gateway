@@ -412,13 +412,12 @@ func TestRequestContextMiddleware_CachesRequestCommonMeta(t *testing.T) {
 
 func TestWithRequestCommonMeta_CachesWithReadableKey(t *testing.T) {
 	expectedInfo := &RequestCommonMeta{
-		TraceID:           "cached-trace",
-		RequestID:         "cached-request",
-		Timestamp:         "1700000000",
-		Signature:         "cached-signature",
-		AccessKey:         "cached-access-key",
-		XNsID:             "cached-ns",
-		GrpcMetadataXNsID: "cached-grpc-ns",
+		TraceID:   "cached-trace",
+		RequestID: "cached-request",
+		Timestamp: "1700000000",
+		Signature: "cached-signature",
+		AccessKey: "cached-access-key",
+		XNsID:     "cached-ns",
 	}
 
 	ctx := WithRequestCommonMeta(context.Background(), expectedInfo)
@@ -426,7 +425,6 @@ func TestWithRequestCommonMeta_CachesWithReadableKey(t *testing.T) {
 
 	assert.Same(t, expectedInfo, info)
 	assert.Equal(t, "cached-ns", info.XNsID)
-	assert.Equal(t, "cached-grpc-ns", info.GrpcMetadataXNsID)
 }
 
 // TestFullChain_HTTPToContext 测试完整链路：HTTP 请求到 context
@@ -1254,7 +1252,6 @@ func TestNewFields_GRPCMetadata(t *testing.T) {
 		constants.MetadataDeviceID, "grpc-device-id",
 		constants.MetadataAppVersion, "grpc-app-version",
 		constants.MetadataXNsID, "grpc-ns-id",
-		constants.MetadataGrpcMetadataXNsID, "grpc-metadata-ns-id",
 	)
 	ctx := metadata.NewIncomingContext(context.Background(), md)
 
@@ -1272,24 +1269,22 @@ func TestNewFields_GRPCMetadata(t *testing.T) {
 	assert.Equal(t, "grpc-device-id", GetDeviceID(enrichedCtx))
 	assert.Equal(t, "grpc-app-version", GetAppVersion(enrichedCtx))
 	assert.Equal(t, "grpc-ns-id", GetXNsID(enrichedCtx))
-	assert.Equal(t, "grpc-metadata-ns-id", GetGrpcMetadataXNsID(enrichedCtx))
 }
 
 // TestNewFields_InjectTraceToOutgoingContext 测试新增字段注入到 outgoing metadata
 func TestNewFields_InjectTraceToOutgoingContext(t *testing.T) {
 	ctx := context.WithValue(context.Background(), requestCommonMetaKey{}, &RequestCommonMeta{
-		ID:                "out-id",
-		TenantCode:        "out-tenant-code",
-		PlatformID:        "out-platform-id",
-		PlatformCode:      "out-platform-code",
-		RegionID:          "out-region-id",
-		RegionCode:        "out-region-code",
-		Nonce:             "out-nonce",
-		AppID:             "out-app-id",
-		DeviceID:          "out-device-id",
-		AppVersion:        "out-app-version",
-		XNsID:             "out-ns-id",
-		GrpcMetadataXNsID: "out-metadata-ns-id",
+		ID:           "out-id",
+		TenantCode:   "out-tenant-code",
+		PlatformID:   "out-platform-id",
+		PlatformCode: "out-platform-code",
+		RegionID:     "out-region-id",
+		RegionCode:   "out-region-code",
+		Nonce:        "out-nonce",
+		AppID:        "out-app-id",
+		DeviceID:     "out-device-id",
+		AppVersion:   "out-app-version",
+		XNsID:        "out-ns-id",
 	})
 
 	outgoingCtx := injectTraceToOutgoingContext(ctx)
@@ -1307,7 +1302,6 @@ func TestNewFields_InjectTraceToOutgoingContext(t *testing.T) {
 	assert.Equal(t, []string{"out-device-id"}, md.Get(constants.MetadataDeviceID))
 	assert.Equal(t, []string{"out-app-version"}, md.Get(constants.MetadataAppVersion))
 	assert.Equal(t, []string{"out-ns-id"}, md.Get(constants.MetadataXNsID))
-	assert.Equal(t, []string{"out-metadata-ns-id"}, md.Get(constants.MetadataGrpcMetadataXNsID))
 }
 
 // TestNewFields_GetRequestCommonMetaFallback 测试 GetRequestCommonMeta 回退逻辑包含新字段
@@ -1324,7 +1318,6 @@ func TestNewFields_GetRequestCommonMetaFallback(t *testing.T) {
 	ctx = WithDeviceID(ctx, "fallback-device-id")
 	ctx = WithAppVersion(ctx, "fallback-app-version")
 	ctx = WithXNsID(ctx, "fallback-ns-id")
-	ctx = WithGrpcMetadataXNsID(ctx, "fallback-metadata-ns-id")
 
 	// 不缓存 RequestCommonMeta，触发回退逻辑
 	info := GetRequestCommonMeta(ctx)
@@ -1340,7 +1333,6 @@ func TestNewFields_GetRequestCommonMetaFallback(t *testing.T) {
 	assert.Equal(t, "fallback-device-id", info.DeviceID)
 	assert.Equal(t, "fallback-app-version", info.AppVersion)
 	assert.Equal(t, "fallback-ns-id", info.XNsID)
-	assert.Equal(t, "fallback-metadata-ns-id", info.GrpcMetadataXNsID)
 }
 
 // TestNewFields_WithFunctions 测试新增的 With* 函数
@@ -1358,7 +1350,6 @@ func TestNewFields_WithFunctions(t *testing.T) {
 	ctx = WithDeviceID(ctx, "test-device-id")
 	ctx = WithAppVersion(ctx, "test-app-version")
 	ctx = WithXNsID(ctx, "test-ns-id")
-	ctx = WithGrpcMetadataXNsID(ctx, "test-metadata-ns-id")
 
 	assert.Equal(t, "test-id", GetID(ctx))
 	assert.Equal(t, "test-tenant-code", GetTenantCode(ctx))
@@ -1371,35 +1362,33 @@ func TestNewFields_WithFunctions(t *testing.T) {
 	assert.Equal(t, "test-device-id", GetDeviceID(ctx))
 	assert.Equal(t, "test-app-version", GetAppVersion(ctx))
 	assert.Equal(t, "test-ns-id", GetXNsID(ctx))
-	assert.Equal(t, "test-metadata-ns-id", GetGrpcMetadataXNsID(ctx))
 }
 
 // TestRequestCommonMeta_AllFields 测试 RequestCommonMeta 结构体所有字段
 func TestRequestCommonMeta_AllFields(t *testing.T) {
 	meta := &RequestCommonMeta{
-		ID:                "id-1",
-		TraceID:           "trace-1",
-		RequestID:         "request-1",
-		UserID:            "user-1",
-		TenantID:          "tenant-1",
-		TenantCode:        "tenant-code-1",
-		SessionID:         "session-1",
-		Timezone:          "Asia/Shanghai",
-		Timestamp:         "1234567890",
-		Signature:         "signature-1",
-		Authorization:     "Bearer token",
-		AccessKey:         "access-key-1",
-		AppID:             "app-1",
-		DeviceID:          "device-1",
-		AppVersion:        "1.0.0",
-		IPAddress:         "127.0.0.1",
-		PlatformID:        "platform-1",
-		PlatformCode:      "platform-code-1",
-		RegionID:          "region-1",
-		RegionCode:        "region-code-1",
-		Nonce:             "nonce-1",
-		XNsID:             "ns-1",
-		GrpcMetadataXNsID: "metadata-ns-1",
+		ID:            "id-1",
+		TraceID:       "trace-1",
+		RequestID:     "request-1",
+		UserID:        "user-1",
+		TenantID:      "tenant-1",
+		TenantCode:    "tenant-code-1",
+		SessionID:     "session-1",
+		Timezone:      "Asia/Shanghai",
+		Timestamp:     "1234567890",
+		Signature:     "signature-1",
+		Authorization: "Bearer token",
+		AccessKey:     "access-key-1",
+		AppID:         "app-1",
+		DeviceID:      "device-1",
+		AppVersion:    "1.0.0",
+		IPAddress:     "127.0.0.1",
+		PlatformID:    "platform-1",
+		PlatformCode:  "platform-code-1",
+		RegionID:      "region-1",
+		RegionCode:    "region-code-1",
+		Nonce:         "nonce-1",
+		XNsID:         "ns-1",
 	}
 
 	assert.Equal(t, "id-1", meta.ID)
@@ -1424,7 +1413,6 @@ func TestRequestCommonMeta_AllFields(t *testing.T) {
 	assert.Equal(t, "region-code-1", meta.RegionCode)
 	assert.Equal(t, "nonce-1", meta.Nonce)
 	assert.Equal(t, "ns-1", meta.XNsID)
-	assert.Equal(t, "metadata-ns-1", meta.GrpcMetadataXNsID)
 }
 
 // TestFullChain_AllFields 测试完整链路传递所有字段

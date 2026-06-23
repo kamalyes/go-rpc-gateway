@@ -35,7 +35,7 @@ import (
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
+	"google.golang.org/grpc/reflection/grpc_reflection_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -354,7 +354,7 @@ func DiscoverAllServices(ctx context.Context, clients map[string]*gwconfig.GRPCC
 // 返回服务列表和所有相关的 FileDescriptorProto（含依赖文件）
 // 使用流水线模式：批量发送所有 FileContainingSymbol 请求后批量接收响应，将 N 次 RTT 降为 1 次
 func discoverServices(ctx context.Context, conn *grpc.ClientConn) ([]ReflectionServiceInfo, map[string]*descriptorpb.FileDescriptorProto, error) {
-	client := grpc_reflection_v1alpha.NewServerReflectionClient(conn)
+	client := grpc_reflection_v1.NewServerReflectionClient(conn)
 	stream, err := client.ServerReflectionInfo(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("创建 reflection stream 失败: %w", err)
@@ -362,10 +362,10 @@ func discoverServices(ctx context.Context, conn *grpc.ClientConn) ([]ReflectionS
 	defer stream.CloseSend()
 
 	// 1. 获取服务列表
-	if err := stream.Send(&grpc_reflection_v1alpha.ServerReflectionRequest{
-		MessageRequest: &grpc_reflection_v1alpha.ServerReflectionRequest_ListServices{},
-	}); err != nil {
-		return nil, nil, fmt.Errorf("发送 ListServices 请求失败: %w", err)
+	if sendErr := stream.Send(&grpc_reflection_v1.ServerReflectionRequest{
+		MessageRequest: &grpc_reflection_v1.ServerReflectionRequest_ListServices{},
+	}); sendErr != nil {
+		return nil, nil, fmt.Errorf("发送 ListServices 请求失败: %w", sendErr)
 	}
 
 	resp, err := stream.Recv()
@@ -373,7 +373,7 @@ func discoverServices(ctx context.Context, conn *grpc.ClientConn) ([]ReflectionS
 		return nil, nil, fmt.Errorf("接收 ListServices 响应失败: %w", err)
 	}
 
-	listResp, ok := resp.MessageResponse.(*grpc_reflection_v1alpha.ServerReflectionResponse_ListServicesResponse)
+	listResp, ok := resp.MessageResponse.(*grpc_reflection_v1.ServerReflectionResponse_ListServicesResponse)
 	if !ok {
 		return nil, nil, fmt.Errorf("意外的响应类型: %T", resp.MessageResponse)
 	}
@@ -400,13 +400,13 @@ func discoverServices(ctx context.Context, conn *grpc.ClientConn) ([]ReflectionS
 
 	// 批量发送所有 FileContainingSymbol 请求
 	for _, svcName := range serviceNames {
-		if err := stream.Send(&grpc_reflection_v1alpha.ServerReflectionRequest{
-			MessageRequest: &grpc_reflection_v1alpha.ServerReflectionRequest_FileContainingSymbol{
+		if sendErr := stream.Send(&grpc_reflection_v1.ServerReflectionRequest{
+			MessageRequest: &grpc_reflection_v1.ServerReflectionRequest_FileContainingSymbol{
 				FileContainingSymbol: svcName,
 			},
-		}); err != nil {
+		}); sendErr != nil {
 			failed[svcName] = true
-			gwglobal.LOGGER.WarnContext(ctx, "发送 FileContainingSymbol 请求失败 %s: %v", svcName, err)
+			gwglobal.LOGGER.WarnContext(ctx, "发送 FileContainingSymbol 请求失败 %s: %v", svcName, sendErr)
 		}
 	}
 
@@ -415,15 +415,15 @@ func discoverServices(ctx context.Context, conn *grpc.ClientConn) ([]ReflectionS
 		if failed[svcName] {
 			continue
 		}
-		resp, err := stream.Recv()
-		if err != nil {
+		fdResp, recvErr := stream.Recv()
+		if recvErr != nil {
 			failed[svcName] = true
-			gwglobal.LOGGER.WarnContext(ctx, "接收 FileContainingSymbol 响应失败 %s: %v", svcName, err)
+			gwglobal.LOGGER.WarnContext(ctx, "接收 FileContainingSymbol 响应失败 %s: %v", svcName, recvErr)
 			continue
 		}
-		if err := parseFileDescriptorResponse(resp, fileCache); err != nil {
+		if parseErr := parseFileDescriptorResponse(fdResp, fileCache); parseErr != nil {
 			failed[svcName] = true
-			gwglobal.LOGGER.WarnContext(ctx, "解析 FileDescriptor 失败 %s: %v", svcName, err)
+			gwglobal.LOGGER.WarnContext(ctx, "解析 FileDescriptor 失败 %s: %v", svcName, parseErr)
 		}
 	}
 
@@ -439,8 +439,8 @@ func discoverServices(ctx context.Context, conn *grpc.ClientConn) ([]ReflectionS
 }
 
 // parseFileDescriptorResponse 解析 ServerReflectionResponse 中的 FileDescriptorProto，写入 cache
-func parseFileDescriptorResponse(resp *grpc_reflection_v1alpha.ServerReflectionResponse, cache map[string]*descriptorpb.FileDescriptorProto) error {
-	fdResp, ok := resp.MessageResponse.(*grpc_reflection_v1alpha.ServerReflectionResponse_FileDescriptorResponse)
+func parseFileDescriptorResponse(resp *grpc_reflection_v1.ServerReflectionResponse, cache map[string]*descriptorpb.FileDescriptorProto) error {
+	fdResp, ok := resp.MessageResponse.(*grpc_reflection_v1.ServerReflectionResponse_FileDescriptorResponse)
 	if !ok {
 		return fmt.Errorf("意外的响应类型: %T", resp.MessageResponse)
 	}
@@ -796,7 +796,7 @@ func createDynamicHandler(
 		if route.BodyField != "" && r.Body != nil {
 			bodyData, err := io.ReadAll(r.Body)
 			if err != nil {
-				writeError(w, http.StatusBadRequest, "读取请求体失败")
+				writeError(w, codes.InvalidArgument, "failed to read request body")
 				return
 			}
 			defer r.Body.Close()
@@ -805,7 +805,7 @@ func createDynamicHandler(
 				if route.BodyField == "*" {
 					// 整个 body 映射到消息
 					if err := protojson.Unmarshal(bodyData, inputMsg); err != nil {
-						writeError(w, http.StatusBadRequest, fmt.Sprintf("解析请求体失败: %v", err))
+						writeError(w, codes.InvalidArgument, fmt.Sprintf("failed to parse request body: %v", err))
 						return
 					}
 				} else {
@@ -816,7 +816,7 @@ func createDynamicHandler(
 							// message 类型字段：body 是该 message 的 JSON 表示
 							fieldMsg := dynamicpb.NewMessage(field.Message())
 							if err := protojson.Unmarshal(bodyData, fieldMsg); err != nil {
-								writeError(w, http.StatusBadRequest, fmt.Sprintf("解析请求体字段失败: %v", err))
+								writeError(w, codes.InvalidArgument, fmt.Sprintf("failed to parse request body field: %v", err))
 								return
 							}
 							inputMsg.Set(field, protoreflect.ValueOfMessage(fieldMsg))
@@ -825,7 +825,7 @@ func createDynamicHandler(
 							// 构造 {"field": <body>} 交给 protojson 解析，bytes 字段会自动 base64 解码
 							wrappedJSON := fmt.Sprintf(`{%q: %s}`, route.BodyField, bodyData)
 							if err := protojson.Unmarshal([]byte(wrappedJSON), inputMsg); err != nil {
-								writeError(w, http.StatusBadRequest, fmt.Sprintf("解析请求体字段失败: %v", err))
+								writeError(w, codes.InvalidArgument, fmt.Sprintf("failed to parse request body field: %v", err))
 								return
 							}
 						}
@@ -857,7 +857,7 @@ func createDynamicHandler(
 		// timeout 传播等关键逻辑，与 grpc-gateway 静态生成的 handler 行为一致
 		annotatedCtx, err := runtime.AnnotateContext(ctx, mux, r, fullMethodName)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("构建 gRPC context 失败: %v", err))
+			writeError(w, codes.Internal, fmt.Sprintf("failed to build gRPC context: %v", err))
 			return
 		}
 
@@ -867,10 +867,9 @@ func createDynamicHandler(
 		if err != nil {
 			st, ok := status.FromError(err)
 			if ok {
-				httpStatus := grpcStatusToHTTP(st.Code())
-				writeError(w, httpStatus, st.Message())
+				writeError(w, st.Code(), st.Message())
 			} else {
-				writeError(w, http.StatusInternalServerError, fmt.Sprintf("gRPC 调用失败: %v", err))
+				writeError(w, codes.Internal, fmt.Sprintf("gRPC call failed: %v", err))
 			}
 			return
 		}
@@ -879,7 +878,7 @@ func createDynamicHandler(
 		w.Header().Set("Content-Type", "application/json")
 		data, err := defaultJSONPb.Marshal(outputMsg)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("序列化响应失败: %v", err))
+			writeError(w, codes.Internal, fmt.Sprintf("failed to marshal response: %v", err))
 			return
 		}
 
@@ -987,9 +986,9 @@ func grpcStatusToHTTP(code codes.Code) int {
 	}
 }
 
-// writeError 写入错误响应
-func writeError(w http.ResponseWriter, code int, message string) {
+// writeError 写入错误响应，统一使用 gRPC 标准格式 {"code":N,"error":"...","status":"..."}
+func writeError(w http.ResponseWriter, code codes.Code, message string) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	fmt.Fprintf(w, `{"error":%q}`, message)
+	w.WriteHeader(grpcStatusToHTTP(code))
+	fmt.Fprintf(w, `{"code":%d,"error":%q,"status":%q}`, code, message, code.String())
 }

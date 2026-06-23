@@ -31,39 +31,38 @@ import (
 
 // RequestCommonMeta 请求公共元信息
 type RequestCommonMeta struct {
-	ID                string `json:"id" header:"X-ID"`                                 // 请求ID
-	TraceID           string `json:"traceID" header:"X-Trace-ID"`                      // 跟踪ID
-	RequestID         string `json:"requestID" header:"X-Request-ID"`                  // 请求ID
-	UserID            string `json:"userID" header:"X-User-ID"`                        // 用户ID
-	Domain            string `json:"domain" header:"X-Domain"`                         // 域
-	RoleCode          string `json:"roleCode" header:"X-Role-Code"`                    // 角色Code
-	TenantID          string `json:"tenantID" header:"X-Tenant-ID"`                    // 租户ID
-	TenantCode        string `json:"tenantCode" header:"X-Tenant-Code"`                // 租户编码
-	SessionID         string `json:"sessionID" header:"X-Session-ID"`                  // 会话ID
-	Timezone          string `json:"timezone" header:"X-Timezone"`                     // 时区
-	Timestamp         string `json:"timestamp" header:"X-Timestamp"`                   // 时间戳
-	Signature         string `json:"signature" header:"X-Signature"`                   // 签名
-	Authorization     string `json:"authorization" header:"Authorization"`             // 授权
-	AccessKey         string `json:"accessKey" header:"X-Access-Key"`                  // 访问密钥
-	AppID             string `json:"appID" header:"X-App-ID"`                          // 应用ID
-	DeviceID          string `json:"deviceID" header:"X-Device-ID"`                    // 设备ID
-	AppVersion        string `json:"appVersion" header:"X-App-Version"`                // 应用版本
-	IPAddress         string `json:"ipAddress" header:"X-Forwarded-For"`               // IP地址
-	PlatformID        string `json:"platformID" header:"X-Platform-ID"`                // 平台ID
-	PlatformCode      string `json:"platformCode" header:"X-Platform-Code"`            // 平台编码
-	RegionID          string `json:"regionID" header:"X-Region-ID"`                    // 区域ID
-	RegionCode        string `json:"regionCode" header:"X-Region-Code"`                // 区域编码
-	AgentLineID       string `json:"agentLineID" header:"X-Agent-Line-ID"`             // 代理线ID
-	Nonce             string `json:"nonce" header:"X-Nonce"`                           // 随机数
-	Jti               string `json:"jti" header:"X-Jti"`                               // JWT ID (Token唯一标识)
-	FamilyId          string `json:"familyId" header:"X-Family-ID"`                    // Token家族ID
-	XNsID             string `json:"xNsID" header:"X-Ns-ID"`                           // 命名空间ID
-	GrpcMetadataXNsID string `json:"grpcMetadataXNsID" header:"Grpc-Metadata-X-Ns-ID"` // gRPC元数据命名空间ID
-	UserAgent         string `json:"userAgent" header:"User-Agent"`                    // 用户代理
-	PushToken         string `json:"pushToken" header:"X-Push-Token"`                  // 推送Token
-	Token             string `json:"token" header:"X-Token"`                           // Token
-	AcceptLanguage    string `json:"acceptLanguage" header:"Accept-Language"`          // 语言环境
-	ForwardedHost     string `json:"forwardedHost" header:"X-Forwarded-Host"`          // 转发域名
+	ID             string `json:"id" header:"X-ID"`                        // 请求ID
+	TraceID        string `json:"traceID" header:"X-Trace-ID"`             // 跟踪ID
+	RequestID      string `json:"requestID" header:"X-Request-ID"`         // 请求ID
+	UserID         string `json:"userID" header:"X-User-ID"`               // 用户ID
+	Domain         string `json:"domain" header:"X-Domain"`                // 域
+	RoleCode       string `json:"roleCode" header:"X-Role-Code"`           // 角色Code
+	TenantID       string `json:"tenantID" header:"X-Tenant-ID"`           // 租户ID
+	TenantCode     string `json:"tenantCode" header:"X-Tenant-Code"`       // 租户编码
+	SessionID      string `json:"sessionID" header:"X-Session-ID"`         // 会话ID
+	Timezone       string `json:"timezone" header:"X-Timezone"`            // 时区
+	Timestamp      string `json:"timestamp" header:"X-Timestamp"`          // 时间戳
+	Signature      string `json:"signature" header:"X-Signature"`          // 签名
+	Authorization  string `json:"authorization" header:"Authorization"`    // 授权
+	AccessKey      string `json:"accessKey" header:"X-Access-Key"`         // 访问密钥
+	AppID          string `json:"appID" header:"X-App-ID"`                 // 应用ID
+	DeviceID       string `json:"deviceID" header:"X-Device-ID"`           // 设备ID
+	AppVersion     string `json:"appVersion" header:"X-App-Version"`       // 应用版本
+	IPAddress      string `json:"ipAddress" header:"X-Forwarded-For"`      // IP地址
+	PlatformID     string `json:"platformID" header:"X-Platform-ID"`       // 平台ID
+	PlatformCode   string `json:"platformCode" header:"X-Platform-Code"`   // 平台编码
+	RegionID       string `json:"regionID" header:"X-Region-ID"`           // 区域ID
+	RegionCode     string `json:"regionCode" header:"X-Region-Code"`       // 区域编码
+	AgentLineID    string `json:"agentLineID" header:"X-Agent-Line-ID"`    // 代理线ID
+	Nonce          string `json:"nonce" header:"X-Nonce"`                  // 随机数
+	Jti            string `json:"jti" header:"X-Jti"`                      // JWT ID (Token唯一标识)
+	FamilyId       string `json:"familyId" header:"X-Family-ID"`           // Token家族ID
+	XNsID          string `json:"xNsID" header:"X-Ns-ID"`                  // 命名空间ID
+	UserAgent      string `json:"userAgent" header:"User-Agent"`           // 用户代理
+	PushToken      string `json:"pushToken" header:"X-Push-Token"`         // 推送Token
+	Token          string `json:"token" header:"X-Token"`                  // Token
+	AcceptLanguage string `json:"acceptLanguage" header:"Accept-Language"` // 语言环境
+	ForwardedHost  string `json:"forwardedHost" header:"X-Forwarded-Host"` // 转发域名
 }
 
 type requestCommonMetaKey struct{}
@@ -171,39 +170,38 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 
 	// 回退：直接从 context 中提取链路字段，避免递归调用。
 	return &RequestCommonMeta{
-		ID:                contextx.GetValue[string](ctx, constants.MetadataID),
-		TraceID:           contextx.GetValue[string](ctx, constants.MetadataTraceID),
-		RequestID:         contextx.GetValue[string](ctx, constants.MetadataRequestID),
-		Authorization:     contextx.GetValue[string](ctx, constants.MetadataAuthorization),
-		UserID:            contextx.GetValue[string](ctx, constants.MetadataUserID),
-		Domain:            contextx.GetValue[string](ctx, constants.MetadataDomain),
-		RoleCode:          contextx.GetValue[string](ctx, constants.MetadataRoleCode),
-		TenantID:          contextx.GetValue[string](ctx, constants.MetadataTenantID),
-		TenantCode:        contextx.GetValue[string](ctx, constants.MetadataTenantCode),
-		SessionID:         contextx.GetValue[string](ctx, constants.MetadataSessionID),
-		Timezone:          contextx.GetValue[string](ctx, constants.MetadataTimezone),
-		IPAddress:         contextx.GetValue[string](ctx, constants.MetadataIPAddress),
-		AppID:             contextx.GetValue[string](ctx, constants.MetadataAppID),
-		DeviceID:          contextx.GetValue[string](ctx, constants.MetadataDeviceID),
-		AppVersion:        contextx.GetValue[string](ctx, constants.MetadataAppVersion),
-		PlatformID:        contextx.GetValue[string](ctx, constants.MetadataPlatformID),
-		PlatformCode:      contextx.GetValue[string](ctx, constants.MetadataPlatformCode),
-		RegionID:          contextx.GetValue[string](ctx, constants.MetadataRegionID),
-		RegionCode:        contextx.GetValue[string](ctx, constants.MetadataRegionCode),
-		AgentLineID:       contextx.GetValue[string](ctx, constants.MetadataAgentLineID),
-		Nonce:             contextx.GetValue[string](ctx, constants.MetadataNonce),
-		Jti:               contextx.GetValue[string](ctx, constants.MetadataJti),
-		FamilyId:          contextx.GetValue[string](ctx, constants.MetadataFamilyId),
-		XNsID:             contextx.GetValue[string](ctx, constants.MetadataXNsID),
-		GrpcMetadataXNsID: contextx.GetValue[string](ctx, constants.MetadataGrpcMetadataXNsID),
-		UserAgent:         contextx.GetValue[string](ctx, constants.MetadataUserAgent),
-		PushToken:         contextx.GetValue[string](ctx, constants.MetadataPushToken),
-		Token:             contextx.GetValue[string](ctx, constants.MetadataToken),
-		Timestamp:         contextx.GetValue[string](ctx, constants.MetadataTimestamp),
-		Signature:         contextx.GetValue[string](ctx, constants.MetadataSignature),
-		AccessKey:         contextx.GetValue[string](ctx, constants.MetadataAccessKey),
-		AcceptLanguage:    contextx.GetValue[string](ctx, constants.MetadataAcceptLanguage),
-		ForwardedHost:     contextx.GetValue[string](ctx, constants.MetadataForwardedHost),
+		ID:             contextx.GetValue[string](ctx, constants.MetadataID),
+		TraceID:        contextx.GetValue[string](ctx, constants.MetadataTraceID),
+		RequestID:      contextx.GetValue[string](ctx, constants.MetadataRequestID),
+		Authorization:  contextx.GetValue[string](ctx, constants.MetadataAuthorization),
+		UserID:         contextx.GetValue[string](ctx, constants.MetadataUserID),
+		Domain:         contextx.GetValue[string](ctx, constants.MetadataDomain),
+		RoleCode:       contextx.GetValue[string](ctx, constants.MetadataRoleCode),
+		TenantID:       contextx.GetValue[string](ctx, constants.MetadataTenantID),
+		TenantCode:     contextx.GetValue[string](ctx, constants.MetadataTenantCode),
+		SessionID:      contextx.GetValue[string](ctx, constants.MetadataSessionID),
+		Timezone:       contextx.GetValue[string](ctx, constants.MetadataTimezone),
+		IPAddress:      contextx.GetValue[string](ctx, constants.MetadataIPAddress),
+		AppID:          contextx.GetValue[string](ctx, constants.MetadataAppID),
+		DeviceID:       contextx.GetValue[string](ctx, constants.MetadataDeviceID),
+		AppVersion:     contextx.GetValue[string](ctx, constants.MetadataAppVersion),
+		PlatformID:     contextx.GetValue[string](ctx, constants.MetadataPlatformID),
+		PlatformCode:   contextx.GetValue[string](ctx, constants.MetadataPlatformCode),
+		RegionID:       contextx.GetValue[string](ctx, constants.MetadataRegionID),
+		RegionCode:     contextx.GetValue[string](ctx, constants.MetadataRegionCode),
+		AgentLineID:    contextx.GetValue[string](ctx, constants.MetadataAgentLineID),
+		Nonce:          contextx.GetValue[string](ctx, constants.MetadataNonce),
+		Jti:            contextx.GetValue[string](ctx, constants.MetadataJti),
+		FamilyId:       contextx.GetValue[string](ctx, constants.MetadataFamilyId),
+		XNsID:          contextx.GetValue[string](ctx, constants.MetadataXNsID),
+		UserAgent:      contextx.GetValue[string](ctx, constants.MetadataUserAgent),
+		PushToken:      contextx.GetValue[string](ctx, constants.MetadataPushToken),
+		Token:          contextx.GetValue[string](ctx, constants.MetadataToken),
+		Timestamp:      contextx.GetValue[string](ctx, constants.MetadataTimestamp),
+		Signature:      contextx.GetValue[string](ctx, constants.MetadataSignature),
+		AccessKey:      contextx.GetValue[string](ctx, constants.MetadataAccessKey),
+		AcceptLanguage: contextx.GetValue[string](ctx, constants.MetadataAcceptLanguage),
+		ForwardedHost:  contextx.GetValue[string](ctx, constants.MetadataForwardedHost),
 	}
 }
 
@@ -288,7 +286,6 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	jti := firstMetadataValue(constants.MetadataJti)
 	familyId := firstMetadataValue(constants.MetadataFamilyId)
 	xNsID := firstMetadataValue(constants.MetadataXNsID)
-	grpcMetadataXNsID := firstMetadataValue(constants.MetadataGrpcMetadataXNsID)
 	userAgent := firstMetadataValue(constants.MetadataUserAgent)
 	pushToken := firstMetadataValue(constants.MetadataPushToken)
 	token := firstMetadataValue(constants.MetadataToken)
@@ -322,7 +319,6 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		WithJti(jti).
 		WithFamilyId(familyId).
 		WithXNsID(xNsID).
-		WithGrpcMetadataXNsID(grpcMetadataXNsID).
 		WithUserAgent(userAgent).
 		WithPushToken(pushToken).
 		WithToken(token).
@@ -334,39 +330,38 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		Build()
 
 	return context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
-		ID:                id,
-		TraceID:           traceID,
-		RequestID:         requestID,
-		Authorization:     authorization,
-		UserID:            userID,
-		Domain:            domain,
-		RoleCode:          roleCode,
-		TenantID:          tenantID,
-		TenantCode:        tenantCode,
-		SessionID:         sessionID,
-		Timezone:          timezone,
-		IPAddress:         ipAddress,
-		AppID:             appID,
-		DeviceID:          deviceID,
-		AppVersion:        appVersion,
-		PlatformID:        platformID,
-		PlatformCode:      platformCode,
-		RegionID:          regionID,
-		RegionCode:        regionCode,
-		AgentLineID:       agentLineID,
-		Nonce:             nonce,
-		Jti:               jti,
-		FamilyId:          familyId,
-		XNsID:             xNsID,
-		GrpcMetadataXNsID: grpcMetadataXNsID,
-		UserAgent:         userAgent,
-		PushToken:         pushToken,
-		Token:             token,
-		Timestamp:         timestamp,
-		Signature:         signature,
-		AccessKey:         accessKey,
-		AcceptLanguage:    acceptLanguage,
-		ForwardedHost:     firstMetadataValue(constants.MetadataForwardedHost),
+		ID:             id,
+		TraceID:        traceID,
+		RequestID:      requestID,
+		Authorization:  authorization,
+		UserID:         userID,
+		Domain:         domain,
+		RoleCode:       roleCode,
+		TenantID:       tenantID,
+		TenantCode:     tenantCode,
+		SessionID:      sessionID,
+		Timezone:       timezone,
+		IPAddress:      ipAddress,
+		AppID:          appID,
+		DeviceID:       deviceID,
+		AppVersion:     appVersion,
+		PlatformID:     platformID,
+		PlatformCode:   platformCode,
+		RegionID:       regionID,
+		RegionCode:     regionCode,
+		AgentLineID:    agentLineID,
+		Nonce:          nonce,
+		Jti:            jti,
+		FamilyId:       familyId,
+		XNsID:          xNsID,
+		UserAgent:      userAgent,
+		PushToken:      pushToken,
+		Token:          token,
+		Timestamp:      timestamp,
+		Signature:      signature,
+		AccessKey:      accessKey,
+		AcceptLanguage: acceptLanguage,
+		ForwardedHost:  firstMetadataValue(constants.MetadataForwardedHost),
 	})
 }
 
@@ -399,7 +394,6 @@ func setResponseMetadata(ctx context.Context) {
 		constants.MetadataJti, requestCommonMeta.Jti,
 		constants.MetadataFamilyId, requestCommonMeta.FamilyId,
 		constants.MetadataXNsID, requestCommonMeta.XNsID,
-		constants.MetadataGrpcMetadataXNsID, requestCommonMeta.GrpcMetadataXNsID,
 		constants.MetadataUserAgent, requestCommonMeta.UserAgent,
 		constants.MetadataPushToken, requestCommonMeta.PushToken,
 		constants.MetadataToken, requestCommonMeta.Token,
@@ -483,7 +477,6 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 		constants.MetadataJti, requestCommonMeta.Jti,
 		constants.MetadataFamilyId, requestCommonMeta.FamilyId,
 		constants.MetadataXNsID, requestCommonMeta.XNsID,
-		constants.MetadataGrpcMetadataXNsID, requestCommonMeta.GrpcMetadataXNsID,
 		constants.MetadataUserAgent, requestCommonMeta.UserAgent,
 		constants.MetadataPushToken, requestCommonMeta.PushToken,
 		constants.MetadataToken, requestCommonMeta.Token,
@@ -650,12 +643,6 @@ func GetAgentLineID(ctx context.Context) string {
 func GetXNsID(ctx context.Context) string {
 	requestCommonMeta := GetRequestCommonMeta(ctx)
 	return requestCommonMeta.XNsID
-}
-
-// GetGrpcMetadataXNsID 从 context 获取 GrpcMetadataXNsID
-func GetGrpcMetadataXNsID(ctx context.Context) string {
-	requestCommonMeta := GetRequestCommonMeta(ctx)
-	return requestCommonMeta.GrpcMetadataXNsID
 }
 
 // GetAppID 从 context 获取 AppID
@@ -860,13 +847,6 @@ func WithAgentLineID(ctx context.Context, agentLineID string) context.Context {
 func WithXNsID(ctx context.Context, xNsID string) context.Context {
 	ctx = contextx.WithValue(ctx, constants.MetadataXNsID, xNsID)
 	updateRequestCommonMetaField(ctx, func(m *RequestCommonMeta) { m.XNsID = xNsID })
-	return ctx
-}
-
-// WithGrpcMetadataXNsID 将 GrpcMetadataXNsID 设置到 context 并同步更新 RequestCommonMeta
-func WithGrpcMetadataXNsID(ctx context.Context, grpcMetadataXNsID string) context.Context {
-	ctx = contextx.WithValue(ctx, constants.MetadataGrpcMetadataXNsID, grpcMetadataXNsID)
-	updateRequestCommonMetaField(ctx, func(m *RequestCommonMeta) { m.GrpcMetadataXNsID = grpcMetadataXNsID })
 	return ctx
 }
 
@@ -1141,11 +1121,6 @@ func (b *ContextBuilder) WithFamilyId(familyId string) *ContextBuilder {
 
 func (b *ContextBuilder) WithXNsID(xNsID string) *ContextBuilder {
 	b.ctx = WithXNsID(b.ctx, xNsID)
-	return b
-}
-
-func (b *ContextBuilder) WithGrpcMetadataXNsID(grpcMetadataXNsID string) *ContextBuilder {
-	b.ctx = WithGrpcMetadataXNsID(b.ctx, grpcMetadataXNsID)
 	return b
 }
 

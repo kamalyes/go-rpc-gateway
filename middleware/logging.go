@@ -96,8 +96,7 @@ func (lf *LogFields) AddRequestContext(ctx context.Context) *LogFields {
 		Add(constants.LogFieldRegionID, requestCommonMeta.RegionID).
 		Add(constants.LogFieldRegionCode, requestCommonMeta.RegionCode).
 		Add(constants.LogFieldIPAddress, requestCommonMeta.IPAddress).
-		Add(constants.LogFieldXNsID, requestCommonMeta.XNsID).
-		Add(constants.LogFieldGrpcMetadataXNsId, requestCommonMeta.GrpcMetadataXNsID)
+		Add(constants.LogFieldXNsID, requestCommonMeta.XNsID)
 }
 
 // AddSlow 添加慢请求标记 🐌
