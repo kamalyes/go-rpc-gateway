@@ -21,15 +21,12 @@ package grpc
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/utilities"
@@ -227,6 +224,9 @@ func registerFileDescriptors(fileDescriptors map[string]*descriptorpb.FileDescri
 				if err := protoregistry.GlobalFiles.RegisterFile(fd); err != nil {
 					return false
 				}
+				// 同时注册类型到 GlobalTypes，使 grpc-gateway 的 PopulateFieldFromPath
+				// 等函数能通过 protoregistry.GlobalTypes.FindEnumByName 查找到动态加载的枚举
+				registerFileTypes(fd)
 				return true
 			}()
 			if ok {
@@ -244,6 +244,47 @@ func registerFileDescriptors(fileDescriptors map[string]*descriptorpb.FileDescri
 		}
 	}
 	return
+}
+
+// registerFileTypes 将文件描述符中的所有 message 和 enum 类型注册到 protoregistry.GlobalTypes
+// 使 grpc-gateway 的 PopulateFieldFromPath / PopulateQueryParameters 能通过全局类型注册表
+// 查找到动态加载的枚举类型（parseField 的 EnumKind 分支依赖 protoregistry.GlobalTypes.FindEnumByName）
+func registerFileTypes(fd protoreflect.FileDescriptor) {
+	for i := 0; i < fd.Messages().Len(); i++ {
+		registerMessageType(fd.Messages().Get(i))
+	}
+	for i := 0; i < fd.Enums().Len(); i++ {
+		registerEnumType(fd.Enums().Get(i))
+	}
+}
+
+// registerMessageType 递归注册 message 类型及其嵌套类型
+func registerMessageType(md protoreflect.MessageDescriptor) {
+	// 跳过已注册的类型（如业务层 import 的 proto 包已自动注册）
+	if _, err := protoregistry.GlobalTypes.FindMessageByName(md.FullName()); err == nil {
+		return
+	}
+	if err := protoregistry.GlobalTypes.RegisterMessage(dynamicpb.NewMessageType(md)); err != nil {
+		// 已注册或冲突时忽略
+		return
+	}
+	// 递归注册嵌套 message 和 enum
+	for i := 0; i < md.Messages().Len(); i++ {
+		registerMessageType(md.Messages().Get(i))
+	}
+	for i := 0; i < md.Enums().Len(); i++ {
+		registerEnumType(md.Enums().Get(i))
+	}
+}
+
+// registerEnumType 注册 enum 类型
+func registerEnumType(ed protoreflect.EnumDescriptor) {
+	if _, err := protoregistry.GlobalTypes.FindEnumByName(ed.FullName()); err == nil {
+		return
+	}
+	if err := protoregistry.GlobalTypes.RegisterEnum(dynamicpb.NewEnumType(ed)); err != nil {
+		return
+	}
 }
 
 // discoverSingleClient 发现单个客户端的服务（不注册 FileDescriptorProto，由调用方负责）
@@ -794,10 +835,11 @@ func createDynamicHandler(
 		}
 
 		// 3. 从路径参数填充字段（body 之后，确保路径参数不被覆盖）
+		//    直接使用 grpc-gateway 的 PopulateFieldFromPath，支持全部 18 种 Kind
+		//    （含 enum/bytes/message/well-known 类型），与静态生成的 gateway 代码行为完全一致
 		for paramName, paramValue := range pathParams {
-			field := inputType.Fields().ByName(protoreflect.Name(paramName))
-			if field != nil {
-				setFieldValue(inputMsg, field, paramValue)
+			if err := runtime.PopulateFieldFromPath(inputMsg, paramName, paramValue); err != nil {
+				gwglobal.LOGGER.WarnContext(ctx, "路径参数 %s=%s 填充失败: %v", paramName, paramValue, err)
 			}
 		}
 
@@ -902,89 +944,6 @@ func InitConnectionsAndDiscover(ctx context.Context, healthChecker *HealthChecke
 // =============================================================================
 // 辅助函数
 // =============================================================================
-
-// setFieldValue 设置 proto 字段值（从字符串转换）
-func setFieldValue(msg protoreflect.Message, field protoreflect.FieldDescriptor, value string) {
-	switch field.Kind() {
-	case protoreflect.StringKind:
-		msg.Set(field, protoreflect.ValueOfString(value))
-	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
-		var v int32
-		fmt.Sscanf(value, "%d", &v)
-		msg.Set(field, protoreflect.ValueOfInt32(v))
-	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
-		var v int64
-		fmt.Sscanf(value, "%d", &v)
-		msg.Set(field, protoreflect.ValueOfInt64(v))
-	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
-		var v uint32
-		fmt.Sscanf(value, "%d", &v)
-		msg.Set(field, protoreflect.ValueOfUint32(v))
-	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
-		var v uint64
-		fmt.Sscanf(value, "%d", &v)
-		msg.Set(field, protoreflect.ValueOfUint64(v))
-	case protoreflect.BoolKind:
-		msg.Set(field, protoreflect.ValueOfBool(value == "true" || value == "1"))
-	case protoreflect.FloatKind:
-		var v float32
-		fmt.Sscanf(value, "%f", &v)
-		msg.Set(field, protoreflect.ValueOfFloat32(v))
-	case protoreflect.DoubleKind:
-		var v float64
-		fmt.Sscanf(value, "%f", &v)
-		msg.Set(field, protoreflect.ValueOfFloat64(v))
-	case protoreflect.EnumKind:
-		// 路径参数中的 enum 值可能是枚举名（如 WEBHOOK_TYPE_CF_DOMAIN_BIND）或数字
-		// 优先按枚举名查找，找不到再按数字解析，与 grpc-gateway 的 runtime.Enum 行为一致
-		if enumDesc := field.Enum(); enumDesc != nil {
-			if evd := enumDesc.Values().ByName(protoreflect.Name(value)); evd != nil {
-				msg.Set(field, protoreflect.ValueOfEnum(evd.Number()))
-				return
-			}
-		}
-		var v int32
-		if _, err := fmt.Sscanf(value, "%d", &v); err == nil {
-			msg.Set(field, protoreflect.ValueOfEnum(protoreflect.EnumNumber(v)))
-		}
-	case protoreflect.BytesKind:
-		// 路径参数中的 bytes 为 base64 编码，先尝试标准编码再尝试 URL 安全编码
-		// 与 grpc-gateway 的 runtime.Bytes 行为一致
-		if b, err := base64.StdEncoding.DecodeString(value); err == nil {
-			msg.Set(field, protoreflect.ValueOfBytes(b))
-		} else if b, err := base64.URLEncoding.DecodeString(value); err == nil {
-			msg.Set(field, protoreflect.ValueOfBytes(b))
-		}
-	case protoreflect.MessageKind, protoreflect.GroupKind:
-		// message 类型路径参数：优先用 protojson 解析（包装成 JSON string 后，
-		// Timestamp/FieldMask/各种 Wrapper 等 well-known 类型都能原生处理），
-		// 仅对 Go duration 格式（1h30m）做专用回退，因为 protojson 只接受 "1800s" 格式
-		if fieldMsg := field.Message(); fieldMsg != nil {
-			// 1. 先尝试 protojson：把裸字符串包装成 JSON string
-			//    protojson 对 well-known 类型会自动识别并按对应格式解析
-			wrapped := strconv.Quote(value)
-			dynMsg := dynamicpb.NewMessage(fieldMsg)
-			if err := protojson.Unmarshal([]byte(wrapped), dynMsg); err == nil {
-				msg.Set(field, protoreflect.ValueOfMessage(dynMsg))
-				return
-			}
-
-			// 2. protojson 失败时，对 Duration 做 Go duration 格式回退
-			if fieldMsg.FullName() == "google.protobuf.Duration" {
-				if d, err := time.ParseDuration(value); err == nil {
-					dur := dynamicpb.NewMessage(fieldMsg)
-					if secsField := fieldMsg.Fields().ByName("seconds"); secsField != nil {
-						dur.Set(secsField, protoreflect.ValueOfInt64(int64(d/time.Second)))
-					}
-					if nanosField := fieldMsg.Fields().ByName("nanos"); nanosField != nil {
-						dur.Set(nanosField, protoreflect.ValueOfInt32(int32(d%time.Second)))
-					}
-					msg.Set(field, protoreflect.ValueOfMessage(dur))
-				}
-			}
-		}
-	}
-}
 
 // grpcStatusToHTTP 将 gRPC 状态码转换为 HTTP 状态码
 func grpcStatusToHTTP(code codes.Code) int {

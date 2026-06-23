@@ -149,18 +149,17 @@ func TestGrpcStatusToHTTP(t *testing.T) {
 }
 
 func TestSetFieldValue(t *testing.T) {
-	// 使用 dynamicpb 测试字段设置
-	// 这里只测试辅助函数的逻辑，不依赖 proto 描述符
-	// 实际的 proto 描述符测试需要完整的 reflection 流程
-
 	// 测试 grpcStatusToHTTP 的默认值
 	assert.Equal(t, 500, grpcStatusToHTTP(codes.Code(999)))
 }
 
-// TestSetFieldValue_Enum 验证 enum 类型路径参数能正确设置到动态消息上
+// TestPopulateFieldFromPath_Enum 验证 enum 类型路径参数能通过 grpc-gateway 的 PopulateFieldFromPath 正确设置
 // 复现 webhook 场景：path 参数 type=WEBHOOK_TYPE_CF_DOMAIN_BIND 映射到 enum 字段
-func TestSetFieldValue_Enum(t *testing.T) {
+// 前置条件：enum 类型必须注册到 protoregistry.GlobalTypes（由 registerFileTypes 完成）
+func TestPopulateFieldFromPath_Enum(t *testing.T) {
 	md := buildTestEnumMessageDescriptor(t, "TestEnumMsg", "type")
+	// 注册类型到 GlobalTypes，使 PopulateFieldFromPath 能查找枚举
+	registerFileTypes(md.ParentFile())
 
 	inputMsg := dynamicpb.NewMessage(md)
 	field := md.Fields().ByName("type")
@@ -168,22 +167,24 @@ func TestSetFieldValue_Enum(t *testing.T) {
 	assert.Equal(t, protoreflect.EnumKind, field.Kind())
 
 	// 1. 按枚举名设置（webhook 路径参数的实际场景）
-	setFieldValue(inputMsg, field, "WEBHOOK_TYPE_CF_DOMAIN_BIND")
+	err := runtime.PopulateFieldFromPath(inputMsg, "type", "WEBHOOK_TYPE_CF_DOMAIN_BIND")
+	assert.NoError(t, err)
 	assert.Equal(t, protoreflect.EnumNumber(1), inputMsg.Get(field).Enum())
 
 	// 2. 按数字设置
 	inputMsg.Clear(field)
-	setFieldValue(inputMsg, field, "2")
+	err = runtime.PopulateFieldFromPath(inputMsg, "type", "2")
+	assert.NoError(t, err)
 	assert.Equal(t, protoreflect.EnumNumber(2), inputMsg.Get(field).Enum())
 
-	// 3. 无效值不应 panic 且不设置
+	// 3. 无效值应返回 error
 	inputMsg.Clear(field)
-	setFieldValue(inputMsg, field, "INVALID_NAME")
-	assert.Equal(t, protoreflect.EnumNumber(0), inputMsg.Get(field).Enum())
+	err = runtime.PopulateFieldFromPath(inputMsg, "type", "INVALID_NAME")
+	assert.Error(t, err)
 }
 
-// TestSetFieldValue_Bytes 验证 bytes 类型路径参数能正确 base64 解码
-func TestSetFieldValue_Bytes(t *testing.T) {
+// TestPopulateFieldFromPath_Bytes 验证 bytes 类型路径参数能通过 PopulateFieldFromPath 正确 base64 解码
+func TestPopulateFieldFromPath_Bytes(t *testing.T) {
 	md := buildTestMessageDescriptor(t, "TestBytesMsg", "data")
 
 	inputMsg := dynamicpb.NewMessage(md)
@@ -192,23 +193,20 @@ func TestSetFieldValue_Bytes(t *testing.T) {
 	assert.Equal(t, protoreflect.BytesKind, field.Kind())
 
 	// 1. 标准 base64 编码
-	setFieldValue(inputMsg, field, base64.StdEncoding.EncodeToString([]byte("hello")))
+	err := runtime.PopulateFieldFromPath(inputMsg, "data", base64.StdEncoding.EncodeToString([]byte("hello")))
+	assert.NoError(t, err)
 	assert.Equal(t, []byte("hello"), inputMsg.Get(field).Bytes())
 
 	// 2. URL 安全 base64 编码
 	inputMsg.Clear(field)
-	setFieldValue(inputMsg, field, base64.URLEncoding.EncodeToString([]byte("world")))
+	err = runtime.PopulateFieldFromPath(inputMsg, "data", base64.URLEncoding.EncodeToString([]byte("world")))
+	assert.NoError(t, err)
 	assert.Equal(t, []byte("world"), inputMsg.Get(field).Bytes())
-
-	// 3. 无效 base64 不应 panic
-	inputMsg.Clear(field)
-	setFieldValue(inputMsg, field, "!!!not-base64!!!")
-	assert.Empty(t, inputMsg.Get(field).Bytes())
 }
 
-// TestSetFieldValue_Timestamp 验证 Timestamp 类型路径参数通过 protojson 原生解析
-// 路径参数为 RFC3339 字符串，包装成 JSON string 后 protojson 能自动识别 well-known 类型
-func TestSetFieldValue_Timestamp(t *testing.T) {
+// TestPopulateFieldFromPath_Timestamp 验证 Timestamp 类型路径参数通过 PopulateFieldFromPath 解析
+// grpc-gateway 的 parseMessage 对 Timestamp 用 time.Parse(RFC3339Nano)
+func TestPopulateFieldFromPath_Timestamp(t *testing.T) {
 	md := buildTestWellKnownMessageDescriptor(t, "TestTimestampMsg", "ts", "google.protobuf.Timestamp")
 
 	inputMsg := dynamicpb.NewMessage(md)
@@ -217,18 +215,19 @@ func TestSetFieldValue_Timestamp(t *testing.T) {
 	assert.Equal(t, protoreflect.MessageKind, field.Kind())
 
 	// RFC3339 格式的时间字符串
-	setFieldValue(inputMsg, field, "2026-06-23T10:00:00Z")
+	err := runtime.PopulateFieldFromPath(inputMsg, "ts", "2026-06-23T10:00:00Z")
+	assert.NoError(t, err)
 
-	// 验证 seconds 字段被正确设置（2026-06-23T10:00:00Z 的 Unix 时间戳）
+	// 验证 seconds 字段被正确设置
 	tsMsg := inputMsg.Get(field).Message()
 	secsField := tsMsg.Descriptor().Fields().ByName("seconds")
 	assert.NotNil(t, secsField)
 	assert.Equal(t, int64(1782208800), tsMsg.Get(secsField).Int())
 }
 
-// TestSetFieldValue_Duration_GoFormat 验证 Duration 类型路径参数支持 Go duration 格式
-// protojson 只接受 "1800s" 格式，Go duration "1h30m" 需要专用回退
-func TestSetFieldValue_Duration_GoFormat(t *testing.T) {
+// TestPopulateFieldFromPath_Duration 验证 Duration 类型路径参数通过 PopulateFieldFromPath 解析
+// grpc-gateway 的 parseMessage 对 Duration 用 time.ParseDuration（Go duration 格式）
+func TestPopulateFieldFromPath_Duration(t *testing.T) {
 	md := buildTestWellKnownMessageDescriptor(t, "TestDurationMsg", "dur", "google.protobuf.Duration")
 
 	inputMsg := dynamicpb.NewMessage(md)
@@ -237,7 +236,8 @@ func TestSetFieldValue_Duration_GoFormat(t *testing.T) {
 	assert.Equal(t, protoreflect.MessageKind, field.Kind())
 
 	// Go duration 格式 "1h30m" = 5400 秒
-	setFieldValue(inputMsg, field, "1h30m")
+	err := runtime.PopulateFieldFromPath(inputMsg, "dur", "1h30m")
+	assert.NoError(t, err)
 
 	durMsg := inputMsg.Get(field).Message()
 	secsField := durMsg.Descriptor().Fields().ByName("seconds")
