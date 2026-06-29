@@ -14,17 +14,17 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-argus v0.2.1
-	github.com/kamalyes/go-config v0.21.5-0.20260610055707-236a73f5dfab
+	github.com/kamalyes/go-config v0.21.5-0.20260629071806-990ad9d9b7f5
 	github.com/kamalyes/go-i18n v0.2.3
 	github.com/kamalyes/go-logger v0.5.3
 	github.com/kamalyes/go-natsx v0.1.0
 	github.com/kamalyes/go-pbmo v0.1.4
 	github.com/kamalyes/go-swagger v0.1.2
-	github.com/kamalyes/go-toolbox v0.15.4-0.20260623025116-ddd2ac30e7f8
-	github.com/kamalyes/go-wsc v0.9.3
+	github.com/kamalyes/go-toolbox v0.15.4-0.20260623031158-fbd8bba28248
+	github.com/kamalyes/go-wsc v0.9.4-0.20260629085128-32a26efc6e87
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
-	github.com/redis/go-redis/v9 v9.20.0
+	github.com/redis/go-redis/v9 v9.21.0
 	github.com/stretchr/testify v1.11.1
 	go.etcd.io/bbolt v1.4.3
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0
@@ -38,7 +38,7 @@ require (
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/driver/sqlite v1.6.0
-	gorm.io/gorm v1.31.1
+	gorm.io/gorm v1.31.2
 )
 
 require (
@@ -64,12 +64,13 @@ require (
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
-	github.com/kamalyes/go-sqlbuilder v0.5.4 // indirect
+	github.com/kamalyes/go-sqlbuilder v0.5.5 // indirect
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/nats-io/nkeys v0.4.15 // indirect
@@ -128,7 +129,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.38.0 // indirect
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.7.1 // indirect
-	golang.org/x/arch v0.27.0 // indirect
+	golang.org/x/arch v0.28.0 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/net v0.55.0
 	golang.org/x/sync v0.21.0 // indirect

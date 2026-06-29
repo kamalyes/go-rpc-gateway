@@ -105,6 +105,11 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 		"启用ACK":    cfg.EnableAck,
 		"允许多端登录":   cfg.AllowMultiLogin,
 		"每用户最大连接数": cfg.MaxConnectionsPerUser,
+		"启用客服模块":   cfg.EnableAgent,
+		"启用观察者模块":  cfg.EnableObserver,
+		"启用负载管理":   cfg.EnableWorkload,
+		"启用连接Token": cfg.Security != nil && cfg.Security.ConnectionToken.IsEnabled(),
+		"Token Redis校验": cfg.Security != nil && cfg.Security.ConnectionToken.IsRedisEnabled(),
 	}
 	cgInit.Table(serviceConfig)
 	cgInit.GroupEnd()
