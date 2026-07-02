@@ -14,6 +14,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 
 	gccommon "github.com/kamalyes/go-config/pkg/common"
@@ -35,6 +36,7 @@ type RequestCommonMeta struct {
 	TraceID        string `json:"traceID" header:"X-Trace-ID"`             // 跟踪ID
 	RequestID      string `json:"requestID" header:"X-Request-ID"`         // 请求ID
 	UserID         string `json:"userID" header:"X-User-ID"`               // 用户ID
+	UserName       string `json:"userName" header:"X-User-Name"`           // 用户名称
 	Domain         string `json:"domain" header:"X-Domain"`                // 域
 	RoleCode       string `json:"roleCode" header:"X-Role-Code"`           // 角色Code
 	TenantID       string `json:"tenantID" header:"X-Tenant-ID"`           // 租户ID
@@ -175,6 +177,7 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 		RequestID:      contextx.GetValue[string](ctx, constants.MetadataRequestID),
 		Authorization:  contextx.GetValue[string](ctx, constants.MetadataAuthorization),
 		UserID:         contextx.GetValue[string](ctx, constants.MetadataUserID),
+		UserName:       contextx.GetValue[string](ctx, constants.MetadataUserName),
 		Domain:         contextx.GetValue[string](ctx, constants.MetadataDomain),
 		RoleCode:       contextx.GetValue[string](ctx, constants.MetadataRoleCode),
 		TenantID:       contextx.GetValue[string](ctx, constants.MetadataTenantID),
@@ -267,6 +270,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	id := firstMetadataValue(constants.MetadataID)
 	authorization := firstMetadataValue(constants.MetadataAuthorization)
 	userID := firstMetadataValue(constants.MetadataUserID)
+	userName, _ := url.QueryUnescape(firstMetadataValue(constants.MetadataUserName))
 	domain := firstMetadataValue(constants.MetadataDomain)
 	roleCode := firstMetadataValue(constants.MetadataRoleCode)
 	sessionID := firstMetadataValue(constants.MetadataSessionID)
@@ -300,6 +304,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		WithTraceID(traceID).
 		WithAuthorization(authorization).
 		WithUserID(userID).
+		WithUserName(userName).
 		WithDomain(domain).
 		WithRoleCode(roleCode).
 		WithTenantID(tenantID).
@@ -335,6 +340,7 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		RequestID:      requestID,
 		Authorization:  authorization,
 		UserID:         userID,
+		UserName:       userName,
 		Domain:         domain,
 		RoleCode:       roleCode,
 		TenantID:       tenantID,
@@ -375,6 +381,7 @@ func setResponseMetadata(ctx context.Context) {
 		constants.MetadataRequestID, requestCommonMeta.RequestID,
 		constants.MetadataAuthorization, requestCommonMeta.Authorization,
 		constants.MetadataUserID, requestCommonMeta.UserID,
+		constants.MetadataUserName, url.QueryEscape(requestCommonMeta.UserName),
 		constants.MetadataDomain, requestCommonMeta.Domain,
 		constants.MetadataRoleCode, requestCommonMeta.RoleCode,
 		constants.MetadataTenantID, requestCommonMeta.TenantID,
@@ -458,6 +465,7 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 		constants.MetadataRequestID, requestCommonMeta.RequestID,
 		constants.MetadataAuthorization, requestCommonMeta.Authorization,
 		constants.MetadataUserID, requestCommonMeta.UserID,
+		constants.MetadataUserName, url.QueryEscape(requestCommonMeta.UserName),
 		constants.MetadataDomain, requestCommonMeta.Domain,
 		constants.MetadataRoleCode, requestCommonMeta.RoleCode,
 		constants.MetadataTenantID, requestCommonMeta.TenantID,
@@ -553,6 +561,12 @@ func GetRequestID(ctx context.Context) string {
 func GetUserID(ctx context.Context) string {
 	requestCommonMeta := GetRequestCommonMeta(ctx)
 	return requestCommonMeta.UserID
+}
+
+// GetUserName 从 context 获取 UserName
+func GetUserName(ctx context.Context) string {
+	requestCommonMeta := GetRequestCommonMeta(ctx)
+	return requestCommonMeta.UserName
 }
 
 // GetDomain 从 context 获取 Domain
@@ -749,6 +763,13 @@ func WithAuthorization(ctx context.Context, authorization string) context.Contex
 func WithUserID(ctx context.Context, userID string) context.Context {
 	ctx = contextx.WithValue(ctx, constants.MetadataUserID, userID)
 	updateRequestCommonMetaField(ctx, func(m *RequestCommonMeta) { m.UserID = userID })
+	return ctx
+}
+
+// WithUserName 将 UserName 设置到 context 并同步更新 RequestCommonMeta
+func WithUserName(ctx context.Context, userName string) context.Context {
+	ctx = contextx.WithValue(ctx, constants.MetadataUserName, userName)
+	updateRequestCommonMetaField(ctx, func(m *RequestCommonMeta) { m.UserName = userName })
 	return ctx
 }
 
@@ -1006,6 +1027,11 @@ func (b *ContextBuilder) WithID(id string) *ContextBuilder {
 
 func (b *ContextBuilder) WithUserID(userID string) *ContextBuilder {
 	b.ctx = WithUserID(b.ctx, userID)
+	return b
+}
+
+func (b *ContextBuilder) WithUserName(userName string) *ContextBuilder {
+	b.ctx = WithUserName(b.ctx, userName)
 	return b
 }
 

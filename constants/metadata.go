@@ -21,6 +21,7 @@ const (
 	MetadataRequestID      = "x-request-id"
 	MetadataID             = "x-id"
 	MetadataUserID         = "x-user-id"
+	MetadataUserName       = "x-user-name"
 	MetadataDomain         = "x-domain"
 	MetadataRoleCode       = "x-role-code"
 	MetadataTenantID       = "x-tenant-id"
