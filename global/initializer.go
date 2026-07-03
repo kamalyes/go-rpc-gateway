@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/bwmarrin/snowflake"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
@@ -40,6 +41,26 @@ type Initializer interface {
 
 	// HealthCheck 健康检查
 	HealthCheck() error
+}
+
+// InitializerTimeout 可选接口，允许初始化器自定义初始化超时时间
+// 未实现此接口的初始化器将使用 defaultInitTimeout
+// 用于避免单个初始化器因网络问题（如数据库拒绝连接但拨号不返回）导致整个初始化链卡死
+type InitializerTimeout interface {
+	InitTimeout() time.Duration
+}
+
+// defaultInitTimeout 单个初始化器的默认最大超时时间
+const defaultInitTimeout = 15 * time.Second
+
+// getInitTimeout 获取初始化器的超时时间，未实现 InitializerTimeout 接口则使用默认值
+func getInitTimeout(init Initializer) time.Duration {
+	if t, ok := init.(InitializerTimeout); ok {
+		if timeout := t.InitTimeout(); timeout > 0 {
+			return timeout
+		}
+	}
+	return defaultInitTimeout
 }
 
 // InitializerChain 初始化器链 - 管理所有初始化器
@@ -95,7 +116,30 @@ func (c *InitializerChain) InitializeAll(ctx context.Context, cfg *gwconfig.Gate
 			fmt.Printf("🔧 初始化 %s...\n", name)
 		}
 
-		if err := init.Initialize(ctx, cfg); err != nil {
+		// 为单个初始化器设置最大超时时间，避免网络问题（如目标机器拒绝连接但拨号不返回）导致整个初始化链卡死
+		// 注意：超时后 Initialize 可能在后台 goroutine 中继续执行，但 InitializeAll 会立即返回错误
+		timeout := getInitTimeout(init)
+		initCtx, cancel := context.WithTimeout(ctx, timeout)
+
+		done := make(chan error, 1)
+		go func() {
+			done <- init.Initialize(initCtx, cfg)
+		}()
+
+		var err error
+		select {
+		case err = <-done:
+			// 初始化完成（成功或失败）
+		case <-initCtx.Done():
+			if initCtx.Err() == context.DeadlineExceeded {
+				err = fmt.Errorf("初始化 %s 超时（耗时超过 %s）", name, timeout)
+			} else {
+				err = fmt.Errorf("初始化 %s 被取消: %w", name, initCtx.Err())
+			}
+		}
+		cancel()
+
+		if err != nil {
 			if cg != nil {
 				cg.GroupEnd()
 			}
