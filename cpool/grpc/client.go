@@ -289,15 +289,18 @@ func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds 
 		gwglobal.LOGGER.Info("⚖️ %s 启用负载均衡: %s", serviceName, policy)
 	}
 
-	// 添加 Context 传播拦截器（确保 trace_id 在服务调用链中传递）
+	// 添加客户端拦截器链（顺序：RequestContext 传播 → 日志记录 → 健康检查）
+	// RequestContext 先执行注入 trace，日志拦截器随之记录调用耗时与结果，健康检查拦截器在不健康时短路返回
 	dialOpts = append(dialOpts,
 		grpc.WithChainUnaryInterceptor(
-			middleware.UnaryClientRequestContextInterceptor(), // RequestContext 传播
-			UnaryClientHealthInterceptor(serviceName, healthChecker),
+			middleware.UnaryClientRequestContextInterceptor(),          // RequestContext 传播
+			middleware.UnaryClientLoggingInterceptor(serviceName),       // 调用日志记录
+			UnaryClientHealthInterceptor(serviceName, healthChecker),   // 健康检查
 		),
 		grpc.WithChainStreamInterceptor(
-			middleware.StreamClientRequestContextInterceptor(), // Stream RequestContext 传播
-			StreamClientHealthInterceptor(serviceName, healthChecker),
+			middleware.StreamClientRequestContextInterceptor(),          // Stream RequestContext 传播
+			middleware.StreamClientLoggingInterceptor(serviceName),       // Stream 调用日志记录
+			StreamClientHealthInterceptor(serviceName, healthChecker),   // Stream 健康检查
 		),
 	)
 

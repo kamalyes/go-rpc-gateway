@@ -121,6 +121,7 @@ const (
 	LogFieldBytes      = "bytes"
 	LogFieldError      = "error"
 	LogFieldStackTrace = "stack_trace"
+	LogFieldService    = "service"
 )
 
 // 日志级别常量
@@ -133,14 +134,18 @@ const (
 
 // 日志消息常量
 const (
-	LogMsgHTTPRequest        = "HTTP Request"
-	LogMsgHTTPRequestSkip    = "HTTP Request (Skip Path)"
-	LogMsgGRPCRequest        = "gRPC Request"
-	LogMsgGRPCRequestError   = "gRPC Request Error"
-	LogMsgGRPCStream         = "gRPC Stream"
-	LogMsgGRPCStreamError    = "gRPC Stream Error"
-	LogMsgPanicRecovered     = "PANIC Recovered"
-	LogMsgWriteResponseError = "写入panic响应失败"
+	LogMsgHTTPRequest           = "HTTP Request"
+	LogMsgHTTPRequestSkip       = "HTTP Request (Skip Path)"
+	LogMsgGRPCRequest           = "gRPC Request"
+	LogMsgGRPCRequestError      = "gRPC Request Error"
+	LogMsgGRPCStream            = "gRPC Stream"
+	LogMsgGRPCStreamError       = "gRPC Stream Error"
+	LogMsgGRPCClientRequest     = "gRPC Client Request"
+	LogMsgGRPCClientRequestErr  = "gRPC Client Request Error"
+	LogMsgGRPCClientStream      = "gRPC Client Stream"
+	LogMsgGRPCClientStreamError = "gRPC Client Stream Error"
+	LogMsgPanicRecovered        = "PANIC Recovered"
+	LogMsgWriteResponseError    = "写入panic响应失败"
 )
 
 // 其他常量
