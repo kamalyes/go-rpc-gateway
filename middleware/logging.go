@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-config/pkg/logging"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -26,7 +27,30 @@ import (
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
+
+// getProtojsonOptions 从全局配置 Gateway.JSON 获取 protobuf JSON 序列化选项
+// 与 API 响应的序列化配置保持一致，支持配置文件修改和热重载
+// 注意：DiscardUnknown 属于反序列化选项，序列化时不适用，故不传入
+func getProtojsonOptions() protojson.MarshalOptions {
+	if global.GATEWAY != nil && global.GATEWAY.JSON != nil {
+		j := global.GATEWAY.JSON
+		return protojson.MarshalOptions{
+			UseProtoNames:   j.UseProtoNames,
+			EmitUnpopulated: j.EmitUnpopulated,
+			Multiline:       false,
+		}
+	}
+	// 回退：使用 go-config 的默认 JSON 配置
+	d := gwconfig.DefaultJSON()
+	return protojson.MarshalOptions{
+		UseProtoNames:   d.UseProtoNames,
+		EmitUnpopulated: d.EmitUnpopulated,
+		Multiline:       false,
+	}
+}
 
 // RequestLogger 统一的请求日志记录器
 type RequestLogger struct {
@@ -140,25 +164,12 @@ func getLoggingConfig() *logging.Logging {
 	return logging.Default()
 }
 
-// shouldCaptureRequest 是否应该捕获请求体
-func shouldCaptureRequest() bool {
-	config := getLoggingConfig()
-	return config.EnableRequest
-}
-
-// shouldCaptureResponse 是否应该捕获响应体
-func shouldCaptureResponse() bool {
-	config := getLoggingConfig()
-	return config.EnableResponse
-}
-
 // isLoggableContentType 检查 Content-Type 是否可记录
-func isLoggableContentType(contentType string) bool {
+func isLoggableContentType(config *logging.Logging, contentType string) bool {
 	if contentType == "" {
 		return true
 	}
 
-	config := getLoggingConfig()
 	contentType = strings.ToLower(contentType)
 
 	for _, prefix := range config.LoggableContentTypes {
@@ -170,8 +181,7 @@ func isLoggableContentType(contentType string) bool {
 }
 
 // isSkipPath 检查是否为跳过路径
-func isSkipPath(path string) bool {
-	config := getLoggingConfig()
+func isSkipPath(config *logging.Logging, path string) bool {
 	for _, skip := range config.SkipPaths {
 		if path == skip {
 			return true
@@ -197,9 +207,11 @@ func LoggingMiddleware() HTTPMiddleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			ctx := r.Context()
+			// 每次请求读取一次配置，支持热重载且避免后续重复读取
+			reqConfig := getLoggingConfig()
 
 			// 跳过路径检查
-			if isSkipPath(r.URL.Path) {
+			if isSkipPath(reqConfig, r.URL.Path) {
 				wrapped := NewResponseWriter(w)
 				next.ServeHTTP(wrapped, r)
 				if wrapped.StatusCode() >= 400 {
@@ -211,7 +223,7 @@ func LoggingMiddleware() HTTPMiddleware {
 
 			// 捕获请求体
 			var reqBody []byte
-			if shouldCaptureRequest() && r.Body != nil {
+			if reqConfig.EnableRequest && r.Body != nil {
 				var err error
 				reqBody, err = io.ReadAll(r.Body)
 				if err != nil && global.LOGGER != nil {
@@ -225,7 +237,7 @@ func LoggingMiddleware() HTTPMiddleware {
 
 			// 包装响应
 			wrapped := NewResponseWriter(w)
-			if shouldCaptureResponse() {
+			if reqConfig.EnableResponse {
 				wrapped.EnableBodyCapture()
 			}
 			defer wrapped.Release()
@@ -234,7 +246,7 @@ func LoggingMiddleware() HTTPMiddleware {
 			next.ServeHTTP(wrapped, r)
 
 			// 记录日志
-			logHTTPRequest(ctx, r, wrapped, time.Since(start), config, reqBody)
+			logHTTPRequest(ctx, r, wrapped, time.Since(start), reqConfig, reqBody)
 		})
 	}
 }
@@ -261,12 +273,12 @@ func logHTTPRequest(ctx context.Context, r *http.Request, rw *ResponseWriter, du
 	}
 
 	// 请求体
-	if len(reqBody) > 0 && isLoggableContentType(r.Header.Get(constants.HeaderContentType)) {
+	if len(reqBody) > 0 && isLoggableContentType(config, r.Header.Get(constants.HeaderContentType)) {
 		fields.Add(constants.LogFieldRequest, masker.Mask(reqBody))
 	}
 
 	// 响应体
-	if respBody := rw.GetBody(); len(respBody) > 0 && isLoggableContentType(rw.Header().Get(constants.HeaderContentType)) {
+	if respBody := rw.GetBody(); len(respBody) > 0 && isLoggableContentType(config, rw.Header().Get(constants.HeaderContentType)) {
 		fields.Add(constants.LogFieldResponse, masker.Mask(respBody))
 	}
 
@@ -330,6 +342,9 @@ func logGRPCUnary(ctx context.Context, method string, req, resp any, err error, 
 	config := getLoggingConfig()
 	logger := NewRequestLogger(ctx)
 	masker := global.DATAMASKER
+	// 直接复用 config 字段，避免 shouldCaptureRequest/Response 重复读取配置
+	captureReq := config.EnableRequest
+	captureResp := config.EnableResponse
 
 	fields := NewLogFields().
 		Add(constants.LogFieldMethod, method).
@@ -340,16 +355,16 @@ func logGRPCUnary(ctx context.Context, method string, req, resp any, err error, 
 	if err != nil {
 		st, _ := status.FromError(err)
 		fields.Add(constants.LogFieldStatus, st.Code().String()).Add(constants.LogFieldError, st.Message())
-		if shouldCaptureRequest() && req != nil {
+		if captureReq && req != nil {
 			fields.Add(constants.LogFieldRequest, masker.Mask(marshalProto(req)))
 		}
 		logger.Log(constants.LogLevelError, "❌ "+constants.LogMsgGRPCRequestError, fields)
 	} else {
 		fields.Add(constants.LogFieldStatus, "OK")
-		if shouldCaptureRequest() && req != nil {
+		if captureReq && req != nil {
 			fields.Add(constants.LogFieldRequest, masker.Mask(marshalProto(req)))
 		}
-		if shouldCaptureResponse() && resp != nil {
+		if captureResp && resp != nil {
 			fields.Add(constants.LogFieldResponse, masker.Mask(marshalProto(resp)))
 		}
 		logger.Log(constants.LogLevelInfo, "✅ "+constants.LogMsgGRPCRequest, fields)
@@ -418,6 +433,9 @@ func logGRPCClientUnary(ctx context.Context, serviceName, method string, req, re
 	config := getLoggingConfig()
 	logger := NewRequestLogger(ctx)
 	masker := global.DATAMASKER
+	// 直接复用 config 字段，避免 shouldCaptureRequest/Response 重复读取配置
+	captureReq := config.EnableRequest
+	captureResp := config.EnableResponse
 
 	fields := NewLogFields().
 		Add(constants.LogFieldService, serviceName).
@@ -429,16 +447,16 @@ func logGRPCClientUnary(ctx context.Context, serviceName, method string, req, re
 	if err != nil {
 		st, _ := status.FromError(err)
 		fields.Add(constants.LogFieldStatus, st.Code().String()).Add(constants.LogFieldError, st.Message())
-		if shouldCaptureRequest() && req != nil {
+		if captureReq && req != nil {
 			fields.Add(constants.LogFieldRequest, masker.Mask(marshalProto(req)))
 		}
 		logger.Log(constants.LogLevelError, "❌ "+constants.LogMsgGRPCClientRequestErr, fields)
 	} else {
 		fields.Add(constants.LogFieldStatus, "OK")
-		if shouldCaptureRequest() && req != nil {
+		if captureReq && req != nil {
 			fields.Add(constants.LogFieldRequest, masker.Mask(marshalProto(req)))
 		}
-		if shouldCaptureResponse() && resp != nil {
+		if captureResp && resp != nil {
 			fields.Add(constants.LogFieldResponse, masker.Mask(marshalProto(resp)))
 		}
 		logger.Log(constants.LogLevelInfo, "✅ "+constants.LogMsgGRPCClientRequest, fields)
@@ -474,10 +492,21 @@ func logGRPCClientStream(ctx context.Context, serviceName, method string, desc *
 }
 
 // marshalProto 序列化 protobuf 消息
+// 优先使用 protojson（基于 protobuf descriptor，比 encoding/json 反射快 3-5x），
+// 序列化选项来自全局配置 Gateway.JSON，与 API 响应保持一致；
+// 非 proto.Message 类型回退到 json.Marshal
 func marshalProto(data any) []byte {
 	if data == nil {
 		return nil
 	}
+	// 优先走 protojson 快速路径
+	if msg, ok := data.(proto.Message); ok {
+		b, err := getProtojsonOptions().Marshal(msg)
+		if err == nil {
+			return b
+		}
+	}
+	// 回退：非 protobuf 消息用标准 json
 	jsonBytes, _ := json.Marshal(data)
 	return jsonBytes
 }
