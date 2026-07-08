@@ -155,8 +155,8 @@ github.com/kamalyes/go-sqlbuilder v0.5.7-0.20260706094015-9d3e3d38ebd2 h1:avUGv4
 github.com/kamalyes/go-sqlbuilder v0.5.7-0.20260706094015-9d3e3d38ebd2/go.mod h1:/5ZdlgC71IBOC0QC3nEbdvQNt5s108XCOl5K5Wq/8KQ=
 github.com/kamalyes/go-swagger v0.1.2 h1:eIUby+F9RA2cM+fkV2MZt4gQpKcbqt3xoUJE0h3Wvlc=
 github.com/kamalyes/go-swagger v0.1.2/go.mod h1:vcA/W/TLFf+PiOcpyhjBRSY4UE0Mw70Jxr3WOO52spI=
-github.com/kamalyes/go-toolbox v0.15.4-0.20260623031158-fbd8bba28248 h1:AdZ+YR5zv/E35HDFIwLoKuw5T0dVTQYcuTNErRMb2io=
-github.com/kamalyes/go-toolbox v0.15.4-0.20260623031158-fbd8bba28248/go.mod h1:BNzWEKmfxKbCuDy1100DmSI4FwqSzm9Pe5H78yREAKE=
+github.com/kamalyes/go-toolbox v0.15.4-0.20260708035853-0906a957860d h1:M4e+wZMKZR3OgJATzFPnG97La6AmbFKVr2esx9NbxgQ=
+github.com/kamalyes/go-toolbox v0.15.4-0.20260708035853-0906a957860d/go.mod h1:BNzWEKmfxKbCuDy1100DmSI4FwqSzm9Pe5H78yREAKE=
 github.com/kamalyes/go-wsc v0.9.4-0.20260629085128-32a26efc6e87 h1:uMcbWgcXY036RJFhJEOXHSd3llybnEkOeEyNXK2S8cc=
 github.com/kamalyes/go-wsc v0.9.4-0.20260629085128-32a26efc6e87/go.mod h1:rnDXnUijWDZwAP9yhjm2Ukdr0xWBselnnWWkJpYDWG0=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=

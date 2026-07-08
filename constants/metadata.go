@@ -51,6 +51,7 @@ const (
 	MetadataPushToken      = "x-push-token"
 	MetadataToken          = "x-token"
 	MetadataAcceptLanguage = "accept-language"
+	MetadataServerNode     = "x-server-node" // 服务节点标识（K8s 环境下为 Pod 名称）
 )
 
 // ============================================================================

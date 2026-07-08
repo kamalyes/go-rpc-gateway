@@ -155,6 +155,10 @@ func RequestContextMiddleware() HTTPMiddleware {
 			// 5. 设置响应头（便于客户端追踪）
 			w.Header().Set(constants.HeaderXTraceID, requestCommonMeta.TraceID)
 			w.Header().Set(constants.HeaderXRequestID, requestCommonMeta.RequestID)
+			// 注入服务节点标识，便于在 K8s 等环境中定位处理请求的具体 Pod
+			if serverNode := global.GetServerNode(); serverNode != "" {
+				w.Header().Set(constants.HeaderXServerNode, serverNode)
+			}
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -411,6 +415,11 @@ func setResponseMetadata(ctx context.Context) {
 		constants.MetadataForwardedHost, requestCommonMeta.ForwardedHost,
 	)
 
+	// 注入服务节点标识（K8s 环境下为 Pod 名称），便于下游服务定位处理请求的具体节点
+	if serverNode := global.GetServerNode(); serverNode != "" {
+		md.Append(constants.MetadataServerNode, serverNode)
+	}
+
 	// 发送 metadata（忽略错误，因为可能已经发送过）
 	if len(md) > 0 {
 		grpc.SetHeader(ctx, md)
@@ -498,6 +507,12 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 	if existingMD, ok := metadata.FromOutgoingContext(ctx); ok {
 		md = metadata.Join(existingMD, md)
 	}
+
+	// 透传服务节点标识到下游服务，便于全链路定位处理请求的具体节点
+	if serverNode := global.GetServerNode(); serverNode != "" {
+		md.Append(constants.MetadataServerNode, serverNode)
+	}
+
 	return metadata.NewOutgoingContext(ctx, md)
 }
 

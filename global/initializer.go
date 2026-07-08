@@ -23,6 +23,7 @@ import (
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
+	"github.com/kamalyes/go-toolbox/pkg/osx"
 )
 
 // Initializer 初始化器接口 - 统一初始化流程
@@ -359,6 +360,28 @@ func (i *ContextInitializer) Cleanup() error {
 	return nil
 }
 
+// ServerNodeInitializer 服务节点标识初始化器
+// 在 K8s 环境下用于识别处理请求的具体 Pod，便于分布式环境下的流量定位与问题排查
+// 节点标识获取逻辑封装在 osx.GetServerNode() 中（与 osx.GetWorkerId 同源）
+type ServerNodeInitializer struct{}
+
+func (i *ServerNodeInitializer) Name() string       { return "ServerNode" }
+func (i *ServerNodeInitializer) Priority() int      { return 3 } // 在 Context 之后、Snowflake 之前
+func (i *ServerNodeInitializer) HealthCheck() error { return nil }
+
+func (i *ServerNodeInitializer) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
+	// 通过 osx.GetServerNode 获取节点标识
+	// 优先级: POD_NAME > HOSTNAME > os.Hostname() > 随机生成的标识
+	SERVER_NODE = osx.GetServerNode()
+	LOGGER.InfoContext(ctx, "🖥️ 服务节点标识已初始化: %s", SERVER_NODE)
+	return nil
+}
+
+func (i *ServerNodeInitializer) Cleanup() error {
+	SERVER_NODE = ""
+	return nil
+}
+
 // ==================== 辅助函数 ====================
 
 // GetDefaultInitializerChain 获取默认初始化器链
@@ -368,6 +391,7 @@ func GetDefaultInitializerChain() *InitializerChain {
 	// 注册所有默认初始化器（按优先级自动排序）
 	chain.Register(&LoggerInitializer{})
 	chain.Register(&ContextInitializer{})
+	chain.Register(&ServerNodeInitializer{})
 	chain.Register(&SnowflakeInitializer{})
 	chain.Register(&PoolManagerInitializer{})
 

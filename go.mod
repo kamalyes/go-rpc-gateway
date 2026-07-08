@@ -20,7 +20,7 @@ require (
 	github.com/kamalyes/go-natsx v0.1.0
 	github.com/kamalyes/go-pbmo v0.1.5-0.20260706095123-f6d04e0c255e
 	github.com/kamalyes/go-swagger v0.1.2
-	github.com/kamalyes/go-toolbox v0.15.4-0.20260623031158-fbd8bba28248
+	github.com/kamalyes/go-toolbox v0.15.4-0.20260708035853-0906a957860d
 	github.com/kamalyes/go-wsc v0.9.4-0.20260629085128-32a26efc6e87
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1

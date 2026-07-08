@@ -45,6 +45,7 @@ var (
 	REDIS          *redis.Client                             // Redis连接（便捷引用，实际由 PoolManager 管理）
 	MinIO          *minio.Client                             // MinIO连接（便捷引用，实际由 PoolManager 管理）
 	DATAMASKER     *desensitize.DataMasker                   // 数据脱敏器
+	SERVER_NODE    string                                    // 当前服务节点标识（K8s 环境下为 Pod 名称），用于响应头和 gRPC metadata 透传
 	GPerFix        string                            = "gw_" // 全局表前缀
 )
 
@@ -106,6 +107,7 @@ func CleanupGlobal() {
 	CTX = nil
 	CANCEL = nil
 	WSCHUB = nil
+	SERVER_NODE = ""
 
 	if LOGGER != nil {
 		LOGGER.InfoContext(ctx, "✅ 全局资源清理完成")
@@ -181,6 +183,12 @@ func GetSnowflakeNode() *snowflake.Node {
 	return Node
 }
 
+// GetServerNode 获取当前服务节点标识（K8s 环境下为 Pod 名称）
+// 用于 HTTP 响应头 X-Server-Node 和 gRPC metadata x-server-node 透传
+func GetServerNode() string {
+	return SERVER_NODE
+}
+
 // GetWebSocketService 获取全局WebSocket服务实例
 func GetWebSocketService() *gowsc.Hub {
 	return WSCHUB
@@ -209,7 +217,7 @@ func ReloadConfig() error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	// 通过热重载器进行配置重载
 	if err := CONFIG_MANAGER.GetHotReloader().Reload(ctx); err != nil {
 		return fmt.Errorf("重新加载配置失败: %w", err)
