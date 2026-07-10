@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	validator "github.com/kamalyes/go-argus"
 	"github.com/kamalyes/go-config/pkg/ratelimit"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -26,7 +27,6 @@ import (
 	"github.com/kamalyes/go-toolbox/pkg/matcher"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
-	"github.com/kamalyes/go-toolbox/pkg/validator"
 )
 
 // 限流相关常量

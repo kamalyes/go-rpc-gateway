@@ -17,11 +17,11 @@ import (
 	"runtime"
 	"strings"
 
+	validator "github.com/kamalyes/go-argus"
 	gopprof "github.com/kamalyes/go-config/pkg/pprof"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
-	"github.com/kamalyes/go-toolbox/pkg/validator"
 )
 
 // initSamplingConfig 初始化采样配置

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	validator "github.com/kamalyes/go-argus"
 	"github.com/kamalyes/go-config/pkg/cors"
 	"github.com/kamalyes/go-config/pkg/security"
 	"github.com/kamalyes/go-rpc-gateway/constants"
@@ -27,7 +28,6 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
-	"github.com/kamalyes/go-toolbox/pkg/validator"
 )
 
 // CORSMiddleware CORS 中间件

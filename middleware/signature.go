@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net/http"
 
+	validator "github.com/kamalyes/go-argus"
 	"github.com/kamalyes/go-config/pkg/signature"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	gwerrors "github.com/kamalyes/go-rpc-gateway/errors"
@@ -26,7 +27,6 @@ import (
 	"github.com/kamalyes/go-toolbox/pkg/httpx"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/sign"
-	"github.com/kamalyes/go-toolbox/pkg/validator"
 )
 
 // SignatureValidator 签名验证器接口

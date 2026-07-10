@@ -16,11 +16,11 @@ import (
 	"net/http"
 	"time"
 
+	validator "github.com/kamalyes/go-argus"
 	"github.com/kamalyes/go-config/pkg/signature"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/response"
-	"github.com/kamalyes/go-toolbox/pkg/validator"
 	"github.com/redis/go-redis/v9"
 )
 
