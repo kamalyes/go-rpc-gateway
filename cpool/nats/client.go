@@ -118,10 +118,19 @@ func buildNatsOptions(cfg *queue.Nats, log logger.ILogger) []nats.Option {
 			log.InfoContext(context.Background(), "NATS connection closed")
 		}),
 		// 错误回调
+		// 注意：连接级错误（如认证失败、服务端协议错误等）触发时 sub 为 nil，需做防御
 		nats.ErrorHandler(func(nc *nats.Conn, sub *nats.Subscription, err error) {
+			subject := ""
+			if sub != nil {
+				subject = sub.Subject
+			}
+			url := ""
+			if nc != nil {
+				url = nc.ConnectedUrl()
+			}
 			log.ErrorContextKV(context.Background(), "NATS error",
-				"url", nc.ConnectedUrl(),
-				"subject", sub.Subject,
+				"url", url,
+				"subject", subject,
 				"error", err,
 			)
 		}),
