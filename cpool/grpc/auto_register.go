@@ -21,6 +21,8 @@ package grpc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -88,10 +90,12 @@ var reflectionRegistry = &struct {
 	mu          sync.RWMutex
 	services    map[string][]ReflectionServiceInfo // serviceName -> services
 	files       *protoregistry.Files               // proto 文件注册表（指向 GlobalFiles）
+	fileHashes  map[string]string                  // fileName -> SHA256 hex，用于检测版本不一致
 	initialized bool
 }{
-	services: make(map[string][]ReflectionServiceInfo),
-	files:    protoregistry.GlobalFiles,
+	services:   make(map[string][]ReflectionServiceInfo),
+	files:      protoregistry.GlobalFiles,
+	fileHashes: make(map[string]string),
 }
 
 // routeRegistry 存储已注册的 HTTP 路由
@@ -126,6 +130,7 @@ func GetRoutes() []HTTPRoute {
 func ClearRegistry() {
 	reflectionRegistry.mu.Lock()
 	reflectionRegistry.services = make(map[string][]ReflectionServiceInfo)
+	reflectionRegistry.fileHashes = make(map[string]string)
 	reflectionRegistry.initialized = false
 	reflectionRegistry.mu.Unlock()
 
@@ -195,21 +200,58 @@ func initAllConnections(ctx context.Context, healthChecker *HealthChecker, clien
 // registerFileDescriptors 注册未在 GlobalFiles 中的 FileDescriptorProto
 // 业务 import 的 proto 包已在 GlobalFiles 中，跳过；只注册 reflection 获取的新文件
 // 多趟注册解决文件间依赖顺序问题（被依赖的文件需先注册），用 recover 防 panic
-// 返回新注册数和跳过数
-func registerFileDescriptors(fileDescriptors map[string]*descriptorpb.FileDescriptorProto) (registered, skipped int) {
+// 返回新注册数、跳过数和版本不一致数
+//
+// 版本不一致检测：通过比较 FileDescriptorProto 的 SHA256 哈希判断 reflection 获取的
+// proto 文件是否与上次注册的版本相同。若不一致，说明服务发版后 proto 定义已变更，
+// 但 protoregistry.GlobalFiles/GlobalTypes 不可变（无 Unregister API），运行时无法
+// 热替换，只能告警提示重启网关进程以加载新版本
+func registerFileDescriptors(fileDescriptors map[string]*descriptorpb.FileDescriptorProto) (registered, skipped, mismatched int) {
 	if len(fileDescriptors) == 0 {
 		return
 	}
 
-	// 第一趟：过滤已在 GlobalFiles 中的文件
-	remaining := make(map[string]*descriptorpb.FileDescriptorProto, len(fileDescriptors))
+	// 预计算所有文件的哈希，用于版本一致性检测
+	type fileEntry struct {
+		fdp  *descriptorpb.FileDescriptorProto
+		hash string // 空串表示计算失败（降级为原逻辑，不检测）
+	}
+	entries := make(map[string]*fileEntry, len(fileDescriptors))
 	for name, fdp := range fileDescriptors {
+		hash, err := computeFileHash(fdp)
+		if err != nil {
+			gwglobal.LOGGER.Warn("registerFileDescriptors: 计算文件 %s 哈希失败: %v", name, err)
+		}
+		entries[name] = &fileEntry{fdp: fdp, hash: hash}
+	}
+
+	// 第一趟：过滤已在 GlobalFiles 中的文件，同时检测版本不一致
+	remaining := make(map[string]*descriptorpb.FileDescriptorProto, len(entries))
+	reflectionRegistry.mu.Lock()
+	for name, entry := range entries {
 		if _, err := protoregistry.GlobalFiles.FindFileByPath(name); err == nil {
+			// 文件已在 GlobalFiles 中
+			storedHash, hasStored := reflectionRegistry.fileHashes[name]
+			if entry.hash != "" {
+				if hasStored && storedHash != entry.hash {
+					// 版本不一致：已注册的 proto 文件与 reflection 获取的版本不同
+					mismatched++
+					gwglobal.LOGGER.Error("⚠️ proto 文件版本不一致: %s (已注册: %.8s, 当前: %.8s)，GlobalFiles 不可变，请重启网关以加载新版本",
+						name, storedHash, entry.hash)
+				}
+				// 更新哈希基准（即使不一致也更新，避免重复告警同一文件）
+				reflectionRegistry.fileHashes[name] = entry.hash
+			}
 			skipped++
 			continue
 		}
-		remaining[name] = fdp
+		remaining[name] = entry.fdp
+		// 预存哈希，注册成功后即为后续比对的基准版本
+		if entry.hash != "" {
+			reflectionRegistry.fileHashes[name] = entry.hash
+		}
 	}
+	reflectionRegistry.mu.Unlock()
 
 	// 后续趟：反复尝试注册，每趟注册依赖已满足的文件，直到无进展
 	for len(remaining) > 0 {
@@ -244,6 +286,17 @@ func registerFileDescriptors(fileDescriptors map[string]*descriptorpb.FileDescri
 		}
 	}
 	return
+}
+
+// computeFileHash 计算 FileDescriptorProto 的内容哈希，用于版本一致性检测
+// 对序列化后的二进制内容取 SHA256，能感知字段增删改、类型变更等任何 proto 定义变化
+func computeFileHash(fdp *descriptorpb.FileDescriptorProto) (string, error) {
+	data, err := proto.Marshal(fdp)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:]), nil
 }
 
 // registerFileTypes 将文件描述符中的所有 message 和 enum 类型注册到 protoregistry.GlobalTypes
@@ -339,7 +392,7 @@ func DiscoverAllServices(ctx context.Context, clients map[string]*gwconfig.GRPCC
 	wg.Wait()
 
 	// Phase 2: 注册未在 GlobalFiles 中的 FileDescriptorProto
-	registered, skipped := registerFileDescriptors(allFileDescriptors)
+	registered, skipped, mismatched := registerFileDescriptors(allFileDescriptors)
 
 	reflectionRegistry.mu.Lock()
 	reflectionRegistry.services = servicesMap
@@ -347,6 +400,9 @@ func DiscoverAllServices(ctx context.Context, clients map[string]*gwconfig.GRPCC
 	reflectionRegistry.initialized = true
 	reflectionRegistry.mu.Unlock()
 
+	if mismatched > 0 {
+		gwglobal.LOGGER.ErrorContext(ctx, "⚠️ reflection: 检测到 %d 个 proto 文件版本不一致，请重启网关以加载新版本", mismatched)
+	}
 	gwglobal.LOGGER.InfoContext(ctx, "✅ reflection: 新注册 %d 个 proto 文件，跳过 %d 个已注册文件，发现 %d 个服务组", registered, skipped, len(servicesMap))
 }
 
@@ -622,7 +678,11 @@ func RediscoverAndRegisterService(ctx context.Context, mux *runtime.ServeMux, se
 	}
 
 	// 2. 注册 FileDescriptorProto
-	registered, skipped := registerFileDescriptors(fileCache)
+	registered, skipped, mismatched := registerFileDescriptors(fileCache)
+	if mismatched > 0 {
+		gwglobal.LOGGER.ErrorContext(ctx, "⚠️ reflection: 服务 %s 检测到 %d 个 proto 文件版本不一致，请重启网关以加载新版本",
+			serviceName, mismatched)
+	}
 	gwglobal.LOGGER.InfoContext(ctx, "✅ reflection: 服务 %s 新注册 %d 个 proto 文件，跳过 %d 个已注册文件，发现 %d 个 gRPC 服务",
 		serviceName, registered, skipped, len(services))
 

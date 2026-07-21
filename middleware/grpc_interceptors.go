@@ -194,19 +194,21 @@ var logTraceID = func(ctx context.Context) grpc_logging.Fields {
 }
 
 // interceptorLogger 创建拦截器日志器
+// 使用 *ContextKV 系列方法确保从 ctx 提取 traceId 作为 JSON 顶层字段
+// （*KV 系列方法不提取 context 中的 traceId，会导致日志缺失 traceId）
 func interceptorLogger(l *logger.Logger) grpc_logging.Logger {
 	return grpc_logging.LoggerFunc(func(ctx context.Context, lvl grpc_logging.Level, msg string, fields ...any) {
 		switch lvl {
 		case grpc_logging.LevelDebug:
-			l.WithContext(ctx).DebugKV(msg, fields...)
+			l.DebugContextKV(ctx, msg, fields...)
 		case grpc_logging.LevelInfo:
-			l.WithContext(ctx).InfoKV(msg, fields...)
+			l.InfoContextKV(ctx, msg, fields...)
 		case grpc_logging.LevelWarn:
-			l.WithContext(ctx).WarnKV(msg, fields...)
+			l.WarnContextKV(ctx, msg, fields...)
 		case grpc_logging.LevelError:
-			l.WithContext(ctx).ErrorKV(msg, fields...)
+			l.ErrorContextKV(ctx, msg, fields...)
 		default:
-			l.WithContext(ctx).InfoKV(msg, fields...)
+			l.InfoContextKV(ctx, msg, fields...)
 		}
 	})
 }
