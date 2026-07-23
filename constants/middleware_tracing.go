@@ -28,11 +28,13 @@ const (
 
 // 导出器类型常量
 const (
-	TracingExporterJaeger  = "jaeger"
-	TracingExporterZipkin  = "zipkin"
-	TracingExporterOTLP    = "otlp"
-	TracingExporterConsole = "console"
-	TracingExporterNoop    = "noop"
+	TracingExporterJaeger   = "jaeger"
+	TracingExporterZipkin   = "zipkin"
+	TracingExporterOTLP     = "otlp"     // OTLP（兼容别名，等同 otlphttp）
+	TracingExporterOTLPHTTP = "otlphttp" // OTLP HTTP 导出器
+	TracingExporterOTLPGRPC = "otlpgrpc" // OTLP gRPC 导出器
+	TracingExporterConsole  = "console"
+	TracingExporterNoop     = "noop"
 )
 
 // 采样器类型常量

@@ -16,7 +16,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 )
 
@@ -101,6 +101,7 @@ type startupReport struct {
 	monitoring     []startupToggle
 	runtime        startupRuntime
 	summary        startupSummary
+	log            *logger.Logger
 }
 
 // PrintStartupChecks 打印启动前检查
@@ -259,11 +260,11 @@ func (b *BannerManager) buildStartupReport() startupReport {
 }
 
 func (b *BannerManager) printStartupTimestamp(report startupReport) {
-	global.LOGGER.InfoContext(b.ctx, "🕐 服务启动时间: %s", report.startedAt)
+	b.log.InfoContext(b.ctx, "🕐 服务启动时间: %s", report.startedAt)
 }
 
 func (b *BannerManager) printStartupStatus(report startupReport) {
-	cg := global.LOGGER.NewConsoleGroup()
+	cg := b.log.NewConsoleGroup()
 	cg.Group("🚀 Gateway 服务启动状态检查")
 
 	cg.Group("📋 基础服务状态")
@@ -336,12 +337,12 @@ func (b *BannerManager) printStartupStatus(report startupReport) {
 		"启动时间":  report.summary.startedAt,
 	})
 
-	cg.Info("✅ 启动状态检查完成")
+	cg.InfoContext(b.ctx, "✅ 启动状态检查完成")
 	cg.GroupEnd()
 }
 
 func (b *BannerManager) printStartupSummary(report startupReport) {
-	global.LOGGER.InfoContext(b.ctx, "📋 功能启用摘要: %d/%d 个功能已启用 (%s)",
+	b.log.InfoContext(b.ctx, "📋 功能启用摘要: %d/%d 个功能已启用 (%s)",
 		report.summary.enabledCount, report.summary.totalCount, report.summary.rate())
 }
 

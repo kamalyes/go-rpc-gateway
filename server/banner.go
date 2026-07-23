@@ -17,7 +17,7 @@ import (
 
 	"github.com/kamalyes/go-config/pkg/banner"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-logger"
 )
 
 // BannerManager 横幅管理器
@@ -25,6 +25,7 @@ type BannerManager struct {
 	ctx      context.Context
 	config   *gwconfig.Gateway
 	features []string
+	log      *logger.Logger
 }
 
 // NewBannerManager 创建横幅管理器
@@ -33,6 +34,7 @@ func NewBannerManager(config *gwconfig.Gateway) *BannerManager {
 		ctx:      context.Background(),
 		config:   config,
 		features: []string{},
+		log:      logger.GetGlobalLogger(),
 	}
 }
 
@@ -47,22 +49,17 @@ func (b *BannerManager) AddFeature(feature string) {
 }
 
 func (b *BannerManager) printStartupBanner(report startupReport) {
-	if global.LOGGER == nil {
-		fmt.Println("⚠️  警告: LOGGER 未初始化，无法打印启动横幅")
-		return
-	}
-
 	if !report.bannerEnabled {
 		return
 	}
 
 	if report.bannerTemplate != "" {
-		global.LOGGER.InfoContext(b.ctx, report.bannerTemplate)
+		b.log.DebugContext(b.ctx, report.bannerTemplate)
 	} else {
-		global.LOGGER.InfoContext(b.ctx, banner.Default().Template)
+		b.log.DebugContext(b.ctx, banner.Default().Template)
 	}
-	global.LOGGER.InfoContext(b.ctx, "🚀 %s - Enterprise Edition", report.title)
-	global.LOGGER.InfoContext(b.ctx, "")
+	b.log.InfoContext(b.ctx, "🚀 %s - Enterprise Edition", report.title)
+	b.log.InfoContext(b.ctx, "")
 
 	b.printFieldSection("📋 基础信息", []startupField{
 		{label: "🏷️  名称", value: report.title},
@@ -92,33 +89,33 @@ func (b *BannerManager) printStartupBanner(report startupReport) {
 		{label: "⏰ 启动时间", value: report.runtime.startedAt},
 	})
 
-	global.LOGGER.InfoContext(b.ctx, "🎉 ================================================")
-	global.LOGGER.InfoContext(b.ctx, "")
+	b.log.InfoContext(b.ctx, "🎉 ================================================")
+	b.log.InfoContext(b.ctx, "")
 }
 
 // PrintShutdownBanner 打印关闭横幅
 func (b *BannerManager) PrintShutdownBanner() {
-	global.LOGGER.InfoContext(b.ctx, "🛑 ================================================")
-	global.LOGGER.InfoContext(b.ctx, "⏹️  Gateway正在优雅关闭...")
-	global.LOGGER.InfoContext(b.ctx, "🛑 ================================================")
+	b.log.InfoContext(b.ctx, "🛑 ================================================")
+	b.log.InfoContext(b.ctx, "⏹️  Gateway正在优雅关闭...")
+	b.log.InfoContext(b.ctx, "🛑 ================================================")
 }
 
 // PrintShutdownComplete 打印关闭完成
 func (b *BannerManager) PrintShutdownComplete() {
-	global.LOGGER.InfoContext(b.ctx, "✅ Gateway已安全关闭")
-	global.LOGGER.InfoContext(b.ctx, "👋 感谢使用 Go RPC Gateway！")
+	b.log.InfoContext(b.ctx, "✅ Gateway已安全关闭")
+	b.log.InfoContext(b.ctx, "👋 感谢使用 Go RPC Gateway！")
 }
 
 func (b *BannerManager) printMiddlewareStatus(report startupReport) {
-	global.LOGGER.InfoContext(b.ctx, "🔌 中间件状态:")
+	b.log.InfoContext(b.ctx, "🔌 中间件状态:")
 	for _, item := range report.middleware {
 		status := "❌ 禁用"
 		if item.enabled {
 			status = "✅ 启用"
 		}
-		global.LOGGER.InfoContext(b.ctx, "   %s - %s (%s)", status, item.displayLabel(), item.name)
+		b.log.InfoContext(b.ctx, "   %s - %s (%s)", status, item.displayLabel(), item.name)
 	}
-	global.LOGGER.InfoContext(b.ctx, "")
+	b.log.InfoContext(b.ctx, "")
 }
 
 func (b *BannerManager) printUsageGuide(report startupReport) {
@@ -260,11 +257,11 @@ func (b *BannerManager) printFieldSection(title string, fields []startupField) {
 		return
 	}
 
-	global.LOGGER.InfoContext(b.ctx, title+":")
+	b.log.InfoContext(b.ctx, title+":")
 	for _, field := range fields {
-		global.LOGGER.InfoContext(b.ctx, "   %s: %s", field.label, field.value)
+		b.log.InfoContext(b.ctx, "   %s: %s", field.label, field.value)
 	}
-	global.LOGGER.InfoContext(b.ctx, "")
+	b.log.InfoContext(b.ctx, "")
 }
 
 func (b *BannerManager) printChecklist(title string, items []string) {
@@ -272,9 +269,9 @@ func (b *BannerManager) printChecklist(title string, items []string) {
 		return
 	}
 
-	global.LOGGER.InfoContext(b.ctx, title+":")
+	b.log.InfoContext(b.ctx, title+":")
 	for _, item := range items {
-		global.LOGGER.InfoContext(b.ctx, "   ✅ %s", item)
+		b.log.InfoContext(b.ctx, "   ✅ %s", item)
 	}
-	global.LOGGER.InfoContext(b.ctx, "")
+	b.log.InfoContext(b.ctx, "")
 }
