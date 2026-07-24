@@ -161,10 +161,13 @@ func createResource(cfg *tracing.Tracing) (*resource.Resource, error) {
 		attrs = append(attrs, attribute.String(key, value))
 	}
 
+	// 复用 resource.Default() 的 SchemaURL，避免与 SDK 默认资源的 Schema 版本冲突
+	// (SDK 升级后 resource.Default() 的 schema 版本可能与 semconv import 版本不一致)
+	defaultRes := resource.Default()
 	return resource.Merge(
-		resource.Default(),
+		defaultRes,
 		resource.NewWithAttributes(
-			semconv.SchemaURL,
+			defaultRes.SchemaURL(),
 			attrs...,
 		),
 	)
