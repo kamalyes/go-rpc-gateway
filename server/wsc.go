@@ -98,17 +98,17 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	cgInit := global.LOGGER.NewConsoleGroup()
 	cgInit.Group("✅ WebSocket 服务已初始化")
 	serviceConfig := map[string]interface{}{
-		"节点IP":     cfg.NodeIP,
-		"节点端口":     cfg.NodePort,
-		"心跳间隔(秒)":  cfg.HeartbeatInterval,
-		"消息缓冲区大小":  cfg.MessageBufferSize,
-		"启用ACK":    cfg.EnableAck,
-		"允许多端登录":   cfg.AllowMultiLogin,
-		"每用户最大连接数": cfg.MaxConnectionsPerUser,
-		"启用客服模块":   cfg.EnableAgent,
-		"启用观察者模块":  cfg.EnableObserver,
-		"启用负载管理":   cfg.EnableWorkload,
-		"启用连接Token": cfg.Security != nil && cfg.Security.ConnectionToken.IsEnabled(),
+		"节点IP":          cfg.NodeIP,
+		"节点端口":          cfg.NodePort,
+		"心跳间隔(秒)":       cfg.HeartbeatInterval,
+		"消息缓冲区大小":       cfg.MessageBufferSize,
+		"启用ACK":         cfg.EnableAck,
+		"允许多端登录":        cfg.AllowMultiLogin,
+		"每用户最大连接数":      cfg.MaxConnectionsPerUser,
+		"启用客服模块":        cfg.EnableAgent,
+		"启用观察者模块":       cfg.EnableObserver,
+		"启用负载管理":        cfg.EnableWorkload,
+		"启用连接Token":     cfg.Security != nil && cfg.Security.ConnectionToken.IsEnabled(),
 		"Token Redis校验": cfg.Security != nil && cfg.Security.ConnectionToken.IsRedisEnabled(),
 	}
 	cgInit.Table(serviceConfig)
@@ -334,7 +334,6 @@ func (ws *WebSocketService) OnHeartbeatReport(callback wsc.HeartbeatReportCallba
 	ws.hub.OnHeartbeatReport(callback)
 }
 
-
 // OnBeforeHeartbeat 注册心跳处理前回调函数
 // 在心跳处理前调用，返回 false 则跳过后续心跳处理流程
 //
@@ -416,18 +415,6 @@ func (ws *WebSocketService) OnMessageSend(callback wsc.MessageSendCallback) {
 //	})
 func (ws *WebSocketService) OnQueueFull(callback wsc.QueueFullCallback) {
 	ws.hub.OnQueueFull(callback)
-}
-
-// UpdateHeartbeat 更新客户端心跳时间
-//
-// 参数:
-//   - clientID: 客户端ID
-//
-// 示例:
-//
-//	ws.UpdateHeartbeat(client.ID)
-func (ws *WebSocketService) UpdateHeartbeat(clientID string) {
-	ws.hub.UpdateHeartbeat(clientID)
 }
 
 // initWebSocket 初始化 WebSocket 服务

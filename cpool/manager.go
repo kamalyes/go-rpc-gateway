@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/bwmarrin/snowflake"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	cachex "github.com/kamalyes/go-cachex"
@@ -62,8 +61,8 @@ type PoolManager interface {
 	// 获取SMTP客户端
 	GetSMTP() smtp.MailHandler
 
-	// 获取ClickHouse连接
-	GetClickHouse() clickhouse.Conn
+	// 获取ClickHouse gorm连接
+	GetClickHouse() *gorm.DB
 
 	// 获取NATS连接封装（包含 Conn 和 JetStream）
 	GetNats() *natsclient.NatsConn
@@ -93,7 +92,7 @@ type PoolManager interface {
 	SetSMTP(smtp smtp.MailHandler)
 
 	// 设置ClickHouse连接
-	SetClickHouse(conn clickhouse.Conn)
+	SetClickHouse(conn *gorm.DB)
 
 	// 设置NATS连接封装
 	SetNats(conn *natsclient.NatsConn)
@@ -126,7 +125,7 @@ type Manager struct {
 	mqtt       mqtt.Client
 	snowflake  *snowflake.Node
 	i18n       interface{}
-	clickhouse clickhouse.Conn
+	clickhouse *gorm.DB
 	nats       *natsclient.NatsConn
 
 	// 状态管理
@@ -329,13 +328,12 @@ func (m *Manager) initClickHouse(ctx context.Context) error {
 		return nil
 	}
 
-	conn := chclient.NewClickHouse(ctx, m.cfg, m.logger)
-	if conn != nil {
-		m.clickhouse = conn
-		m.logger.InfoContext(ctx, "ClickHouse initialized successfully")
-	} else {
-		return fmt.Errorf("ClickHouse is enabled but connection initialization failed")
+	gormConn := chclient.NewClickHouseDB(ctx, m.cfg, m.logger)
+	if gormConn != nil {
+		m.clickhouse = gormConn
+		m.logger.InfoContext(ctx, "ClickHouse gorm connection initialized successfully")
 	}
+
 	return nil
 }
 
@@ -409,7 +407,7 @@ func (m *Manager) GetSMTP() smtp.MailHandler {
 	return m.smtp
 }
 
-func (m *Manager) GetClickHouse() clickhouse.Conn {
+func (m *Manager) GetClickHouse() *gorm.DB {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.clickhouse
@@ -478,7 +476,7 @@ func (m *Manager) SetSMTP(smtpClient smtp.MailHandler) {
 	m.smtp = smtpClient
 }
 
-func (m *Manager) SetClickHouse(conn clickhouse.Conn) {
+func (m *Manager) SetClickHouse(conn *gorm.DB) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.clickhouse = conn
@@ -560,9 +558,11 @@ func (m *Manager) Close() error {
 		m.mqtt = nil
 	}
 
-	// 关闭 ClickHouse 连接（直接操作连接实例，不再委托包级函数）
+	// 关闭 ClickHouse gorm 连接
 	if m.clickhouse != nil {
-		m.clickhouse.Close()
+		if sqlDB, err := m.clickhouse.DB(); err == nil {
+			sqlDB.Close()
+		}
 		m.clickhouse = nil
 	}
 
@@ -625,10 +625,11 @@ func (m *Manager) HealthCheck() map[string]bool {
 		status["mqtt"] = m.mqtt.IsConnected()
 	}
 
-	// 检查 ClickHouse 连接状态（通过 Ping 验证）
+	// 检查 ClickHouse gorm 连接状态
 	if m.clickhouse != nil {
-		ctx := context.Background()
-		status["clickhouse"] = m.clickhouse.Ping(ctx) == nil
+		if sqlDB, err := m.clickhouse.DB(); err == nil {
+			status["clickhouse"] = sqlDB.Ping() == nil
+		}
 	}
 
 	// 检查 NATS 连接状态（通过 go-natsx 客户端或底层连接验证）

@@ -15,7 +15,6 @@ package clickhouse
 import (
 	"context"
 	"crypto/tls"
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -23,52 +22,10 @@ import (
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-config/pkg/tsdb"
 	"github.com/kamalyes/go-logger"
+	gormch "gorm.io/driver/clickhouse"
+	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
-
-// NewClickHouse 创建 ClickHouse 原生连接（clickhouse-go/v2 驱动）
-// 纯工厂函数，每次调用创建新连接，由调用方管理连接生命周期
-// 连接前会先确保目标数据库存在，不存在则自动创建
-// 参数:
-//   - ctx: 上下文，用于超时控制和取消
-//   - cfg: 网关配置，包含 ClickHouse 连接参数
-//   - log: 日志记录器
-//
-// 返回: ClickHouse 原生连接实例，配置缺失或连接失败返回 nil
-func NewClickHouse(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogger) clickhouse.Conn {
-	if cfg == nil || cfg.ClickHouse == nil {
-		log.WarnContext(ctx, "ClickHouse configuration not found, skipping initialization")
-		return nil
-	}
-
-	chCfg := cfg.ClickHouse
-
-	if err := ensureClickHouseDatabase(ctx, chCfg, log); err != nil {
-		log.ErrorContextKV(ctx, "ClickHouse database prepare failed", "host", chCfg.Host, "dbname", chCfg.Dbname, "err", err)
-		return nil
-	}
-
-	opts := buildClickHouseOptions(chCfg)
-
-	conn, err := clickhouse.Open(opts)
-	if err != nil {
-		log.ErrorContextKV(ctx, "ClickHouse connection failed", "error", err)
-		return nil
-	}
-
-	if err := conn.Ping(ctx); err != nil {
-		log.ErrorContextKV(ctx, "ClickHouse ping failed", "error", err)
-		conn.Close()
-		return nil
-	}
-
-	log.InfoContextKV(ctx, "ClickHouse connected successfully",
-		"host", chCfg.Host,
-		"port", chCfg.Port,
-		"database", chCfg.Dbname,
-	)
-
-	return conn
-}
 
 // ensureClickHouseDatabase 确保目标数据库存在，不存在则自动创建
 // 先连接到 ClickHouse 内置的 default 数据库，执行 CREATE DATABASE IF NOT EXISTS
@@ -100,18 +57,17 @@ func ensureClickHouseDatabase(ctx context.Context, cfg *tsdb.ClickHouse, log log
 	return nil
 }
 
-// NewClickHouseDB 创建 ClickHouse 标准库连接（database/sql 接口）
-// 适用于需要使用标准 SQL 接口或兼容 database/sql 生态的场景
-// 支持连接池配置（最大空闲连接、最大打开连接、连接生命周期等）
+// NewClickHouseDB 创建 ClickHouse gorm 连接
+// 适用于需要使用 gorm ORM 的场景，自动复用已有的连接池配置和数据库准备逻辑
 // 参数:
 //   - ctx: 上下文，用于超时控制和取消
 //   - cfg: 网关配置，包含 ClickHouse 连接参数
 //   - log: 日志记录器
 //
-// 返回: *sql.DB 标准库连接实例，配置缺失或连接失败返回 nil
-func NewClickHouseDB(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogger) *sql.DB {
+// 返回: *gorm.DB 实例，配置缺失或连接失败返回 nil
+func NewClickHouseDB(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogger) *gorm.DB {
 	if cfg == nil || cfg.ClickHouse == nil {
-		log.WarnContext(ctx, "ClickHouse configuration not found, skipping initialization")
+		log.WarnContext(ctx, "ClickHouse configuration not found, skipping gorm initialization")
 		return nil
 	}
 
@@ -124,35 +80,40 @@ func NewClickHouseDB(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILog
 
 	dsn := buildClickHouseDSN(chCfg)
 
-	db, err := sql.Open("clickhouse", dsn)
+	logLevel := gormlogger.Warn
+	if chCfg.Debug {
+		logLevel = gormlogger.Info
+	}
+
+	gormDB, err := gorm.Open(gormch.Open(dsn), &gorm.Config{
+		SkipDefaultTransaction:                   true,
+		DisableForeignKeyConstraintWhenMigrating: true,
+		Logger:                                   gormlogger.Default.LogMode(logLevel),
+	})
 	if err != nil {
-		log.ErrorContextKV(ctx, "ClickHouse sql.DB open failed", "error", err)
+		log.ErrorContextKV(ctx, "ClickHouse gorm open failed", "error", err)
 		return nil
 	}
 
-	// 配置连接池参数
-	db.SetMaxIdleConns(chCfg.MaxIdleConns)
-	db.SetMaxOpenConns(chCfg.MaxOpenConns)
-	if chCfg.ConnMaxIdleTime > 0 {
-		db.SetConnMaxIdleTime(time.Duration(chCfg.ConnMaxIdleTime) * time.Second)
-	}
-	if chCfg.ConnMaxLifeTime > 0 {
-		db.SetConnMaxLifetime(time.Duration(chCfg.ConnMaxLifeTime) * time.Second)
-	}
-
-	if err := db.PingContext(ctx); err != nil {
-		log.ErrorContextKV(ctx, "ClickHouse sql.DB ping failed", "error", err)
-		db.Close()
-		return nil
+	sqlDB, err := gormDB.DB()
+	if err == nil {
+		sqlDB.SetMaxIdleConns(chCfg.MaxIdleConns)
+		sqlDB.SetMaxOpenConns(chCfg.MaxOpenConns)
+		if chCfg.ConnMaxIdleTime > 0 {
+			sqlDB.SetConnMaxIdleTime(time.Duration(chCfg.ConnMaxIdleTime) * time.Second)
+		}
+		if chCfg.ConnMaxLifeTime > 0 {
+			sqlDB.SetConnMaxLifetime(time.Duration(chCfg.ConnMaxLifeTime) * time.Second)
+		}
 	}
 
-	log.InfoContextKV(ctx, "ClickHouse sql.DB connected successfully",
+	log.InfoContextKV(ctx, "ClickHouse gorm connected successfully",
 		"host", chCfg.Host,
 		"port", chCfg.Port,
 		"database", chCfg.Dbname,
 	)
 
-	return db
+	return gormDB
 }
 
 // buildClickHouseOptions 根据 ClickHouse 配置构建原生驱动连接选项

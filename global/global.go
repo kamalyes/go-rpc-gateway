@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/bwmarrin/snowflake"
 	goconfig "github.com/kamalyes/go-config"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
@@ -150,9 +149,9 @@ func GetMinIO() *minio.Client {
 	return MinIO
 }
 
-// GetClickHouse 获取 ClickHouse 连接（列式时序数据库）
+// GetClickHouse 获取 ClickHouse gorm 连接
 // 直接从 PoolManager 获取，避免冗余存储
-func GetClickHouse() clickhouse.Conn {
+func GetClickHouse() *gorm.DB {
 	if POOL_MANAGER != nil {
 		return POOL_MANAGER.GetClickHouse()
 	}
