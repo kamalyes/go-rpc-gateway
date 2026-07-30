@@ -24,10 +24,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kamalyes/go-cachex"
 	wscconfig "github.com/kamalyes/go-config/pkg/wsc"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-wsc"
+	"github.com/redis/go-redis/v9"
 )
 
 // ============================================================================
@@ -79,13 +81,19 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 		return nil, err
 	}
 
-	// 4. 启动 Hub 事件循环
+	// 4. 初始化分布式 PubSub（启用跨节点消息路由）
+	// SetPubSub 内部会自动初始化节点间 gRPC 通信（若 node-grpc.enabled=true）
+	// gRPC 直连优先于 PubSub 用于点对点路由，降低跨节点消息延迟
+	pubsub := initDistributedPubSub(redisClient, cfg)
+	hub.SetPubSub(pubsub)
+
+	// 5. 启动 Hub 事件循环
 	go hub.Run()
 
-	// 5. 全局注册 Hub 实例
+	// 6. 全局注册 Hub 实例
 	global.WSCHUB = hub
 
-	// 6. 创建服务实例
+	// 7. 创建服务实例
 	ctx, cancel := context.WithCancel(context.Background())
 	service := &WebSocketService{
 		hub:    hub,
@@ -94,7 +102,7 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 		cancel: cancel,
 	}
 
-	// 7. 使用 Console 展示服务配置
+	// 8. 使用 Console 展示服务配置
 	cgInit := global.LOGGER.NewConsoleGroup()
 	cgInit.Group("✅ WebSocket 服务已初始化")
 	serviceConfig := map[string]interface{}{
@@ -110,11 +118,33 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 		"启用负载管理":        cfg.EnableWorkload,
 		"启用连接Token":     cfg.Security != nil && cfg.Security.ConnectionToken.IsEnabled(),
 		"Token Redis校验": cfg.Security != nil && cfg.Security.ConnectionToken.IsRedisEnabled(),
+		"分布式PubSub":     cfg.RedisRepository != nil && cfg.RedisRepository.PubSub != nil && cfg.RedisRepository.PubSub.GetEnabled(),
+		"gRPC节点通信":      cfg.NodeGRPC.IsEnabled(),
+	}
+	if cfg.NodeGRPC.IsEnabled() {
+		serviceConfig["gRPC监听地址"] = cfg.NodeGRPC.GetAddress()
 	}
 	cgInit.Table(serviceConfig)
 	cgInit.GroupEnd()
 
 	return service, nil
+}
+
+// initDistributedPubSub 创建分布式 PubSub 实例
+// 从 WSC 配置的 redis-repository.pubsub 段构建 cachex.PubSubConfig，用于跨节点消息路由
+func initDistributedPubSub(redisClient *redis.Client, cfg *wscconfig.WSC) *cachex.PubSub {
+	pubsubCfg := cachex.DefaultPubSubConfig()
+	if cfg.RedisRepository != nil && cfg.RedisRepository.PubSub != nil && cfg.RedisRepository.PubSub.GetEnabled() {
+		ps := cfg.RedisRepository.PubSub
+		pubsubCfg.Namespace = ps.GetNamespace()
+		pubsubCfg.MaxRetries = ps.GetMaxRetries()
+		pubsubCfg.RetryDelay = ps.GetRetryDelay()
+		pubsubCfg.BufferSize = ps.GetBufferSize()
+		pubsubCfg.PingInterval = ps.GetPingInterval()
+		pubsubCfg.EnableCompression = ps.GetEnableCompression()
+		pubsubCfg.CompressionMinSize = ps.GetCompressionMinSize()
+	}
+	return cachex.NewPubSub(redisClient, pubsubCfg)
 }
 
 // ============================================================================
