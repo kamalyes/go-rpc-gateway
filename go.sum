@@ -161,8 +161,8 @@ github.com/kamalyes/go-natsx v0.1.5 h1:4wEYT7y+kV/FmYcNlSaBQ8svEloGJHED2L5Dz25oK
 github.com/kamalyes/go-natsx v0.1.5/go.mod h1:jXPzQJoQiTCBQ0tLgh5PKAePgkukRkD9INZbFngniYE=
 github.com/kamalyes/go-pbmo v0.1.7 h1:UBI334EGb2yKgpqt5jhSE7f+Z9Kgp+xvEqtHYZsgECY=
 github.com/kamalyes/go-pbmo v0.1.7/go.mod h1:BAQwUc45VCcj4qanJlsPQbKZq5HdOxvviAm/zcMXcRs=
-github.com/kamalyes/go-sqlbuilder v0.5.9 h1:1yEf//hpT7Mrq5Fx+E8W/Z5gWiM3WEtzuUqQbN3bBbE=
-github.com/kamalyes/go-sqlbuilder v0.5.9/go.mod h1:gnsMpD37gQaoptmFdu6UytdQeu/Ix0Ubmt2kx91vK+s=
+github.com/kamalyes/go-sqlbuilder v0.5.10-0.20260731035252-64c28be0e558 h1:o7LGTyA/R5fE/DM9KDbhtrZ3/6YGBM9mtno7ACyPbYs=
+github.com/kamalyes/go-sqlbuilder v0.5.10-0.20260731035252-64c28be0e558/go.mod h1:gnsMpD37gQaoptmFdu6UytdQeu/Ix0Ubmt2kx91vK+s=
 github.com/kamalyes/go-swagger v0.1.8 h1:2neWLuVn1Z0J6XLV2us2VpwkoA1jwBvuoqYJhImD464=
 github.com/kamalyes/go-swagger v0.1.8/go.mod h1:VvQF0iFvkcT5/cmkJ/mbG+pW711UMLlJ2W/e6Y/dRM4=
 github.com/kamalyes/go-toolbox v0.15.6 h1:xMnsXDdePSBUCr5np7rlVkwWohUQqLivFmI/r1Oqq3w=

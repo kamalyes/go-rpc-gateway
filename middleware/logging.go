@@ -246,13 +246,13 @@ func LoggingMiddleware() HTTPMiddleware {
 			next.ServeHTTP(wrapped, r)
 
 			// 记录日志
-			logHTTPRequest(ctx, r, wrapped, time.Since(start), reqConfig, reqBody)
+			logHTTPRequest(ctx, r, wrapped, start, time.Since(start), reqConfig, reqBody)
 		})
 	}
 }
 
 // logHTTPRequest 记录 HTTP 请求
-func logHTTPRequest(ctx context.Context, r *http.Request, rw *ResponseWriter, duration time.Duration, config *logging.Logging, reqBody []byte) {
+func logHTTPRequest(ctx context.Context, r *http.Request, rw *ResponseWriter, start time.Time, duration time.Duration, config *logging.Logging, reqBody []byte) {
 	logger := NewRequestLogger(ctx)
 	masker := global.DATAMASKER
 
@@ -295,6 +295,11 @@ func logHTTPRequest(ctx context.Context, r *http.Request, rw *ResponseWriter, du
 	}
 
 	logger.Log(level, message, fields)
+
+	// 派发访问日志钩子
+	if HasAccessLogHandlers() {
+		captureAccessLog(ctx, r, rw, start, duration, reqBody, rw.GetBody(), time.Duration(config.SlowHTTPThreshold)*time.Millisecond)
+	}
 }
 
 // logHTTPError 记录跳过路径的错误 🚫

@@ -31,6 +31,7 @@ const (
 	HeaderXForwardedFor   = "X-Forwarded-For"
 	HeaderWWWAuthenticate = "WWW-Authenticate"
 	HeaderXServerNode     = "X-Server-Node" // 服务节点标识（K8s 环境下为 Pod 名称），便于定位处理请求的具体节点
+	HeaderXSource         = "X-Source"      // 请求来源标识（客户端可传，访问日志记录用）
 
 	// 安全相关头部
 	HeaderXFrameOptions           = "X-Frame-Options"
