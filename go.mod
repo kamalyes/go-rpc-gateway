@@ -18,10 +18,9 @@ require (
 	github.com/kamalyes/go-i18n v0.2.4
 	github.com/kamalyes/go-logger v0.5.5
 	github.com/kamalyes/go-natsx v0.1.5
-	github.com/kamalyes/go-pbmo v0.1.7
 	github.com/kamalyes/go-swagger v0.1.8
 	github.com/kamalyes/go-toolbox v0.15.6
-	github.com/kamalyes/go-wsc v0.9.8
+	github.com/kamalyes/go-wsc v0.9.9
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.21.0
@@ -76,6 +75,7 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
+	github.com/kamalyes/go-pbmo v0.1.8 // indirect
 	github.com/kamalyes/go-sqlbuilder v0.5.10-0.20260731035252-64c28be0e558
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

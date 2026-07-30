@@ -25,15 +25,14 @@ import (
 
 // Manager 中间件管理器 - 使用 go-config 的 middleware 配置
 type Manager struct {
-	cfg                    *gwconfig.Gateway
-	metricsManager         *MetricsManager
-	tracingManager         *TracingManager
-	rateLimiter            RateLimiter
-	dynamicRateLimit       DynamicRateLimitProvider
-	dynamicSignature       DynamicSignatureProvider
-	i18nManager            *I18nManager
-	pbValidationMiddleware *PBValidationMiddleware
-	swaggerMiddleware      *swaggerMiddleware.Middleware
+	cfg               *gwconfig.Gateway
+	metricsManager    *MetricsManager
+	tracingManager    *TracingManager
+	rateLimiter       RateLimiter
+	dynamicRateLimit  DynamicRateLimitProvider
+	dynamicSignature  DynamicSignatureProvider
+	i18nManager       *I18nManager
+	swaggerMiddleware *swaggerMiddleware.Middleware
 }
 
 // NewManager 创建中间件管理器 - 使用全局 GATEWAY 配置
@@ -63,9 +62,6 @@ func NewManager(cfg *gwconfig.Gateway) (*Manager, error) {
 			return nil, errors.NewErrorf(errors.ErrCodeMiddlewareError, "failed to init i18n manager: %v", err)
 		}
 	}
-
-	// 初始化PB验证中间件
-	manager.pbValidationMiddleware = NewPBValidationMiddleware()
 
 	// 初始化 Swagger 中间件
 	if cfg.Swagger.Enabled {

@@ -66,12 +66,11 @@ manager, err := middleware.NewManager(cfg)
 Manager 内部管理的组件：
 
 | 组件 | 源码 | 说明 |
-|------|------|------|
+| ------ | ------ | ------ |
 | MetricsManager | [observability.go](../middleware/observability.go) | Prometheus 指标 |
 | TracingManager | [tracing.go](../middleware/tracing.go) | OpenTelemetry 链路追踪 |
 | RateLimiter | [ratelimit.go](../middleware/ratelimit.go) | 多策略限流 |
 | I18nManager | [i18n.go](../middleware/i18n.go) | 国际化 |
-| PBValidationMiddleware | [pb_validation.go](../middleware/pb_validation.go) | PB 参数验证 |
 | SwaggerMiddleware | go-swagger | Swagger 文档 |
 
 动态提供器（运行时注入）：
@@ -294,7 +293,7 @@ middleware:
 支持多种限流策略和多级别限流：
 
 | 策略 | Key 格式 | 说明 |
-|------|---------|------|
+| ------ | --------- | ------ |
 | 令牌桶 | `ratelimit:rps_{n}:burst_{n}` | 固定 RPS + 突发 |
 | 滑动窗口 | `{prefix}:{key}:win_{v}:rps_{n}` | 平滑限流 |
 | 固定窗口 | `{prefix}:win_{v}:rps_{n}` | 简单计数 |
@@ -302,7 +301,7 @@ middleware:
 多级别限流维度：
 
 | 级别 | Key 格式 | 说明 |
-|------|---------|------|
+| ------ | --------- | ------ |
 | 路由+用户 | `route:{path}:user:{uid}` | 每个用户每路由独立限流 |
 | 路由+IP | `route:{path}:ip:{ip}` | 每个 IP 每路由独立限流 |
 | 路由 | `route:{path}` | 每路由独立限流 |
@@ -401,7 +400,7 @@ type WhitelistRule interface {
 内置规则类型：
 
 | 规则 | 说明 |
-|------|------|
+| ------ | ------ |
 | PathPrefixRule | 路径前缀匹配 |
 | PathExactRule | 路径精确匹配 |
 | PathRegexRule | 正则匹配 |
@@ -537,24 +536,12 @@ type InterceptorManager struct {
 ```
 
 提供 Unary 和 Stream 拦截器：
+
 - Recovery 拦截器（panic 恢复）
 - Logging 拦截器（请求日志）
 - Prometheus 指标拦截器
 - OpenTelemetry 追踪拦截器
 - Validator 拦截器
-
-### PBValidationMiddleware — PB 参数验证
-
-> 源码：[middleware/pb_validation.go](../middleware/pb_validation.go)
-
-基于 go-pbmo Validator 的通用参数验证，支持规则注册和自动类型识别：
-
-```go
-mw := middleware.NewPBValidationMiddleware(enabled, skipPaths)
-mw.RegisterTypeResolver("/api/v1/users/", func(body []byte) (interface{}, error) {
-    return proto.Unmarshal(body, &pb.CreateUserRequest{})
-})
-```
 
 ### ConversionMiddleware — PB ↔ GORM Model 转换
 
