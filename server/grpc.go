@@ -21,6 +21,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
@@ -63,6 +64,10 @@ func (s *Server) initGRPCServer() error {
 	opts := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(recvMsgSize),
 		grpc.MaxSendMsgSize(sendMsgSize),
+		// 注册 otelgrpc StatsHandler，在 gRPC 层自动提取/注入 OTel trace context
+		// （grpc-trace-bin），使 OTel trace 跨 gRPC 调用连续传播，
+		// 与 HTTP Tracing 中间件统一 trace_id，实现全链路打通
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 	}
 
 	// 启用压缩编码器注册（必须在 grpc.NewServer 之前）

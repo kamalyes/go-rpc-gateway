@@ -34,6 +34,12 @@ import (
 // contextLogger 包级日志器实例，供 GormLogger 在记录 SQL 日志时使用
 var contextLogger gologger.ILogger
 
+// SetContextLogger 设置包级日志器，供 GormLogger 使用
+// 在 ClickHouse 等非 Gorm() 入口初始化时调用
+func SetContextLogger(log gologger.ILogger) {
+	contextLogger = log
+}
+
 // Gorm 初始化数据库并产生数据库全局变量
 // 根据配置中的数据库类型（MySQL/PostgreSQL/SQLite/CockroachDB）自动选择对应的初始化方法
 // 参数:

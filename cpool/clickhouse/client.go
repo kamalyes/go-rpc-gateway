@@ -16,15 +16,18 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-config/pkg/tsdb"
 	"github.com/kamalyes/go-logger"
+	"github.com/kamalyes/go-rpc-gateway/cpool/database"
 	gormch "gorm.io/driver/clickhouse"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 )
 
 // ensureClickHouseDatabase 确保目标数据库存在，不存在则自动创建
@@ -78,17 +81,29 @@ func NewClickHouseDB(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILog
 		return nil
 	}
 
-	dsn := buildClickHouseDSN(chCfg)
+	// 复用 cpool/database 的 GormLogger，统一 SQL 日志走 go-logger
+	database.SetContextLogger(log)
 
-	logLevel := gormlogger.Warn
-	if chCfg.Debug {
-		logLevel = gormlogger.Info
-	}
+	dsn := buildClickHouseDSN(chCfg)
+	logLevel := parseGormLogLevel(chCfg.LogLevel, chCfg.Debug)
 
 	gormDB, err := gorm.Open(gormch.Open(dsn), &gorm.Config{
-		SkipDefaultTransaction:                   true,
-		DisableForeignKeyConstraintWhenMigrating: true,
-		Logger:                                   gormlogger.Default.LogMode(logLevel),
+		SkipDefaultTransaction:                   chCfg.SkipDefaultTransaction,
+		PrepareStmt:                              chCfg.PrepareStmt,
+		DisableForeignKeyConstraintWhenMigrating: chCfg.DisableForeignKeyConstraintWhenMigrating,
+		DisableNestedTransaction:                 chCfg.DisableNestedTransaction,
+		AllowGlobalUpdate:                        chCfg.AllowGlobalUpdate,
+		QueryFields:                              chCfg.QueryFields,
+		CreateBatchSize:                          chCfg.CreateBatchSize,
+		NamingStrategy:                           schema.NamingStrategy{SingularTable: chCfg.SingularTable},
+		Logger: database.NewGormLogger(
+			gormlogger.Config{
+				SlowThreshold:             time.Duration(chCfg.SlowThreshold) * time.Millisecond,
+				LogLevel:                  logLevel,
+				IgnoreRecordNotFoundError: chCfg.IgnoreRecordNotFoundError,
+				Colorful:                  false,
+			},
+		),
 	})
 	if err != nil {
 		log.ErrorContextKV(ctx, "ClickHouse gorm open failed", "error", err)
@@ -181,4 +196,22 @@ func buildClickHouseDSN(cfg *tsdb.ClickHouse) string {
 	}
 
 	return dsn
+}
+
+// parseGormLogLevel 将配置中的日志等级字符串映射为 GORM LogLevel
+// debug 模式强制使用 Info 级别
+func parseGormLogLevel(level string, debug bool) gormlogger.LogLevel {
+	if debug {
+		return gormlogger.Info
+	}
+	switch strings.ToLower(level) {
+	case "silent":
+		return gormlogger.Silent
+	case "error":
+		return gormlogger.Error
+	case "info":
+		return gormlogger.Info
+	default:
+		return gormlogger.Warn
+	}
 }

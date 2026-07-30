@@ -21,11 +21,12 @@ import (
 )
 
 // BannerManager 横幅管理器
+// 使用 ConsoleGroup 输出纯文本展示内容，不走 JSON 格式化、不带 caller 信息
 type BannerManager struct {
 	ctx      context.Context
 	config   *gwconfig.Gateway
 	features []string
-	log      *logger.Logger
+	cg       *logger.ConsoleGroup
 }
 
 // NewBannerManager 创建横幅管理器
@@ -34,7 +35,7 @@ func NewBannerManager(config *gwconfig.Gateway) *BannerManager {
 		ctx:      context.Background(),
 		config:   config,
 		features: []string{},
-		log:      logger.GetGlobalLogger(),
+		cg:       logger.NewConsoleGroup(),
 	}
 }
 
@@ -54,12 +55,11 @@ func (b *BannerManager) printStartupBanner(report startupReport) {
 	}
 
 	if report.bannerTemplate != "" {
-		b.log.DebugContext(b.ctx, report.bannerTemplate)
+		b.cg.Debug("%s", report.bannerTemplate)
 	} else {
-		b.log.DebugContext(b.ctx, banner.Default().Template)
+		b.cg.Debug("%s", banner.Default().Template)
 	}
-	b.log.InfoContext(b.ctx, "🚀 %s - Enterprise Edition", report.title)
-	b.log.InfoContext(b.ctx, "")
+	b.cg.Info("🚀 %s - Enterprise Edition", report.title)
 
 	b.printFieldSection("📋 基础信息", []startupField{
 		{label: "🏷️  名称", value: report.title},
@@ -89,33 +89,31 @@ func (b *BannerManager) printStartupBanner(report startupReport) {
 		{label: "⏰ 启动时间", value: report.runtime.startedAt},
 	})
 
-	b.log.InfoContext(b.ctx, "🎉 ================================================")
-	b.log.InfoContext(b.ctx, "")
+	b.cg.Info("🎉 ================================================")
 }
 
 // PrintShutdownBanner 打印关闭横幅
 func (b *BannerManager) PrintShutdownBanner() {
-	b.log.InfoContext(b.ctx, "🛑 ================================================")
-	b.log.InfoContext(b.ctx, "⏹️  Gateway正在优雅关闭...")
-	b.log.InfoContext(b.ctx, "🛑 ================================================")
+	b.cg.Info("🛑 ================================================")
+	b.cg.Info("⏹️  Gateway正在优雅关闭...")
+	b.cg.Info("🛑 ================================================")
 }
 
 // PrintShutdownComplete 打印关闭完成
 func (b *BannerManager) PrintShutdownComplete() {
-	b.log.InfoContext(b.ctx, "✅ Gateway已安全关闭")
-	b.log.InfoContext(b.ctx, "👋 感谢使用 Go RPC Gateway！")
+	b.cg.Info("✅ Gateway已安全关闭")
+	b.cg.Info("👋 感谢使用 Go RPC Gateway！")
 }
 
 func (b *BannerManager) printMiddlewareStatus(report startupReport) {
-	b.log.InfoContext(b.ctx, "🔌 中间件状态:")
+	b.cg.Info("🔌 中间件状态:")
 	for _, item := range report.middleware {
 		status := "❌ 禁用"
 		if item.enabled {
 			status = "✅ 启用"
 		}
-		b.log.InfoContext(b.ctx, "   %s - %s (%s)", status, item.displayLabel(), item.name)
+		b.cg.Info("   %s - %s (%s)", status, item.displayLabel(), item.name)
 	}
-	b.log.InfoContext(b.ctx, "")
 }
 
 func (b *BannerManager) printUsageGuide(report startupReport) {
@@ -257,11 +255,11 @@ func (b *BannerManager) printFieldSection(title string, fields []startupField) {
 		return
 	}
 
-	b.log.InfoContext(b.ctx, title+":")
+	b.cg.Info("%s:", title)
 	for _, field := range fields {
-		b.log.InfoContext(b.ctx, "   %s: %s", field.label, field.value)
+		b.cg.Info("   %s: %s", field.label, field.value)
 	}
-	b.log.InfoContext(b.ctx, "")
+	b.cg.Info("")
 }
 
 func (b *BannerManager) printChecklist(title string, items []string) {
@@ -269,9 +267,9 @@ func (b *BannerManager) printChecklist(title string, items []string) {
 		return
 	}
 
-	b.log.InfoContext(b.ctx, title+":")
+	b.cg.Info("%s:", title)
 	for _, item := range items {
-		b.log.InfoContext(b.ctx, "   ✅ %s", item)
+		b.cg.Info("   ✅ %s", item)
 	}
-	b.log.InfoContext(b.ctx, "")
+	b.cg.Info("")
 }

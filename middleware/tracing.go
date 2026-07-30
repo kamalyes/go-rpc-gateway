@@ -305,6 +305,17 @@ func Tracing(manager *TracingManager) MiddlewareFunc {
 			// 注入trace信息到响应头
 			otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(w.Header()))
 
+			// 同步自定义 trace_id 与 OTel trace_id，确保 HTTP 日志、gRPC metadata、
+			// OTel 后端（Jaeger/Zipkin）使用同一个 trace_id，实现全链路打通
+			// 仅当客户端未显式提供 X-Trace-Id 头时才覆盖（尊重客户端传入的 trace_id）
+			if r.Header.Get(constants.HeaderXTraceID) == "" {
+				if spanCtx := span.SpanContext(); spanCtx.IsValid() {
+					otelTraceID := spanCtx.TraceID().String()
+					ctx = WithTraceID(ctx, otelTraceID)
+					w.Header().Set(constants.HeaderXTraceID, otelTraceID)
+				}
+			}
+
 			// 使用统一的 ResponseWriter 包装器
 			rw := NewResponseWriter(w)
 			defer rw.Release()

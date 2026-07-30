@@ -25,6 +25,7 @@ import (
 	gwglobal "github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -256,6 +257,10 @@ func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds 
 	// 准备拨号选项
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
+		// 注册 otelgrpc StatsHandler，在 gRPC 客户端层自动注入 OTel trace context
+		// （grpc-trace-bin），将 HTTP 侧的 OTel trace 传播到下游 gRPC 服务，
+		// 实现全链路 trace_id 打通
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		// 默认调用选项
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxRecvMsgSize),
@@ -293,14 +298,14 @@ func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds 
 	// RequestContext 先执行注入 trace，日志拦截器随之记录调用耗时与结果，健康检查拦截器在不健康时短路返回
 	dialOpts = append(dialOpts,
 		grpc.WithChainUnaryInterceptor(
-			middleware.UnaryClientRequestContextInterceptor(),          // RequestContext 传播
-			middleware.UnaryClientLoggingInterceptor(serviceName),       // 调用日志记录
-			UnaryClientHealthInterceptor(serviceName, healthChecker),   // 健康检查
+			middleware.UnaryClientRequestContextInterceptor(),        // RequestContext 传播
+			middleware.UnaryClientLoggingInterceptor(serviceName),    // 调用日志记录
+			UnaryClientHealthInterceptor(serviceName, healthChecker), // 健康检查
 		),
 		grpc.WithChainStreamInterceptor(
-			middleware.StreamClientRequestContextInterceptor(),          // Stream RequestContext 传播
-			middleware.StreamClientLoggingInterceptor(serviceName),       // Stream 调用日志记录
-			StreamClientHealthInterceptor(serviceName, healthChecker),   // Stream 健康检查
+			middleware.StreamClientRequestContextInterceptor(),        // Stream RequestContext 传播
+			middleware.StreamClientLoggingInterceptor(serviceName),    // Stream 调用日志记录
+			StreamClientHealthInterceptor(serviceName, healthChecker), // Stream 健康检查
 		),
 	)
 

@@ -23,7 +23,9 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-toolbox/pkg/desensitize"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Server Gateway服务器
@@ -197,7 +199,11 @@ func (s *Server) GetContext() context.Context {
 
 // GetDialOptions 获取gRPC客户端拨号选项
 func (s *Server) GetDialOptions() []grpc.DialOption {
-	return []grpc.DialOption{grpc.WithInsecure()}
+	return []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// 注册 otelgrpc StatsHandler，确保 fallback 拨号路径也能传播 OTel trace context
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	}
 }
 
 // RegisterGRPCService 注册gRPC服务

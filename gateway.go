@@ -20,7 +20,6 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
-	"strings"
 	"syscall"
 	"time"
 
@@ -56,6 +55,9 @@ type Gateway struct {
 	gatewayHandlerRegistrars  []ServerHandlerRegisterFunc
 	proxyHandlerRegistrations []proxyHandlerRegistration
 	httpRouteRegistrations    []httpRouteRegistration
+
+	// 应用级关闭回调，在网关 Stop() 之前执行（如 flush 异步写入器）
+	shutdownCallbacks []func()
 }
 
 // GatewayBuilder Gateway构建器 - 支持链式调用
@@ -818,9 +820,8 @@ func (g *Gateway) StartWithBanner() error {
 		}
 	}
 
-	global.LOGGER.InfoContext(g.Context(), "")
-	global.LOGGER.InfoContext(g.Context(), "🚀 正在启动服务器...")
-	global.LOGGER.InfoContext(g.Context(), "")
+	cg := global.LOGGER.NewConsoleGroup()
+	cg.Info("🚀 正在启动服务器...")
 
 	// 启动服务
 	if err := g.Server.Start(); err != nil {
@@ -828,9 +829,7 @@ func (g *Gateway) StartWithBanner() error {
 		return err
 	}
 
-	global.LOGGER.InfoContext(g.Context(), "")
-	global.LOGGER.InfoContext(g.Context(), "✅ 服务器启动成功!")
-	global.LOGGER.InfoContext(g.Context(), "")
+	cg.Info("✅ 服务器启动成功!")
 
 	// 🎯 启动成功后打印完整的 Banner 和配置信息
 	g.PrintStartupInfo()
@@ -840,23 +839,24 @@ func (g *Gateway) StartWithBanner() error {
 
 // Stop 停止网关服务
 func (g *Gateway) Stop() error {
-	global.LOGGER.InfoContext(g.Context(), "🛑 开始停止网关服务...")
+	cg := global.LOGGER.NewConsoleGroup()
+	cg.Info("🛑 开始停止网关服务...")
 
 	// 先停止服务器
 	if err := g.Server.Stop(); err != nil {
 		global.LOGGER.ErrorContext(g.Context(), "❌ 停止服务器失败: error=%v", err)
 		return err
 	}
-	global.LOGGER.InfoContext(g.Context(), "✅ 服务器已停止")
+	cg.Info("✅ 服务器已停止")
 
 	// 再停止配置管理器
 	if g.configManager != nil {
-		global.LOGGER.InfoContext(g.Context(), "停止配置管理器...")
+		cg.Info("停止配置管理器...")
 		g.configManager.Stop()
-		global.LOGGER.InfoContext(g.Context(), "✅ 配置管理器已停止")
+		cg.Info("✅ 配置管理器已停止")
 	}
 
-	global.LOGGER.InfoContext(g.Context(), "✅ 网关服务已完全停止")
+	cg.Info("✅ 网关服务已完全停止")
 	return nil
 }
 
@@ -883,53 +883,42 @@ func (g *Gateway) PrintShutdownComplete() {
 
 // PrintAPIRegistrationSummary 打印API注册汇总信息
 func (g *Gateway) PrintAPIRegistrationSummary() {
-	global.LOGGER.InfoLines(
-		"",
-		strings.Repeat("=", 80),
-		"📋 API 注册汇总 (API Registration Summary)",
-		strings.Repeat("=", 80),
-	)
+	cg := global.LOGGER.NewConsoleGroup()
+	cg.Info("📋 API 注册汇总 (API Registration Summary)")
 
 	// gRPC 服务统计
-	global.LOGGER.InfoContext(g.Context(), "🔷 gRPC Services: %d", len(g.registeredGRPCServices))
+	cg.Info("🔷 gRPC Services: %d", len(g.registeredGRPCServices))
 	if len(g.registeredGRPCServices) > 0 {
 		for i, svc := range g.registeredGRPCServices {
-			global.LOGGER.InfoContext(g.Context(), "  %d. %s", i+1, svc)
+			cg.Info("  %d. %s", i+1, svc)
 		}
 	} else {
-		global.LOGGER.InfoContext(g.Context(), "  (无注册服务)")
+		cg.Info("  (无注册服务)")
 	}
 
 	// gRPC-Gateway 处理器统计
-	global.LOGGER.InfoMsg("")
-	global.LOGGER.InfoContext(g.Context(), "🌐 gRPC-Gateway Handlers: %d", len(g.registeredGatewayHandlers))
+	cg.Info("🌐 gRPC-Gateway Handlers: %d", len(g.registeredGatewayHandlers))
 	if len(g.registeredGatewayHandlers) > 0 {
 		for i, handler := range g.registeredGatewayHandlers {
-			global.LOGGER.InfoContext(g.Context(), "  %d. %s", i+1, handler)
+			cg.Info("  %d. %s", i+1, handler)
 		}
 	} else {
-		global.LOGGER.InfoContext(g.Context(), "  (无注册处理器)")
+		cg.Info("  (无注册处理器)")
 	}
 
 	// HTTP 路由统计
-	global.LOGGER.InfoMsg("")
-	global.LOGGER.InfoContext(g.Context(), "🔗 HTTP Routes: %d", len(g.registeredHTTPRoutes))
+	cg.Info("🔗 HTTP Routes: %d", len(g.registeredHTTPRoutes))
 	if len(g.registeredHTTPRoutes) > 0 {
 		for i, route := range g.registeredHTTPRoutes {
-			global.LOGGER.InfoContext(g.Context(), "  %d. %s", i+1, route)
+			cg.Info("  %d. %s", i+1, route)
 		}
 	} else {
-		global.LOGGER.InfoContext(g.Context(), "  (无注册路由)")
+		cg.Info("  (无注册路由)")
 	}
 
 	// 总计
 	totalAPIs := len(g.registeredGRPCServices) + len(g.registeredGatewayHandlers) + len(g.registeredHTTPRoutes)
-	global.LOGGER.InfoMsg("")
-	global.LOGGER.InfoContext(g.Context(), "✅ 总计注册 API 数量: %d", totalAPIs)
-	global.LOGGER.InfoLines(
-		strings.Repeat("=", 80),
-		"",
-	)
+	cg.Info("✅ 总计注册 API 数量: %d", totalAPIs)
 }
 
 // GetGatewayConfig 获取网关配置
@@ -962,10 +951,11 @@ func (g *Gateway) RegisterConfigCallbacks() {
 	// 注册配置变更回调
 	g.configManager.RegisterConfigCallback(func(ctx context.Context, event goconfig.CallbackEvent) error {
 		if newConfig, ok := event.NewValue.(*gwconfig.Gateway); ok {
-			global.LOGGER.InfoContext(g.Context(), errors.FormatConfigUpdateInfo(newConfig.Name))
+			cg := global.LOGGER.NewConsoleGroup()
+			cg.Info("%s", errors.FormatConfigUpdateInfo(newConfig.Name))
 			g.gatewayConfig = newConfig
 			if newConfig.HTTPServer != nil {
-				global.LOGGER.InfoContext(g.Context(), errors.FormatConnectionInfo("HTTP", newConfig.HTTPServer.GetEndpoint()))
+				cg.Info("%s", errors.FormatConnectionInfo("HTTP", newConfig.HTTPServer.GetEndpoint()))
 			}
 		}
 		return nil
@@ -997,7 +987,7 @@ func (g *Gateway) RegisterConfigCallbacks() {
 	}
 
 	g.configManager.RegisterEnvironmentCallback("gateway_runtime_env_handler", func(oldEnv, newEnv goconfig.EnvironmentType) error {
-		global.LOGGER.InfoContext(g.Context(), errors.FormatEnvironmentChangeInfo(string(oldEnv), string(newEnv)))
+		global.LOGGER.NewConsoleGroup().Info("%s", errors.FormatEnvironmentChangeInfo(string(oldEnv), string(newEnv)))
 		return nil
 	}, -100, false) // 高优先级
 }
@@ -1006,7 +996,8 @@ func (g *Gateway) RegisterConfigCallbacks() {
 func (g *Gateway) applyReloadedConfig(ctx context.Context, newConfig *gwconfig.Gateway) error {
 	oldConfig := g.Server.GetConfig()
 
-	global.LOGGER.InfoContext(g.Context(), errors.FormatConfigUpdateInfo(newConfig.Name))
+	cg := global.LOGGER.NewConsoleGroup()
+	cg.Info("%s", errors.FormatConfigUpdateInfo(newConfig.Name))
 	g.gatewayConfig = newConfig
 	global.GATEWAY = newConfig
 
@@ -1015,14 +1006,14 @@ func (g *Gateway) applyReloadedConfig(ctx context.Context, newConfig *gwconfig.G
 	pprofChanged := pprofRuntimeChanged(oldConfig, newConfig)
 
 	if httpChanged {
-		global.LOGGER.InfoContext(ctx, "HTTP/Swagger config changed, reloading HTTP gateway")
+		cg.Info("HTTP/Swagger config changed, reloading HTTP gateway")
 		if err := g.Server.ReloadHTTPGateway(newConfig, g.replayHTTPRegistrations); err != nil {
 			return err
 		}
 	}
 
 	if grpcChanged {
-		global.LOGGER.InfoContext(ctx, "gRPC server config changed, reloading gRPC server")
+		cg.Info("gRPC server config changed, reloading gRPC server")
 		registrars := make([]func(*grpc.Server), 0, len(g.grpcServiceRegistrars))
 		for _, register := range g.grpcServiceRegistrars {
 			registrars = append(registrars, register)
@@ -1033,7 +1024,7 @@ func (g *Gateway) applyReloadedConfig(ctx context.Context, newConfig *gwconfig.G
 	}
 
 	if pprofChanged {
-		global.LOGGER.InfoContext(ctx, "PProf config changed, reloading PProf server")
+		cg.Info("PProf config changed, reloading PProf server")
 		if err := g.Server.ReloadPProfServer(newConfig); err != nil {
 			return err
 		}
@@ -1044,10 +1035,10 @@ func (g *Gateway) applyReloadedConfig(ctx context.Context, newConfig *gwconfig.G
 	}
 
 	if newConfig.HTTPServer != nil {
-		global.LOGGER.InfoContext(g.Context(), errors.FormatConnectionInfo("HTTP", newConfig.HTTPServer.GetEndpoint()))
+		cg.Info("%s", errors.FormatConnectionInfo("HTTP", newConfig.HTTPServer.GetEndpoint()))
 	}
 	if newConfig.GRPC != nil && newConfig.GRPC.Server != nil {
-		global.LOGGER.InfoContext(g.Context(), errors.FormatConnectionInfo("gRPC", newConfig.GRPC.Server.GetEndpoint()))
+		cg.Info("%s", errors.FormatConnectionInfo("gRPC", newConfig.GRPC.Server.GetEndpoint()))
 	}
 
 	return nil
@@ -1246,6 +1237,14 @@ func (g *Gateway) WaitForShutdown() error {
 	select {}
 }
 
+// OnShutdown 注册应用级关闭回调，在网关 Stop() 之前执行
+// 用于 flush 异步写入器、关闭连接等资源清理，避免 os.Exit 导致数据丢失
+func (g *Gateway) OnShutdown(fn func()) {
+	if fn != nil {
+		g.shutdownCallbacks = append(g.shutdownCallbacks, fn)
+	}
+}
+
 // setupGracefulShutdown 设置优雅关闭信号处理
 func (g *Gateway) setupGracefulShutdown() {
 	c := make(chan os.Signal, 1)
@@ -1253,11 +1252,19 @@ func (g *Gateway) setupGracefulShutdown() {
 
 	go func() {
 		sig := <-c
-		global.LOGGER.InfoContext(g.Context(), errors.FormatShutdownInfo(sig.String()))
+		cg := global.LOGGER.NewConsoleGroup()
+
+		cg.Info("%s", errors.FormatShutdownInfo(sig.String()))
 
 		// 显示关闭信息
 		g.PrintShutdownInfo()
 
+		// 执行应用级关闭回调（在网关 Stop 之前 flush 资源）
+		cg.Info("执行应用级关闭回调（%d 个）...", len(g.shutdownCallbacks))
+		for _, cb := range g.shutdownCallbacks {
+			cb()
+		}
+		cg.Info("应用级关闭回调执行完毕")
 		// 停止服务
 		if err := g.Stop(); err != nil {
 			global.LOGGER.ErrorContext(g.Context(), errors.FormatStopError(err))
