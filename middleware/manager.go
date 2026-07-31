@@ -25,14 +25,15 @@ import (
 
 // Manager 中间件管理器 - 使用 go-config 的 middleware 配置
 type Manager struct {
-	cfg               *gwconfig.Gateway
-	metricsManager    *MetricsManager
-	tracingManager    *TracingManager
-	rateLimiter       RateLimiter
-	dynamicRateLimit  DynamicRateLimitProvider
-	dynamicSignature  DynamicSignatureProvider
-	i18nManager       *I18nManager
-	swaggerMiddleware *swaggerMiddleware.Middleware
+	cfg                     *gwconfig.Gateway
+	metricsManager          *MetricsManager
+	tracingManager          *TracingManager
+	rateLimiter             RateLimiter
+	dynamicRateLimit        DynamicRateLimitProvider
+	dynamicSignature        DynamicSignatureProvider
+	i18nManager             *I18nManager
+	swaggerMiddleware       *swaggerMiddleware.Middleware
+	preRateLimitMiddlewares []HTTPMiddleware // 在限流之前执行的自定义中间件（如认证）
 }
 
 // NewManager 创建中间件管理器 - 使用全局 GATEWAY 配置
@@ -197,6 +198,28 @@ func (m *Manager) RateLimitMiddleware() MiddlewareFunc {
 	return MiddlewareFunc(newRateLimitMiddleware(m.cfg.RateLimit, m.rateLimiter, m.dynamicRateLimit).Middleware())
 }
 
+// AddPreRateLimitMiddleware 添加在限流之前执行的自定义中间件（如认证）。
+// 认证中间件在此处执行后，UserID 会注入 context，限流中间件即可正确读取。
+func (m *Manager) AddPreRateLimitMiddleware(mw ...HTTPMiddleware) {
+	m.preRateLimitMiddlewares = append(m.preRateLimitMiddlewares, mw...)
+}
+
+// GRPCRateLimitUnaryInterceptor gRPC 一元限流拦截器（未启用限流时返回 nil）
+func (m *Manager) GRPCRateLimitUnaryInterceptor() grpc.UnaryServerInterceptor {
+	if !m.cfg.RateLimit.Enabled {
+		return nil
+	}
+	return GRPCRateLimitUnaryInterceptor(m.cfg.RateLimit, m.rateLimiter)
+}
+
+// GRPCRateLimitStreamInterceptor gRPC 流式限流拦截器（未启用限流时返回 nil）
+func (m *Manager) GRPCRateLimitStreamInterceptor() grpc.StreamServerInterceptor {
+	if !m.cfg.RateLimit.Enabled {
+		return nil
+	}
+	return GRPCRateLimitStreamInterceptor(m.cfg.RateLimit, m.rateLimiter)
+}
+
 // LoggingMiddleware HTTP日志中间件
 func (m *Manager) LoggingMiddleware() MiddlewareFunc {
 	return MiddlewareFunc(LoggingMiddleware())
@@ -313,6 +336,11 @@ func (m *Manager) GetMiddlewares() []MiddlewareFunc {
 	// 6. 链路追踪中间件（根据配置）
 	if m.cfg.Middleware.Tracing.Enabled && m.tracingManager != nil {
 		middlewares = append(middlewares, m.HTTPTracingMiddleware())
+	}
+
+	// 6.5. 限流前自定义中间件（如认证，需要在限流之前注入 UserID）
+	for _, mw := range m.preRateLimitMiddlewares {
+		middlewares = append(middlewares, MiddlewareFunc(mw))
 	}
 
 	// 7. 限流中间件（根据配置）

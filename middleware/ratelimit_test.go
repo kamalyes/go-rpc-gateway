@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-config/pkg/ratelimit"
 	"github.com/kamalyes/go-logger"
@@ -28,21 +29,18 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ============================================================================
-// Redis 测试连接配置（复用 go-wsc 的配置）
+// Redis 测试连接配置（使用 miniredis 内存模拟，无需真实 Redis 依赖）
 // ============================================================================
-
-const (
-	defaultRedisAddr     = "120.79.25.168:16389"
-	defaultRedisPassword = "M5Pi9YW6u"
-	defaultRedisDB       = 2 // 使用 DB2 避免与其他测试冲突
-)
 
 var (
+	testMiniRedis     *miniredis.Miniredis
 	testRedisInstance *redis.Client
-	testRedisOnce     sync.Once
 )
 
 // TestMain 测试入口，用于初始化全局资源
@@ -51,41 +49,30 @@ func TestMain(m *testing.M) {
 	global.LOGGER = logger.New()
 	global.GATEWAY = gwconfig.Default()
 
+	// 启动 miniredis（内存 Redis，无需外部依赖）
+	mr, err := miniredis.Run()
+	if err != nil {
+		panic(fmt.Sprintf("启动 miniredis 失败: %v", err))
+	}
+	testMiniRedis = mr
+	testRedisInstance = redis.NewClient(&redis.Options{Addr: mr.Addr()})
+
 	// 运行测试
-	os.Exit(m.Run())
+	code := m.Run()
+
+	// 清理资源
+	testRedisInstance.Close()
+	testMiniRedis.Close()
+
+	os.Exit(code)
 }
 
 func newRateLimitTestHandler(middleware *rateLimitMiddleware, next http.Handler) http.Handler {
 	return RequestContextMiddleware()(middleware.Middleware()(next))
 }
 
-// getTestRedisClient 获取测试用 Redis 客户端（单例模式）
+// getTestRedisClient 获取测试用 Redis 客户端（miniredis 单例）
 func getTestRedisClient(t *testing.T) *redis.Client {
-	testRedisOnce.Do(func() {
-		addr := os.Getenv("TEST_REDIS_ADDR")
-		password := os.Getenv("TEST_REDIS_PASSWORD")
-
-		if addr == "" {
-			addr = defaultRedisAddr
-			password = defaultRedisPassword
-			t.Logf("📌 使用默认 Redis 配置: %s (DB:%d)", addr, defaultRedisDB)
-		} else {
-			t.Logf("📌 使用环境变量 Redis 配置: %s (DB:%d)", addr, defaultRedisDB)
-		}
-
-		testRedisInstance = redis.NewClient(&redis.Options{
-			Addr:     addr,
-			Password: password,
-			DB:       defaultRedisDB,
-		})
-
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-
-		err := testRedisInstance.Ping(ctx).Err()
-		require.NoError(t, err, "Redis 连接失败，请检查配置")
-	})
-
 	if testRedisInstance == nil {
 		t.Fatal("Redis 单例未正确初始化")
 	}
@@ -95,13 +82,7 @@ func getTestRedisClient(t *testing.T) *redis.Client {
 // getTestRedisClientWithFlush 获取 Redis 客户端并清空测试数据
 func getTestRedisClientWithFlush(t *testing.T) *redis.Client {
 	client := getTestRedisClient(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	err := client.FlushDB(ctx).Err()
-	require.NoError(t, err, "清空 Redis 测试数据失败")
-
+	testMiniRedis.FlushDB()
 	return client
 }
 
@@ -1436,4 +1417,545 @@ func TestRateLimitMiddleware_WithRedis(t *testing.T) {
 	t.Logf("30个请求中成功: %d", successCount)
 	assert.GreaterOrEqual(t, successCount, 18, "全局限流应该至少允许18次请求")
 	assert.LessOrEqual(t, successCount, 20, "全局限流应该最多允许20次请求")
+}
+
+// ============================================================================
+// 测试辅助
+// ============================================================================
+
+// grpcMethod gRPC 方法的完整路径（与 info.FullMethod 一致，带前导斜杠）
+const (
+	grpcMethodSend = "/engine.im.service.v1.MessageService/SendMessage"
+	grpcMethodPing = "/engine.im.service.v1.SystemService/Ping"
+	restPathSend   = "/v1/messages/send"
+)
+
+func newGRPCUnaryInfo(fullMethod string) *grpc.UnaryServerInfo {
+	return &grpc.UnaryServerInfo{FullMethod: fullMethod}
+}
+
+// newGRPCStreamInfo 构造流式调用的 ServerInfo
+func newGRPCStreamInfo(fullMethod string) *grpc.StreamServerInfo {
+	return &grpc.StreamServerInfo{FullMethod: fullMethod}
+}
+
+// newGRPCContext 构造带 UserID/IPAddress 的 context（模拟 gRPC RequestContext 拦截器的注入结果）
+func newGRPCContext(userID, ip string) context.Context {
+	ctx := context.Background()
+	if userID != "" {
+		ctx = WithUserID(ctx, userID)
+	}
+	if ip != "" {
+		ctx = WithIPAddress(ctx, ip)
+	}
+	return ctx
+}
+
+// okUnaryHandler 总是返回 ("ok", nil) 的 handler，并通过 called 反馈是否被调用
+func okUnaryHandler(called *bool) grpc.UnaryHandler {
+	return func(ctx context.Context, req interface{}) (interface{}, error) {
+		*called = true
+		return "ok", nil
+	}
+}
+
+// mockRateLimitServerStream 仅实现 Context()，用于流式拦截器测试
+type mockRateLimitServerStream struct {
+	ctx context.Context
+	grpc.ServerStream
+}
+
+func (m *mockRateLimitServerStream) Context() context.Context { return m.ctx }
+
+// isRateLimited 判断 err 是否为 ResourceExhausted
+func isRateLimited(t *testing.T, err error) bool {
+	t.Helper()
+	if err == nil {
+		return false
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	return st.Code() == codes.ResourceExhausted
+}
+
+// grpcAllowN 用同一 context 调用 unary 拦截器 n 次，返回成功（无错且 handler 被调用）次数
+func grpcAllowN(t *testing.T, interceptor grpc.UnaryServerInterceptor, ctx context.Context, fullMethod string, n int) int {
+	t.Helper()
+	info := newGRPCUnaryInfo(fullMethod)
+	success := 0
+	for i := 0; i < n; i++ {
+		called := false
+		_, err := interceptor(ctx, nil, info, okUnaryHandler(&called))
+		if err == nil && called {
+			success++
+		}
+	}
+	return success
+}
+
+// noRefillRule 返回不会补充令牌的规则（RPS=0），便于确定性断言
+func noRefillRule(burst int) *ratelimit.LimitRule {
+	return &ratelimit.LimitRule{RequestsPerSecond: 0, BurstSize: burst}
+}
+
+// unaryInterceptor 用配置构造一元限流拦截器（limiter 传 nil，由内部按策略创建默认令牌桶）
+func unaryInterceptor(t *testing.T, config *ratelimit.RateLimit) grpc.UnaryServerInterceptor {
+	t.Helper()
+	return GRPCRateLimitUnaryInterceptor(config, nil)
+}
+
+func streamInterceptor(t *testing.T, config *ratelimit.RateLimit) grpc.StreamServerInterceptor {
+	t.Helper()
+	return GRPCRateLimitStreamInterceptor(config, nil)
+}
+
+// ============================================================================
+// A. 核心规则解析 resolveRuleAndKey（HTTP 与 gRPC 共用，重构后行为基线）
+// ============================================================================
+
+func TestResolveRuleAndKey_GRPCMethodPathMatch(t *testing.T) {
+	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes: []ratelimit.RouteLimit{
+			{Path: grpcMethodSend, Limit: noRefillRule(5)},
+		},
+	}, nil, nil)
+
+	rule, key := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "1.2.3.4", "u1")
+	require.NotNil(t, rule)
+	assert.Equal(t, 5, rule.BurstSize)
+	assert.Equal(t, "route:"+grpcMethodSend, key)
+}
+
+func TestResolveRuleAndKey_PerUserKey(t *testing.T) {
+	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(3)}},
+	}, nil, nil)
+
+	_, key := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "1.2.3.4", "user-9")
+	assert.Equal(t, "route:"+grpcMethodSend+":user:user-9", key)
+}
+
+func TestResolveRuleAndKey_PerIPKey(t *testing.T) {
+	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerIP: true, Limit: noRefillRule(3)}},
+	}, nil, nil)
+
+	_, key := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "10.0.0.7", "u1")
+	assert.Equal(t, "route:"+grpcMethodSend+":ip:10.0.0.7", key)
+}
+
+func TestResolveRuleAndKey_RouteWhitelist(t *testing.T) {
+	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes: []ratelimit.RouteLimit{
+			{Path: grpcMethodSend, Whitelist: []string{"10.0.0.0/24"}, Limit: noRefillRule(3)},
+		},
+	}, nil, nil)
+
+	// 命中白名单 → 放行（nil 规则）
+	rule, _ := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "10.0.0.50", "u1")
+	assert.Nil(t, rule)
+
+	// 非白名单 → 应用限流规则
+	rule2, _ := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "1.2.3.4", "u1")
+	require.NotNil(t, rule2)
+}
+
+func TestResolveRuleAndKey_RouteBlacklist(t *testing.T) {
+	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes: []ratelimit.RouteLimit{
+			{Path: grpcMethodSend, Blacklist: []string{"10.0.0.0/24"}},
+		},
+	}, nil, nil)
+
+	// 命中黑名单 → 严格限流规则（1/1）
+	rule, key := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "10.0.0.50", "u1")
+	require.NotNil(t, rule)
+	assert.Equal(t, 1, rule.RequestsPerSecond)
+	assert.Equal(t, 1, rule.BurstSize)
+	assert.Contains(t, key, "10.0.0.50")
+
+	// 非黑名单 → 路由无限流规则 → 放行
+	rule2, _ := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "1.2.3.4", "u1")
+	assert.Nil(t, rule2)
+}
+
+func TestResolveRuleAndKey_IPRuleWhitelist(t *testing.T) {
+	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		IPRules: []ratelimit.IPRule{
+			{IP: "10.0.0.0/24", Type: typeWhitelist},
+		},
+	}, nil, nil)
+
+	// IP 白名单匹配 → 放行
+	rule, _ := mw.resolveRuleAndKey(context.Background(), "/any", "POST", "10.0.0.9", "u1")
+	assert.Nil(t, rule)
+}
+
+func TestResolveRuleAndKey_IPRuleLimit(t *testing.T) {
+	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		IPRules: []ratelimit.IPRule{
+			{IP: "10.0.0.0/24", Type: "blacklist", Limit: noRefillRule(2)},
+		},
+	}, nil, nil)
+
+	rule, key := mw.resolveRuleAndKey(context.Background(), "/any", "POST", "10.0.0.9", "u1")
+	require.NotNil(t, rule)
+	assert.Equal(t, "ip:10.0.0.9", key)
+}
+
+func TestResolveRuleAndKey_UserRuleMatch(t *testing.T) {
+	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		UserRules: []ratelimit.UserRule{
+			{UserID: "vip-*", Limit: noRefillRule(100)},
+		},
+	}, nil, nil)
+
+	rule, key := mw.resolveRuleAndKey(context.Background(), "/any", "POST", "1.2.3.4", "vip-007")
+	require.NotNil(t, rule)
+	assert.Equal(t, "user:vip-007", key)
+
+	// 不匹配的用户 → 无规则
+	rule2, _ := mw.resolveRuleAndKey(context.Background(), "/any", "POST", "1.2.3.4", "normal")
+	assert.Nil(t, rule2)
+}
+
+func TestResolveRuleAndKey_GlobalFallback(t *testing.T) {
+	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+		Enabled:      true,
+		Strategy:     ratelimit.StrategyTokenBucket,
+		DefaultScope: ratelimit.ScopeGlobal,
+		GlobalLimit:  noRefillRule(10),
+	}, nil, nil)
+
+	// 无路由/IP/用户规则命中 → 全局规则
+	rule, key := mw.resolveRuleAndKey(context.Background(), "/unmatched", "POST", "1.2.3.4", "u1")
+	require.NotNil(t, rule)
+	assert.Equal(t, 10, rule.BurstSize)
+	assert.Equal(t, "global", key)
+}
+
+func TestResolveRuleAndKey_NoConfig(t *testing.T) {
+	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+	}, nil, nil)
+
+	rule, _ := mw.resolveRuleAndKey(context.Background(), "/any", "POST", "1.2.3.4", "u1")
+	assert.Nil(t, rule)
+}
+
+func TestGenerateKeyForScope(t *testing.T) {
+	mw := newRateLimitMiddleware(&ratelimit.RateLimit{Enabled: true, Strategy: ratelimit.StrategyTokenBucket}, nil, nil)
+
+	cases := []struct {
+		scope    ratelimit.Scope
+		ip, uid  string
+		method   string
+		path     string
+		expected string
+	}{
+		{ratelimit.ScopeGlobal, "1.1.1.1", "u1", "POST", "/p", "global"},
+		{ratelimit.ScopePerIP, "1.1.1.1", "u1", "POST", "/p", "ip:1.1.1.1"},
+		{ratelimit.ScopePerUser, "1.1.1.1", "u1", "POST", "/p", "user:u1"},
+		{ratelimit.ScopePerRoute, "1.1.1.1", "u1", "POST", "/p", "route:POST:/p"},
+		{ratelimit.Scope("unknown"), "1.1.1.1", "u1", "POST", "/p", "global"}, // default
+	}
+	for _, c := range cases {
+		got := mw.generateKeyForScope(c.scope, c.ip, c.uid, c.method, c.path)
+		assert.Equal(t, c.expected, got, "scope=%s", c.scope)
+	}
+}
+
+// ============================================================================
+// B. gRPC 一元限流拦截器
+// ============================================================================
+
+func TestGRPCRateLimitUnaryInterceptor_Disabled(t *testing.T) {
+	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{Enabled: false})
+	ctx := newGRPCContext("u1", "1.2.3.4")
+	called := false
+	_, err := interceptor(ctx, nil, newGRPCUnaryInfo(grpcMethodSend), okUnaryHandler(&called))
+	require.NoError(t, err)
+	assert.True(t, called, "禁用时应直接放行")
+}
+
+func TestGRPCRateLimitUnaryInterceptor_NoRule(t *testing.T) {
+	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+	})
+	ctx := newGRPCContext("u1", "1.2.3.4")
+	// 无任何规则 → 全部放行
+	assert.Equal(t, 50, grpcAllowN(t, interceptor, ctx, grpcMethodSend, 50))
+}
+
+func TestGRPCRateLimitUnaryInterceptor_AllowedThenExceeded(t *testing.T) {
+	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(5)}},
+	})
+	ctx := newGRPCContext("u1", "1.2.3.4")
+
+	// 前 5 次成功
+	assert.Equal(t, 5, grpcAllowN(t, interceptor, ctx, grpcMethodSend, 5))
+
+	// 第 6 次被限流（ResourceExhausted）
+	called := false
+	_, err := interceptor(ctx, nil, newGRPCUnaryInfo(grpcMethodSend), okUnaryHandler(&called))
+	assert.True(t, isRateLimited(t, err), "超出 BurstSize 应返回 ResourceExhausted")
+	assert.False(t, called, "被限流时 handler 不应被调用")
+}
+
+// TestGRPCRateLimitUnaryInterceptor_GRPCMethodPathMatches 核心修复验证：
+// gRPC 方法路径（info.FullMethod）能命中 routes 中以 gRPC 方法全名配置的规则。
+func TestGRPCRateLimitUnaryInterceptor_GRPCMethodPathMatches(t *testing.T) {
+	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(3)}},
+	})
+	ctx := newGRPCContext("u1", "1.2.3.4")
+
+	// 命中 gRPC 方法路由：3 次成功，第 4 次被限流
+	assert.Equal(t, 3, grpcAllowN(t, interceptor, ctx, grpcMethodSend, 3))
+	_, err := interceptor(ctx, nil, newGRPCUnaryInfo(grpcMethodSend), okUnaryHandler(new(bool)))
+	assert.True(t, isRateLimited(t, err))
+}
+
+// TestGRPCRateLimitUnaryInterceptor_RESTPathNotMatchGRPCMethod
+// 验证 REST 路由不会误伤 gRPC 方法：gRPC 方法不会命中 REST 路径规则，落入全局。
+func TestGRPCRateLimitUnaryInterceptor_RESTPathNotMatchGRPCMethod(t *testing.T) {
+	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+		Enabled:      true,
+		Strategy:     ratelimit.StrategyTokenBucket,
+		DefaultScope: ratelimit.ScopeGlobal,
+		GlobalLimit:  noRefillRule(2),
+		Routes:       []ratelimit.RouteLimit{{Path: restPathSend, PerUser: true, Limit: noRefillRule(99)}},
+	})
+	ctx := newGRPCContext("u1", "1.2.3.4")
+
+	// gRPC 方法 /SendMessage 不匹配 REST 路径 /v1/messages/send → 落入全局（BurstSize=2）
+	assert.Equal(t, 2, grpcAllowN(t, interceptor, ctx, grpcMethodSend, 2))
+	_, err := interceptor(ctx, nil, newGRPCUnaryInfo(grpcMethodSend), okUnaryHandler(new(bool)))
+	assert.True(t, isRateLimited(t, err), "应被全局限流而非 REST 路由限流")
+}
+
+func TestGRPCRateLimitUnaryInterceptor_PerUserIsolation(t *testing.T) {
+	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(3)}},
+	})
+
+	// 用户 A 用尽 3 个令牌
+	ctxA := newGRPCContext("user-A", "1.2.3.4")
+	assert.Equal(t, 3, grpcAllowN(t, interceptor, ctxA, grpcMethodSend, 3))
+
+	// 用户 B 不受影响，仍有 3 个令牌
+	ctxB := newGRPCContext("user-B", "1.2.3.4")
+	assert.Equal(t, 3, grpcAllowN(t, interceptor, ctxB, grpcMethodSend, 3))
+
+	// 用户 A 已被限流
+	_, err := interceptor(ctxA, nil, newGRPCUnaryInfo(grpcMethodSend), okUnaryHandler(new(bool)))
+	assert.True(t, isRateLimited(t, err))
+}
+
+func TestGRPCRateLimitUnaryInterceptor_PerIP(t *testing.T) {
+	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerIP: true, Limit: noRefillRule(2)}},
+	})
+
+	ctx1 := newGRPCContext("", "10.0.0.1")
+	ctx2 := newGRPCContext("", "10.0.0.2")
+
+	assert.Equal(t, 2, grpcAllowN(t, interceptor, ctx1, grpcMethodSend, 2))
+	// 同 IP 第 3 次被限流
+	_, err := interceptor(ctx1, nil, newGRPCUnaryInfo(grpcMethodSend), okUnaryHandler(new(bool)))
+	assert.True(t, isRateLimited(t, err))
+	// 不同 IP 独立计数
+	assert.Equal(t, 2, grpcAllowN(t, interceptor, ctx2, grpcMethodSend, 2))
+}
+
+func TestGRPCRateLimitUnaryInterceptor_WhitelistBypass(t *testing.T) {
+	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes: []ratelimit.RouteLimit{
+			{Path: grpcMethodSend, Whitelist: []string{"10.0.0.0/24"}, Limit: noRefillRule(1)},
+		},
+	})
+
+	ctx := newGRPCContext("u1", "10.0.0.99")
+	// 白名单 IP 不受限流，连续 50 次都通过
+	assert.Equal(t, 50, grpcAllowN(t, interceptor, ctx, grpcMethodSend, 50))
+}
+
+func TestGRPCRateLimitUnaryInterceptor_GlobalFallback(t *testing.T) {
+	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+		Enabled:      true,
+		Strategy:     ratelimit.StrategyTokenBucket,
+		DefaultScope: ratelimit.ScopeGlobal,
+		GlobalLimit:  noRefillRule(4),
+	})
+
+	ctx := newGRPCContext("u1", "1.2.3.4")
+	// 未匹配任何路由 → 全局限流（BurstSize=4）
+	assert.Equal(t, 4, grpcAllowN(t, interceptor, ctx, grpcMethodPing, 4))
+	_, err := interceptor(ctx, nil, newGRPCUnaryInfo(grpcMethodPing), okUnaryHandler(new(bool)))
+	assert.True(t, isRateLimited(t, err))
+}
+
+func TestGRPCRateLimitUnaryInterceptor_HandlerContextPreserved(t *testing.T) {
+	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, Limit: noRefillRule(5)}},
+	})
+
+	ctx := newGRPCContext("ctx-user", "1.1.1.1")
+	var seenUserID string
+	handler := func(c context.Context, req interface{}) (interface{}, error) {
+		seenUserID = GetRequestCommonMeta(c).UserID
+		return "result", nil
+	}
+	resp, err := interceptor(ctx, nil, newGRPCUnaryInfo(grpcMethodSend), handler)
+	require.NoError(t, err)
+	assert.Equal(t, "result", resp)
+	assert.Equal(t, "ctx-user", seenUserID, "放行时应将原始 context 透传给 handler")
+}
+
+// TestGRPCRateLimitUnaryInterceptor_BurstSizeBoundary 边界值：BurstSize=1
+func TestGRPCRateLimitUnaryInterceptor_BurstSizeBoundary(t *testing.T) {
+	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, Limit: noRefillRule(1)}},
+	})
+	ctx := newGRPCContext("u1", "1.2.3.4")
+
+	called := false
+	_, err := interceptor(ctx, nil, newGRPCUnaryInfo(grpcMethodSend), okUnaryHandler(&called))
+	require.NoError(t, err)
+	assert.True(t, called)
+
+	_, err = interceptor(ctx, nil, newGRPCUnaryInfo(grpcMethodSend), okUnaryHandler(new(bool)))
+	assert.True(t, isRateLimited(t, err))
+}
+
+// ============================================================================
+// C. gRPC 流式限流拦截器
+// ============================================================================
+
+func TestGRPCRateLimitStreamInterceptor_Disabled(t *testing.T) {
+	interceptor := streamInterceptor(t, &ratelimit.RateLimit{Enabled: false})
+	ctx := newGRPCContext("u1", "1.2.3.4")
+	called := false
+	err := interceptor(nil, &mockRateLimitServerStream{ctx: ctx}, newGRPCStreamInfo(grpcMethodSend), func(srv interface{}, ss grpc.ServerStream) error {
+		called = true
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, called)
+}
+
+func TestGRPCRateLimitStreamInterceptor_AllowedThenExceeded(t *testing.T) {
+	interceptor := streamInterceptor(t, &ratelimit.RateLimit{
+		Enabled:  true,
+		Strategy: ratelimit.StrategyTokenBucket,
+		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, Limit: noRefillRule(2)}},
+	})
+
+	handler := func(srv interface{}, ss grpc.ServerStream) error { return nil }
+	info := newGRPCStreamInfo(grpcMethodSend)
+
+	// 同一 key（route:/...，非 per-user）共享桶：前 2 次放行
+	for i := 0; i < 2; i++ {
+		ctx := newGRPCContext("u1", "1.2.3.4")
+		require.NoError(t, interceptor(nil, &mockRateLimitServerStream{ctx: ctx}, info, handler))
+	}
+	// 第 3 次被限流
+	ctx := newGRPCContext("u1", "1.2.3.4")
+	err := interceptor(nil, &mockRateLimitServerStream{ctx: ctx}, info, handler)
+	assert.True(t, isRateLimited(t, err))
+}
+
+// ============================================================================
+// D. 真实混合配置场景（REST 路由 + gRPC 路由 + 全局，对齐 myanmar yaml 结构）
+// ============================================================================
+
+func TestGRPCRateLimit_RealisticMixedConfig(t *testing.T) {
+	config := &ratelimit.RateLimit{
+		Enabled:      true,
+		Strategy:     ratelimit.StrategyTokenBucket,
+		DefaultScope: ratelimit.ScopeGlobal,
+		GlobalLimit:  noRefillRule(2), // 全局：突发 2
+		Routes: []ratelimit.RouteLimit{
+			{Path: restPathSend, PerUser: true, Limit: noRefillRule(20)},  // REST 路由
+			{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(3)}, // gRPC 路由
+		},
+	}
+	interceptor := unaryInterceptor(t, config)
+
+	// 1) gRPC SendMessage 命中 gRPC 路由：用户突发 3
+	ctx := newGRPCContext("user-1", "1.2.3.4")
+	assert.Equal(t, 3, grpcAllowN(t, interceptor, ctx, grpcMethodSend, 3))
+	_, err := interceptor(ctx, nil, newGRPCUnaryInfo(grpcMethodSend), okUnaryHandler(new(bool)))
+	assert.True(t, isRateLimited(t, err))
+
+	// 2) 其它 gRPC 方法（未配置路由）落入全局：突发 2
+	ctx2 := newGRPCContext("user-2", "5.6.7.8")
+	assert.Equal(t, 2, grpcAllowN(t, interceptor, ctx2, grpcMethodPing, 2))
+	_, err = interceptor(ctx2, nil, newGRPCUnaryInfo(grpcMethodPing), okUnaryHandler(new(bool)))
+	assert.True(t, isRateLimited(t, err))
+
+	// 3) 全局桶跨用户共享：user-2 已耗尽全局桶 → user-1 访问 ping 也被限流
+	_, err = interceptor(ctx, nil, newGRPCUnaryInfo(grpcMethodPing), okUnaryHandler(new(bool)))
+	assert.True(t, isRateLimited(t, err), "全局桶应跨用户共享")
+}
+
+// TestGRPCRateLimit_HTTPPathUnchangedRegression 回归：重构后 HTTP 入口 getRuleAndKey/generateKey 行为不变
+func TestGRPCRateLimit_HTTPPathUnchangedRegression(t *testing.T) {
+	config := &ratelimit.RateLimit{
+		Enabled:      true,
+		Strategy:     ratelimit.StrategyTokenBucket,
+		DefaultScope: ratelimit.ScopeGlobal,
+		GlobalLimit:  noRefillRule(3),
+	}
+	mw := newRateLimitMiddleware(config, nil, nil)
+	handler := newRateLimitTestHandler(mw, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// HTTP 路径走全局限流：BurstSize=3
+	ok := 0
+	for i := 0; i < 4; i++ {
+		req := httptest.NewRequest("GET", "/api/anything", nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code == http.StatusOK {
+			ok++
+		}
+	}
+	assert.Equal(t, 3, ok, "HTTP 全局限流应与重构前一致：3 次成功 1 次失败")
 }

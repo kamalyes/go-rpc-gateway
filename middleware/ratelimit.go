@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	validator "github.com/kamalyes/go-argus"
 	"github.com/kamalyes/go-config/pkg/ratelimit"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -26,7 +27,9 @@ import (
 	"github.com/kamalyes/go-toolbox/pkg/matcher"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
-	"github.com/kamalyes/go-argus"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // 限流相关常量
@@ -558,6 +561,30 @@ func (e *rateLimitMiddleware) Middleware() HTTPMiddleware {
 	}
 }
 
+// allowRequests 检查是否允许请求
+func (e *rateLimitMiddleware) allowRequests(w http.ResponseWriter, r *http.Request, decisions []RateLimitDecision) bool {
+	for _, decision := range decisions {
+		limiter := e.getLimiter(decision.Strategy)
+		if limiter == nil {
+			response.WriteAppError(w, errors.NewError(errors.ErrCodeInternalServerError, fmt.Sprintf("unsupported rate limit strategy: %s", decision.Strategy)))
+			return false
+		}
+
+		allowed, err := limiter.Allow(r.Context(), decision.Key, decision.Rule)
+		if err != nil {
+			response.WriteAppError(w, errors.NewError(errors.ErrCodeInternalServerError, err.Error()))
+			return false
+		}
+
+		if !allowed {
+			response.WriteErrorResponse(w, errors.ErrRateLimitExceeded)
+			return false
+		}
+	}
+
+	return true
+}
+
 func (e *rateLimitMiddleware) getDecisions(r *http.Request) ([]RateLimitDecision, *errors.AppError) {
 	if e.dynamicProvider != nil {
 		result, appErr := e.dynamicProvider.ResolveRateLimit(r)
@@ -603,39 +630,41 @@ func (e *rateLimitMiddleware) normalizeDecisions(r *http.Request, decisions []Ra
 	return normalized
 }
 
-// getRuleAndKey 获取限流规则和key(统一处理白名单/黑名单/限流规则)
+// getRuleAndKey 获取限流规则和key（HTTP 入口）
 // 优先级: 白名单 > 黑名单 > 限流规则
 func (e *rateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit.LimitRule, string) {
-	clientIP := netx.GetClientIP(r)
-	path := r.URL.Path
-	method := r.Method
+	return e.resolveRuleAndKey(r.Context(), r.URL.Path, r.Method, netx.GetClientIP(r), GetRequestCommonMeta(r.Context()).UserID)
+}
 
-	global.LOGGER.DebugContext(r.Context(), "getRuleAndKey: IP=%s, Path=%s, Method=%s", clientIP, path, method)
+// resolveRuleAndKey 限流规则解析核心（HTTP 与 gRPC 共用）
+// 优先级: 路由白名单 > 路由黑名单 > 路由限流 > IP规则 > 用户规则 > 全局规则
+func (e *rateLimitMiddleware) resolveRuleAndKey(ctx context.Context, path, method, clientIP, userID string) (*ratelimit.LimitRule, string) {
+	global.LOGGER.DebugContext(ctx, "resolveRuleAndKey: IP=%s, Path=%s, Method=%s", clientIP, path, method)
 
 	// 第一轮: 优先检查白名单和黑名单(最高优先级)
 	for i, routeLimit := range e.config.Routes {
-		global.LOGGER.DebugContext(r.Context(), "检查路由[%d]: Path=%s, Methods=%v", i, routeLimit.Path, routeLimit.Methods)
+		global.LOGGER.DebugContext(ctx, "检查路由[%d]: Path=%s, Methods=%v", i, routeLimit.Path, routeLimit.Methods)
 
 		// 路径和方法匹配
 		pathMatch := matcher.MatchPathWithMethod(path, method, routeLimit.Path, routeLimit.Methods)
-		global.LOGGER.DebugContext(r.Context(), "MatchPathWithMethod结果: %v", pathMatch)
+		global.LOGGER.DebugContext(ctx, "MatchPathWithMethod结果: %v", pathMatch)
 
 		if !pathMatch {
-			global.LOGGER.DebugContext(r.Context(), "路由[%d]不匹配,continue", i)
+			global.LOGGER.DebugContext(ctx, "路由[%d]不匹配,continue", i)
 			continue
 		}
 
-		global.LOGGER.DebugContext(r.Context(), "路由[%d]匹配成功!", i)
+		global.LOGGER.DebugContext(ctx, "路由[%d]匹配成功!", i)
 
 		// 1. 白名单 - 最高优先级,直接放行(仅当白名单非空时检查)
 		if len(routeLimit.Whitelist) > 0 && validator.IsIPAllowed(clientIP, routeLimit.Whitelist) {
-			global.LOGGER.DebugContext(r.Context(), "IP在白名单,返回nil放行")
+			global.LOGGER.DebugContext(ctx, "IP在白名单,返回nil放行")
 			return nil, ""
 		}
 
 		// 2. 黑名单 - 第二优先级,严格限流(仅当黑名单非空时检查)
 		if len(routeLimit.Blacklist) > 0 && validator.IsIPBlocked(clientIP, routeLimit.Blacklist) {
-			global.LOGGER.DebugContext(r.Context(), "IP在黑名单,返回严格限流规则")
+			global.LOGGER.DebugContext(ctx, "IP在黑名单,返回严格限流规则")
 			return &ratelimit.LimitRule{
 				RequestsPerSecond: 1,
 				BurstSize:         1,
@@ -647,7 +676,6 @@ func (e *rateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit.LimitRu
 		// 3. 应用路由限流规则
 		if routeLimit.Limit != nil {
 			if routeLimit.PerUser {
-				userID := GetRequestCommonMeta(r.Context()).UserID
 				return routeLimit.Limit, fmt.Sprintf(keyFormatRouteUser, routeLimit.Path, userID)
 			}
 			if routeLimit.PerIP {
@@ -678,7 +706,6 @@ func (e *rateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit.LimitRu
 	}
 
 	// 第三轮: 检查用户级别规则
-	userID := GetRequestCommonMeta(r.Context()).UserID
 	if userID != "" {
 		for _, userRule := range e.config.UserRules {
 			if e.matchUser(userRule, userID) {
@@ -689,36 +716,11 @@ func (e *rateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit.LimitRu
 
 	// 第四轮: 使用全局限流规则
 	if e.config.GlobalLimit != nil {
-		key := e.generateKey(r, e.config.DefaultScope)
-		return e.config.GlobalLimit, key
+		return e.config.GlobalLimit, e.generateKeyForScope(e.config.DefaultScope, clientIP, userID, method, path)
 	}
 
 	// 无任何限流规则,放行
 	return nil, ""
-}
-
-// allowRequests 检查是否允许请求
-func (e *rateLimitMiddleware) allowRequests(w http.ResponseWriter, r *http.Request, decisions []RateLimitDecision) bool {
-	for _, decision := range decisions {
-		limiter := e.getLimiter(decision.Strategy)
-		if limiter == nil {
-			response.WriteAppError(w, errors.NewError(errors.ErrCodeInternalServerError, fmt.Sprintf("unsupported rate limit strategy: %s", decision.Strategy)))
-			return false
-		}
-
-		allowed, err := limiter.Allow(r.Context(), decision.Key, decision.Rule)
-		if err != nil {
-			response.WriteAppError(w, errors.NewError(errors.ErrCodeInternalServerError, err.Error()))
-			return false
-		}
-
-		if !allowed {
-			response.WriteErrorResponse(w, errors.ErrRateLimitExceeded)
-			return false
-		}
-	}
-
-	return true
 }
 
 func (e *rateLimitMiddleware) getLimiter(strategy ratelimit.Strategy) RateLimiter {
@@ -728,17 +730,22 @@ func (e *rateLimitMiddleware) getLimiter(strategy ratelimit.Strategy) RateLimite
 	return e.limiter
 }
 
-// generateKey 生成限流key
+// generateKey 生成限流key（HTTP 入口）
 func (e *rateLimitMiddleware) generateKey(r *http.Request, scope ratelimit.Scope) string {
+	return e.generateKeyForScope(scope, netx.GetClientIP(r), GetRequestCommonMeta(r.Context()).UserID, r.Method, r.URL.Path)
+}
+
+// generateKeyForScope 按作用域生成限流key（HTTP 与 gRPC 共用）
+func (e *rateLimitMiddleware) generateKeyForScope(scope ratelimit.Scope, clientIP, userID, method, path string) string {
 	switch scope {
 	case ratelimit.ScopeGlobal:
 		return keyGlobal
 	case ratelimit.ScopePerIP:
-		return fmt.Sprintf(keyFormatIP, netx.GetClientIP(r))
+		return fmt.Sprintf(keyFormatIP, clientIP)
 	case ratelimit.ScopePerUser:
-		return fmt.Sprintf(keyFormatUser, GetRequestCommonMeta(r.Context()).UserID)
+		return fmt.Sprintf(keyFormatUser, userID)
 	case ratelimit.ScopePerRoute:
-		return fmt.Sprintf(keyFormatRouteMethod, r.Method, r.URL.Path)
+		return fmt.Sprintf(keyFormatRouteMethod, method, path)
 	default:
 		return keyGlobal
 	}
@@ -763,4 +770,63 @@ func RateLimitMiddleware(config *ratelimit.RateLimit) HTTPMiddleware {
 // RateLimitMiddlewareWithProvider 限流中间件（支持动态规则）
 func RateLimitMiddlewareWithProvider(config *ratelimit.RateLimit, provider DynamicRateLimitProvider) HTTPMiddleware {
 	return newRateLimitMiddleware(config, nil, provider).Middleware()
+}
+
+// GRPCRateLimitUnaryInterceptor gRPC 一元限流拦截器
+// 复用与 HTTP 相同的限流配置与限流器实例，使 gRPC 方法路径（如 /pkg.Svc/Method）也能命中 routes 规则
+func GRPCRateLimitUnaryInterceptor(config *ratelimit.RateLimit, limiter RateLimiter) grpc.UnaryServerInterceptor {
+	mw := newRateLimitMiddleware(config, limiter, nil)
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		if !mw.config.Enabled {
+			return handler(ctx, req)
+		}
+		meta := GetRequestCommonMeta(ctx)
+		// gRPC 协议 method 固定为 POST
+		rule, key := mw.resolveRuleAndKey(ctx, info.FullMethod, http.MethodPost, meta.IPAddress, meta.UserID)
+		if rule == nil {
+			return handler(ctx, req)
+		}
+		rl := mw.getLimiter(mw.config.Strategy)
+		if rl == nil {
+			return handler(ctx, req)
+		}
+		allowed, err := rl.Allow(ctx, key, rule)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		if !allowed {
+			global.LOGGER.WarnContext(ctx, "[RateLimit] gRPC 限流触发: method=%s key=%s", info.FullMethod, key)
+			return nil, status.Error(codes.ResourceExhausted, "rate limit exceeded")
+		}
+		return handler(ctx, req)
+	}
+}
+
+// GRPCRateLimitStreamInterceptor gRPC 流式限流拦截器（在流建立时限流一次）
+func GRPCRateLimitStreamInterceptor(config *ratelimit.RateLimit, limiter RateLimiter) grpc.StreamServerInterceptor {
+	mw := newRateLimitMiddleware(config, limiter, nil)
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if !mw.config.Enabled {
+			return handler(srv, ss)
+		}
+		ctx := ss.Context()
+		meta := GetRequestCommonMeta(ctx)
+		rule, key := mw.resolveRuleAndKey(ctx, info.FullMethod, http.MethodPost, meta.IPAddress, meta.UserID)
+		if rule == nil {
+			return handler(srv, ss)
+		}
+		rl := mw.getLimiter(mw.config.Strategy)
+		if rl == nil {
+			return handler(srv, ss)
+		}
+		allowed, err := rl.Allow(ctx, key, rule)
+		if err != nil {
+			return status.Error(codes.Internal, err.Error())
+		}
+		if !allowed {
+			global.LOGGER.WarnContext(ctx, "[RateLimit] gRPC 流式限流触发: method=%s key=%s", info.FullMethod, key)
+			return status.Error(codes.ResourceExhausted, "rate limit exceeded")
+		}
+		return handler(srv, ss)
+	}
 }

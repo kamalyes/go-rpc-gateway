@@ -123,6 +123,11 @@ func (s *Server) initGRPCServer() error {
 			unaryInterceptors = append(unaryInterceptors, tracingInterceptor)
 		}
 
+		// 添加限流拦截器（如果启用，放在校验之前以尽早丢弃过载请求）
+		if rlInterceptor := s.middlewareManager.GRPCRateLimitUnaryInterceptor(); rlInterceptor != nil {
+			unaryInterceptors = append(unaryInterceptors, rlInterceptor)
+		}
+
 		// 添加 struct tag 参数校验拦截器（配合 protoc-go-inject-tag 生效）
 		unaryInterceptors = append(unaryInterceptors, s.middlewareManager.GRPCStructTagValidatorInterceptor())
 
@@ -137,8 +142,14 @@ func (s *Server) initGRPCServer() error {
 		streamInterceptors := []grpc.StreamServerInterceptor{
 			middleware.StreamServerRequestContextInterceptor(), // 1. RequestContext 注入
 			middleware.StreamServerLoggingInterceptor(),        // 2. 日志记录
-			s.middlewareManager.GRPCStructTagValidatorStreamInterceptor(),
 		}
+
+		// 添加限流拦截器（如果启用，放在校验之前以尽早丢弃过载请求）
+		if rlStreamInterceptor := s.middlewareManager.GRPCRateLimitStreamInterceptor(); rlStreamInterceptor != nil {
+			streamInterceptors = append(streamInterceptors, rlStreamInterceptor)
+		}
+
+		streamInterceptors = append(streamInterceptors, s.middlewareManager.GRPCStructTagValidatorStreamInterceptor())
 
 		// 添加 i18n Stream 拦截器（如果启用国际化）
 		if i18nStreamInterceptor := s.middlewareManager.GRPCStreamI18nInterceptor(); i18nStreamInterceptor != nil {
