@@ -23,9 +23,11 @@ import (
 	"github.com/kamalyes/go-config/pkg/logging"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-toolbox/pkg/matcher"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -131,6 +133,45 @@ func (lf *LogFields) AddSlow(duration, threshold time.Duration) *LogFields {
 	return lf
 }
 
+// splitFullMethod 将 gRPC FullMethod（"/pkg.ServiceName/MethodName"）拆分为 service 与 method
+func splitFullMethod(fullMethod string) (service, method string) {
+	// 去掉前导 '/'
+	fullMethod = strings.TrimPrefix(fullMethod, "/")
+	if i := strings.LastIndex(fullMethod, "/"); i >= 0 {
+		return fullMethod[:i], fullMethod[i+1:]
+	}
+	return "", fullMethod
+}
+
+// AddGRPCMeta 添加 gRPC 调用元数据字段（与 go-grpc-middleware/v2 logging 输出对齐）
+// component: "server" 或 "client"；fullMethod: gRPC FullMethod；methodType: "unary" 或 "stream"
+// start: 调用开始时间；peerAddr: 对端地址（空则忽略）
+func (lf *LogFields) AddGRPCMeta(ctx context.Context, component, fullMethod, methodType string, start time.Time, peerAddr string) *LogFields {
+	service, method := splitFullMethod(fullMethod)
+	lf.AddValue(constants.LogFieldGRPCComponent, component).
+		Add(constants.LogFieldGRPCFullMethod, fullMethod).
+		Add(constants.LogFieldGRPCService, service).
+		Add(constants.LogFieldGRPCMethod, method).
+		Add(constants.LogFieldGRPCMethodType, methodType).
+		Add(constants.LogFieldGRPCStartTime, start.Format(time.RFC3339Nano)).
+		Add(constants.LogFieldProtocol, "grpc")
+	if deadline, ok := ctx.Deadline(); ok {
+		lf.Add(constants.LogFieldGRPCRequestDeadline, deadline.Format(time.RFC3339Nano))
+	}
+	if peerAddr != "" {
+		lf.Add(constants.LogFieldPeerAddress, peerAddr)
+	}
+	return lf
+}
+
+// peerFromContext 从上下文提取对端地址
+func peerFromContext(ctx context.Context) string {
+	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
+		return p.Addr.String()
+	}
+	return ""
+}
+
 // Build 构建字段列表
 func (lf *LogFields) Build() []any {
 	return lf.fields
@@ -181,9 +222,11 @@ func isLoggableContentType(config *logging.Logging, contentType string) bool {
 }
 
 // isSkipPath 检查是否为跳过路径
+// skip 项支持 glob 通配符（* 可匹配 /，? 匹配单字符），无通配符时退化为精确匹配
+// 示例："/v1/audit-logs*" 覆盖 "/v1/audit-logs" 与 "/v1/audit-logs/{id}"
 func isSkipPath(config *logging.Logging, path string) bool {
 	for _, skip := range config.SkipPaths {
-		if path == skip {
+		if matcher.MatchPathGlob(path, skip) {
 			return true
 		}
 	}
@@ -221,9 +264,10 @@ func LoggingMiddleware() HTTPMiddleware {
 				return
 			}
 
-			// 捕获请求体
+			// 捕获请求体：运行时日志开启 或 存在访问日志钩子 时读取，避免访问日志 body 受运行时日志开关影响而丢失
+			needCaptureBody := reqConfig.EnableRequest || HasAccessLogHandlers()
 			var reqBody []byte
-			if reqConfig.EnableRequest && r.Body != nil {
+			if needCaptureBody && r.Body != nil {
 				var err error
 				reqBody, err = io.ReadAll(r.Body)
 				if err != nil && global.LOGGER != nil {
@@ -235,9 +279,9 @@ func LoggingMiddleware() HTTPMiddleware {
 				r.Body = io.NopCloser(bytes.NewBuffer(reqBody))
 			}
 
-			// 包装响应
+			// 包装响应：运行时日志开启 或 存在访问日志钩子 时启用响应体捕获
 			wrapped := NewResponseWriter(w)
-			if reqConfig.EnableResponse {
+			if reqConfig.EnableResponse || HasAccessLogHandlers() {
 				wrapped.EnableBodyCapture()
 			}
 			defer wrapped.Release()
@@ -323,7 +367,8 @@ func UnaryServerLoggingInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 		resp, err := handler(ctx, req)
-		logGRPCUnary(ctx, info.FullMethod, req, resp, err, time.Since(start))
+		logGRPCUnaryCommon(ctx, "server", info.FullMethod, "", req, resp, err, time.Since(start), start, peerFromContext(ctx),
+			constants.LogMsgGRPCRequest, constants.LogMsgGRPCRequestError)
 		return resp, err
 	}
 }
@@ -333,13 +378,15 @@ func StreamServerLoggingInterceptor() grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		start := time.Now()
 		err := handler(srv, ss)
-		logGRPCStream(ss.Context(), info, err, time.Since(start))
+		logGRPCStreamCommon(ss.Context(), "server", info.FullMethod, "", info.IsClientStream, info.IsServerStream, err, time.Since(start), start, peerFromContext(ss.Context()),
+			constants.LogMsgGRPCStream, constants.LogMsgGRPCStreamError)
 		return err
 	}
 }
 
-// logGRPCUnary 记录 gRPC 一元调用
-func logGRPCUnary(ctx context.Context, method string, req, resp any, err error, duration time.Duration) {
+// logGRPCUnaryCommon 记录 gRPC 一元调用（服务端/客户端共享）
+// component: "server" 或 "client"；serviceName: 客户端配置的服务名（服务端为空）
+func logGRPCUnaryCommon(ctx context.Context, component, fullMethod, serviceName string, req, resp any, err error, duration time.Duration, start time.Time, peerAddr, successMsg, errMsg string) {
 	if global.LOGGER == nil {
 		return
 	}
@@ -347,15 +394,17 @@ func logGRPCUnary(ctx context.Context, method string, req, resp any, err error, 
 	config := getLoggingConfig()
 	logger := NewRequestLogger(ctx)
 	masker := global.DATAMASKER
-	// 直接复用 config 字段，避免 shouldCaptureRequest/Response 重复读取配置
 	captureReq := config.EnableRequest
 	captureResp := config.EnableResponse
 
 	fields := NewLogFields().
-		Add(constants.LogFieldMethod, method).
-		AddValue(constants.LogFieldDuration, duration.Milliseconds()).
+		AddGRPCMeta(ctx, component, fullMethod, "unary", start, peerAddr).
+		AddValue(constants.LogFieldGRPCTimeMS, duration.Milliseconds()).
 		AddSlow(duration, time.Duration(config.SlowGRPCThreshold)*time.Millisecond).
 		AddRequestContext(ctx)
+	if serviceName != "" {
+		fields.Add(constants.LogFieldService, serviceName)
+	}
 
 	if err != nil {
 		st, _ := status.FromError(err)
@@ -363,7 +412,7 @@ func logGRPCUnary(ctx context.Context, method string, req, resp any, err error, 
 		if captureReq && req != nil {
 			fields.Add(constants.LogFieldRequest, masker.Mask(marshalProto(req)))
 		}
-		logger.Log(constants.LogLevelError, "❌ "+constants.LogMsgGRPCRequestError, fields)
+		logger.Log(constants.LogLevelError, "❌ "+errMsg, fields)
 	} else {
 		fields.Add(constants.LogFieldStatus, "OK")
 		if captureReq && req != nil {
@@ -372,33 +421,37 @@ func logGRPCUnary(ctx context.Context, method string, req, resp any, err error, 
 		if captureResp && resp != nil {
 			fields.Add(constants.LogFieldResponse, masker.Mask(marshalProto(resp)))
 		}
-		logger.Log(constants.LogLevelInfo, "✅ "+constants.LogMsgGRPCRequest, fields)
+		logger.Log(constants.LogLevelInfo, "✅ "+successMsg, fields)
 	}
 }
 
-// logGRPCStream 记录 gRPC 流式调用
-func logGRPCStream(ctx context.Context, info *grpc.StreamServerInfo, err error, duration time.Duration) {
+// logGRPCStreamCommon 记录 gRPC 流式调用（服务端/客户端共享）
+func logGRPCStreamCommon(ctx context.Context, component, fullMethod, serviceName string, isClientStream, isServerStream bool, err error, duration time.Duration, start time.Time, peerAddr, successMsg, errMsg string) {
 	if global.LOGGER == nil {
 		return
 	}
 
 	config := getLoggingConfig()
 	logger := NewRequestLogger(ctx)
+
 	fields := NewLogFields().
-		Add(constants.LogFieldMethod, info.FullMethod).
-		AddValue(constants.LogFieldDuration, duration.Milliseconds()).
-		AddValue(constants.LogFieldClientStream, info.IsClientStream).
-		AddValue(constants.LogFieldServerStream, info.IsServerStream).
+		AddGRPCMeta(ctx, component, fullMethod, "stream", start, peerAddr).
+		AddValue(constants.LogFieldGRPCTimeMS, duration.Milliseconds()).
+		AddValue(constants.LogFieldClientStream, isClientStream).
+		AddValue(constants.LogFieldServerStream, isServerStream).
 		AddSlow(duration, time.Duration(config.SlowStreamThreshold)*time.Millisecond).
 		AddRequestContext(ctx)
+	if serviceName != "" {
+		fields.Add(constants.LogFieldService, serviceName)
+	}
 
 	if err != nil {
 		st, _ := status.FromError(err)
 		fields.Add(constants.LogFieldStatus, st.Code().String()).Add(constants.LogFieldError, st.Message())
-		logger.Log(constants.LogLevelError, "❌ "+constants.LogMsgGRPCStreamError, fields)
+		logger.Log(constants.LogLevelError, "❌ "+errMsg, fields)
 	} else {
 		fields.Add(constants.LogFieldStatus, "OK")
-		logger.Log(constants.LogLevelInfo, "📊 "+constants.LogMsgGRPCStream, fields)
+		logger.Log(constants.LogLevelInfo, "📊 "+successMsg, fields)
 	}
 }
 
@@ -412,7 +465,8 @@ func UnaryClientLoggingInterceptor(serviceName string) grpc.UnaryClientIntercept
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		start := time.Now()
 		err := invoker(ctx, method, req, reply, cc, opts...)
-		logGRPCClientUnary(ctx, serviceName, method, req, reply, err, time.Since(start))
+		logGRPCUnaryCommon(ctx, "client", method, serviceName, req, reply, err, time.Since(start), start, cc.Target(),
+			constants.LogMsgGRPCClientRequest, constants.LogMsgGRPCClientRequestErr)
 		return err
 	}
 }
@@ -424,75 +478,9 @@ func StreamClientLoggingInterceptor(serviceName string) grpc.StreamClientInterce
 	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 		start := time.Now()
 		stream, err := streamer(ctx, desc, cc, method, opts...)
-		logGRPCClientStream(ctx, serviceName, method, desc, err, time.Since(start))
+		logGRPCStreamCommon(ctx, "client", method, serviceName, desc.ClientStreams, desc.ServerStreams, err, time.Since(start), start, cc.Target(),
+			constants.LogMsgGRPCClientStream, constants.LogMsgGRPCClientStreamError)
 		return stream, err
-	}
-}
-
-// logGRPCClientUnary 记录 gRPC 客户端一元调用
-func logGRPCClientUnary(ctx context.Context, serviceName, method string, req, resp any, err error, duration time.Duration) {
-	if global.LOGGER == nil {
-		return
-	}
-
-	config := getLoggingConfig()
-	logger := NewRequestLogger(ctx)
-	masker := global.DATAMASKER
-	// 直接复用 config 字段，避免 shouldCaptureRequest/Response 重复读取配置
-	captureReq := config.EnableRequest
-	captureResp := config.EnableResponse
-
-	fields := NewLogFields().
-		Add(constants.LogFieldService, serviceName).
-		Add(constants.LogFieldMethod, method).
-		AddValue(constants.LogFieldDuration, duration.Milliseconds()).
-		AddSlow(duration, time.Duration(config.SlowGRPCThreshold)*time.Millisecond).
-		AddRequestContext(ctx)
-
-	if err != nil {
-		st, _ := status.FromError(err)
-		fields.Add(constants.LogFieldStatus, st.Code().String()).Add(constants.LogFieldError, st.Message())
-		if captureReq && req != nil {
-			fields.Add(constants.LogFieldRequest, masker.Mask(marshalProto(req)))
-		}
-		logger.Log(constants.LogLevelError, "❌ "+constants.LogMsgGRPCClientRequestErr, fields)
-	} else {
-		fields.Add(constants.LogFieldStatus, "OK")
-		if captureReq && req != nil {
-			fields.Add(constants.LogFieldRequest, masker.Mask(marshalProto(req)))
-		}
-		if captureResp && resp != nil {
-			fields.Add(constants.LogFieldResponse, masker.Mask(marshalProto(resp)))
-		}
-		logger.Log(constants.LogLevelInfo, "✅ "+constants.LogMsgGRPCClientRequest, fields)
-	}
-}
-
-// logGRPCClientStream 记录 gRPC 客户端流式调用
-func logGRPCClientStream(ctx context.Context, serviceName, method string, desc *grpc.StreamDesc, err error, duration time.Duration) {
-	if global.LOGGER == nil {
-		return
-	}
-
-	config := getLoggingConfig()
-	logger := NewRequestLogger(ctx)
-
-	fields := NewLogFields().
-		Add(constants.LogFieldService, serviceName).
-		Add(constants.LogFieldMethod, method).
-		AddValue(constants.LogFieldDuration, duration.Milliseconds()).
-		AddValue(constants.LogFieldClientStream, desc.ClientStreams).
-		AddValue(constants.LogFieldServerStream, desc.ServerStreams).
-		AddSlow(duration, time.Duration(config.SlowStreamThreshold)*time.Millisecond).
-		AddRequestContext(ctx)
-
-	if err != nil {
-		st, _ := status.FromError(err)
-		fields.Add(constants.LogFieldStatus, st.Code().String()).Add(constants.LogFieldError, st.Message())
-		logger.Log(constants.LogLevelError, "❌ "+constants.LogMsgGRPCClientStreamError, fields)
-	} else {
-		fields.Add(constants.LogFieldStatus, "OK")
-		logger.Log(constants.LogLevelInfo, "📊 "+constants.LogMsgGRPCClientStream, fields)
 	}
 }
 

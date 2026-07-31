@@ -125,6 +125,19 @@ const (
 	LogFieldService    = "service"
 )
 
+// gRPC 语义字段（与 go-grpc-middleware/v2 logging 拦截器输出对齐）
+const (
+	LogFieldGRPCComponent       = "grpc_component"        // server / client
+	LogFieldGRPCFullMethod      = "grpc_full_method"      // 完整方法名（如 pkg.ServiceName/MethodName）
+	LogFieldGRPCMethod          = "grpc_method"           // 方法名（如 QueryBalance）
+	LogFieldGRPCMethodType      = "grpc_method_type"      // unary / stream
+	LogFieldGRPCService         = "grpc_service"          // 完整服务名（如 pkg.ServiceName）
+	LogFieldGRPCRequestDeadline = "grpc_request_deadline" // 请求截止时间（RFC3339）
+	LogFieldGRPCStartTime       = "grpc_start_time"       // 调用开始时间（RFC3339）
+	LogFieldGRPCTimeMS          = "grpc_time_ms"          // 调用耗时（毫秒）
+	LogFieldPeerAddress         = "peer_address"          // 对端地址（host:port）
+)
+
 // 日志级别常量
 const (
 	LogLevelInfo  = "info"

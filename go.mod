@@ -10,17 +10,16 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.90.2
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0
-	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-argus v0.3.1
-	github.com/kamalyes/go-config v0.21.8
-	github.com/kamalyes/go-i18n v0.2.4
-	github.com/kamalyes/go-logger v0.5.5
-	github.com/kamalyes/go-natsx v0.1.5
-	github.com/kamalyes/go-swagger v0.1.8
-	github.com/kamalyes/go-toolbox v0.15.6
-	github.com/kamalyes/go-wsc v0.9.9
+	github.com/kamalyes/go-config v0.21.10
+	github.com/kamalyes/go-i18n v0.2.5
+	github.com/kamalyes/go-logger v0.5.6
+	github.com/kamalyes/go-natsx v0.1.7
+	github.com/kamalyes/go-swagger v0.2.0
+	github.com/kamalyes/go-toolbox v0.15.7
+	github.com/kamalyes/go-wsc v0.9.10
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.21.0
@@ -69,6 +68,7 @@ require (
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
+	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3 // indirect
 	github.com/hashicorp/go-version v1.8.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -76,7 +76,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/kamalyes/go-pbmo v0.1.8 // indirect
-	github.com/kamalyes/go-sqlbuilder v0.5.10-0.20260731035252-64c28be0e558
+	github.com/kamalyes/go-sqlbuilder v0.6.0
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
@@ -119,7 +119,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12
-	github.com/kamalyes/go-cachex v0.2.6
+	github.com/kamalyes/go-cachex v0.2.7
 	github.com/klauspost/compress v1.18.6
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
