@@ -4,7 +4,7 @@
 
 ### 新一代企业级微服务网关框架 · 高性能 · 高可用 · 开箱即用
 
-[![Go Version](https://img.shields.io/badge/go-%3E%3D1.23-blue.svg)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/go-%3E%3D1.25-blue.svg)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 [![Go Report Card](https://img.shields.io/badge/go%20report-A+-brightgreen.svg)]()
@@ -40,8 +40,8 @@ flowchart TB
     
     subgraph Gateway["🚀 Gateway 网关层"]
         direction TB
-        Builder["GatewayBuilder\n链式构建"]
-        Core["Gateway Core\ngateway.go"]
+        Builder["GatewayBuilder 链式构建"]
+        Core["Gateway Core gateway.go"]
         Builder -.构建.-> Core
     end
     
@@ -52,14 +52,14 @@ flowchart TB
         direction TB
         
         subgraph Protocol["协议处理"]
-            GRPC["gRPC Server\n:9090"]
-            HTTP["HTTP Server\n:8080"]
-            WS["WebSocket\n可选"]
+            GRPC["gRPC Server :9090"]
+            HTTP["HTTP Server :8080"]
+            WS["WebSocket 可选"]
         end
         
         subgraph Router["路由注册"]
-            RPCReg["RPC 路由\nRegisterAllGRPCServices"]
-            HTTPReg["HTTP 路由\nRegisterHTTPRoute"]
+            RPCReg["RPC 路由 RegisterAllGRPCServices"]
+            HTTPReg["HTTP 路由 RegisterHTTPRoute"]
             GWMux["gRPC-Gateway Mux"]
             HTTPMux["HTTP Mux"]
         end
@@ -73,13 +73,13 @@ flowchart TB
     %% 中间件层
     Server --> MW
     
-    subgraph MW["🔧 Middleware 中间件层\n✨ 可配置选择"]
+    subgraph MW["🔧 Middleware 中间件层 ✨ 可配置选择"]
         direction TB
         MWManager["MiddlewareManager"]
         
         subgraph ModeSelect["模式选择"]
-            DevMode["Development 模式\nGetDevelopmentMiddlewares"]
-            ProdMode["Production 模式\nGetDefaultMiddlewares"]
+            DevMode["Development 模式"]
+            ProdMode["Production 模式"]
         end
         
         subgraph Core_MW["核心中间件"]
@@ -130,12 +130,12 @@ flowchart TB
     
     subgraph Init["📊 初始化系统"]
         direction TB
-        Chain["InitializerChain\n优先级管理"]
+        Chain["InitializerChain 优先级管理"]
         
-        L1["① Logger\nP:1"]
-        L2["② Context\nP:2"]
-        L3["③ Snowflake\nP:5"]
-        L4["④ PoolManager\nP:10"]
+        L1["① Logger P:1"]
+        L2["② Context P:2"]
+        L3["③ Snowflake P:5"]
+        L4["④ PoolManager P:10"]
         
         Chain --> L1 --> L2 --> L3 --> L4
     end
@@ -148,10 +148,10 @@ flowchart TB
         PManager["PoolManager"]
         
         subgraph Pools["连接池"]
-            DB_Pool["Database\nGORM"]
-            Redis_Pool["Redis\ngo-redis"]
-            MinIO_Pool["MinIO\nS3"]
-            MQTT_Pool["MQTT\n可选"]
+            DB_Pool["Database GORM"]
+            Redis_Pool["Redis go-redis"]
+            MinIO_Pool["MinIO S3"]
+            MQTT_Pool["MQTT 可选"]
         end
         
         PManager --> Pools
@@ -164,7 +164,7 @@ flowchart TB
         direction TB
         CManager["ConfigManager"]
         GWConfig["Gateway Config"]
-        HotReload["Hot Reload\n可选"]
+        HotReload["Hot Reload 可选"]
         
         CManager --> GWConfig
         CManager -.监听.-> HotReload
@@ -189,10 +189,10 @@ flowchart TB
     
     subgraph External["💾 外部系统"]
         direction LR
-        Database[("MySQL\nPostgreSQL")]
-        Cache[("Redis\nCluster")]
-        Storage[("MinIO\nS3")]
-        Queue[("MQTT\nKafka")]
+        Database[("MySQL PostgreSQL")]
+        Cache[("Redis Cluster")]
+        Storage[("MinIO S3")]
+        Queue[("MQTT Kafka")]
     end
     
     %% 样式定义

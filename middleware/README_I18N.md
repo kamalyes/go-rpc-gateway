@@ -97,7 +97,7 @@ func userHandler(w http.ResponseWriter, r *http.Request) {
     // 信息消息
     infoMsg := middleware.GetMsgWithMap(r.Context(), "user.info", userData)
     
-    fmt.Fprintf(w, "Create: %s\nInfo: %s", createMsg, infoMsg)
+    fmt.Fprintf(w, "Create: %s Info: %s", createMsg, infoMsg)
 }
 ```
 
@@ -131,21 +131,35 @@ func switchLanguageHandler(w http.ResponseWriter, r *http.Request) {
 
 ## 中间件配置
 
+i18n 中间件基于 `go-config` 的 `gci18n.I18N` 配置与 `go-i18n` 的 `Manager`。先创建 Manager，再构造中间件：
+
 ```go
-config := &middleware.I18nConfig{
-    DefaultLanguage:    "en",                                    // 默认语言
-    SupportedLanguages: []string{"en", "zh", "ja"},             // 支持的语言
-    DetectionOrder:     []string{"query", "header", "cookie", "default"}, // 检测顺序
-    LanguageParam:      "lang",                                  // 查询参数和Cookie名
-    LanguageHeader:     constants.HeaderAcceptLanguage,         // HTTP头名
-    MessagesPath:       "./locales",                            // 消息文件路径
-    EnableFallback:     true,                                   // 启用回退机制
+import (
+    gci18n "github.com/kamalyes/go-config/pkg/i18n"
+    "github.com/kamalyes/go-rpc-gateway/middleware"
+)
+
+// cfg.Middleware.I18N 为 *gci18n.I18N 类型，字段包括：
+//   DefaultLanguage  默认语言
+//   LanguageHeader   语言检测头名（如 Accept-Language）
+//   LanguageParam    查询参数与 Cookie 名（如 lang）
+//   CookieName       Cookie 名（为空时回退到 LanguageParam）
+//   DetectionOrder   检测顺序（header / query / cookie / default）
+//   ParseAcceptLanguage / ResolveLanguage 语言解析方法
+manager, err := middleware.NewI18nManager(cfg.Middleware.I18N)
+if err != nil {
+    // ...
 }
 
-// 应用中间件
-i18nMiddleware := middleware.I18nWithConfig(config)
+// 构造 HTTP 中间件（返回 MiddlewareFunc）
+i18nMiddleware := middleware.I18nWithManager(manager)
+// 或使用默认配置（panic if init failed）：
+// i18nMiddleware := middleware.I18n()
+
 mux.Handle("/api", i18nMiddleware(http.HandlerFunc(handler)))
 ```
+
+> 由 `Manager.I18nMiddleware()` 暴露：启用时使用 `NewManager` 中创建的 `i18nManager`，未启用时直通。gRPC 拦截器为 `UnaryServerI18nInterceptor(manager)` 与 `StreamServerI18nInterceptor(manager)`。
 
 ## 语言检测优先级
 

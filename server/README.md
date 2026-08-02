@@ -7,12 +7,18 @@
 ```bash
 server/
 ├── server.go           # 主要的Server结构定义和构造函数
-├── core.go            # 核心组件初始化（数据库、Redis、日志等）
+├── core.go            # 核心组件初始化（PoolManager、EndpointCollector）
 ├── grpc.go            # gRPC服务器初始化和启动逻辑
 ├── http.go            # HTTP服务器和网关初始化逻辑
 ├── middleware_init.go # 中间件管理器初始化
 ├── lifecycle.go       # 服务器生命周期管理（启动、停止等）
-├── banner.go          # 启动横幅显示
+├── reload.go          # 配置热重载（ApplyConfig、ReloadHTTPGateway 等）
+├── banner.go          # BannerManager 横幅显示
+├── startup.go         # 启动展示统一模型与渲染入口
+├── swagger.go         # Swagger 文档服务启用
+├── swagger_embed.go   # Swagger 文件嵌入与端点解析
+├── wsc.go             # WebSocket 服务（go-wsc 薄封装）
+├── endpoint_utils.go  # API 端点信息聚合工具
 └── README.md          # 本文件
 ```
 
@@ -21,17 +27,14 @@ server/
 ### server.go
 
 - `Server` 结构体定义
-- 构造函数 `NewServer` 和 `NewServerWithConfigManager`
-- 基本的公共方法如 `GetConfig`、`RegisterGRPCService` 等
+- 构造函数 `NewServer()`（使用全局 `global.GATEWAY` 配置）
+- 访问器方法：`GetConfig`、`GetMiddlewareManager`、`GetBannerManager`、`GetPoolManager`、`GetWebSocketService`、`GetEndpointCollector`、`GetDataMasker`、`GetGRPCServer`、`GetEndpoint`、`GetGatewayMux`、`GetContext`、`GetDialOptions`
+- 注册方法：`RegisterGRPCService`、`AddGrpcGatewayMiddleware`、`AddGrpcGatewayMiddlewareProvider`
 
 ### core.go
 
 - 核心组件初始化：`initCore()`
-- 数据库初始化：`initDatabase()`
-- Redis初始化：`initRedis()`
-- 日志初始化：`initLogger()`
-- 其他企业级组件初始化
-- 配置热重载回调：`onConfigChanged()`
+- 绑定全局 `PoolManager`、初始化 `EndpointCollector`
 
 ### grpc.go
 
@@ -42,15 +45,19 @@ server/
 ### http.go
 
 - HTTP网关初始化：`initHTTPGateway()`
+- HTTP网关重建：`RebuildHTTPGateway()`
 - HTTP服务器启动：`startHTTPServer()`
 - HTTP服务器停止：`stopHTTPServer()`
 - 健康检查处理器：`healthCheckHandler()`
-- HTTP路由注册：`RegisterHTTPRoute()`、`RegisterHTTPHandler()`
+- HTTP路由注册：`RegisterHTTPRoute()`、`RegisterHTTPHandlerFunc()`
+- 命名监听器：`initNamedListeners()`、`startNamedListeners()`、`stopNamedListeners()`
 
 ### middleware_init.go
 
 - 中间件管理器初始化：`initMiddleware()`
+- 健康检查管理器初始化：`initHealthManager()`
 - 服务器组件初始化：`initServers()`
+- 扩展指标采集注入：`injectMetricsCollectors()`
 
 ### lifecycle.go
 
@@ -60,13 +67,58 @@ server/
 - 优雅关闭：`Shutdown()`
 - 状态检查：`IsRunning()`
 - 等待运行：`Wait()`
+- 等待关闭信号：`WaitForShutdown()`
+- 一键启动：`Run()`
+
+### reload.go
+
+- 更新内存配置：`ApplyConfig(cfg)`
+- 重建 HTTP 网关：`ReloadHTTPGateway(cfg, replay)`
+- 重建 gRPC 服务器：`ReloadGRPCServer(cfg, registrars)`
+- 重建 PProf 服务器：`ReloadPProfServer(cfg)`
 
 ### banner.go
 
-- 启动横幅显示：`showBanner()`
-- 版本信息显示
-- 启动时间记录
-- 美化的控制台输出
+- `BannerManager` 结构体定义
+- 创建横幅管理器：`NewBannerManager(config)`
+- 链式设置上下文：`WithContext(ctx)`
+- 添加功能特性：`AddFeature(feature)`
+- 关闭横幅：`PrintShutdownBanner()`、`PrintShutdownComplete()`
+
+### startup.go
+
+- 启动展示统一模型（`startupReport` 等）
+- 启动前检查：`PrintStartupChecks()`
+- 启动成功报告：`PrintStartupReport()`
+
+### swagger.go
+
+- 启用 Swagger 文档服务：`EnableSwagger()`
+
+### swagger_embed.go
+
+- `SwaggerFileProvider` 接口
+- `EmbeddedSwaggerProvider` 嵌入式文件提供器
+- `NewEmbeddedSwaggerProvider(files)`
+
+### wsc.go
+
+- `WebSocketService` 结构体（go-wsc Hub 薄封装）
+- 创建服务：`NewWebSocketService(cfg)`
+- 生命周期：`Start()`、`Stop()`、`IsRunning()`
+- 访问器：`GetHub()`、`GetConfig()`
+- 消息发送：`SendToUserWithRetry(ctx, userID, msg)`
+- 回调注册：`OnClientConnect`、`OnClientDisconnect`、`OnMessageReceived`、`OnError`、`OnHeartbeatTimeout` 等
+
+### endpoint_utils.go
+
+- `EndpointCollector` 端点收集器
+- `EndpointInfo` 端点信息结构
+- 创建收集器：`NewEndpointCollector()`
+- 端点操作：`AddEndpoint`、`GetAllEndpoints`、`Clear`
+- Swagger 加载：`LoadEndpointsFromSwaggerFile`、`LoadEndpointsFromSwaggerFiles`、`CollectFromSwagger`
+- 输出：`ToJSON()`、`CreateHTTPHandler()`
+- 工具函数：`GenerateEndpointInfo(method, path, summary, operationID, tags)`
 
 ## 重构收益
 
@@ -79,8 +131,8 @@ server/
 ## 使用示例
 
 ```go
-// 创建服务器
-server, err := NewServer(config)
+// 创建服务器（使用全局 global.GATEWAY 配置）
+server, err := NewServer()
 if err != nil {
     log.Fatal(err)
 }

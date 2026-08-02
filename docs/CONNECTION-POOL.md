@@ -13,14 +13,13 @@ flowchart TD
     CFG["Gateway 配置"] --> MGR["PoolManager, cpool.Manager"]
 
     subgraph POOLS["连接池（按配置启用）"]
-        DB["Database, MySQL / PostgreSQL / SQLite"]
+        DB["Database, MySQL / PostgreSQL / SQLite / CockroachDB"]
         REDIS["Redis, go-redis"]
-        OSS["Object Storage, S3 / MinIO / 阿里云 OSS"]
+        OSS["Object Storage, S3 / MinIO / BoltDB"]
         CH["ClickHouse, 时序数据库"]
         NATS["NATS / JetStream, 消息队列"]
         MQTT["MQTT, IoT 消息"]
         SMTP["SMTP, 邮件发送"]
-        JWT["JWT, 签发与验证"]
     end
 
     MGR --> POOLS
@@ -61,6 +60,7 @@ flowchart TD
 ```go
 type PoolManager interface {
     Initialize(ctx context.Context, cfg *gwconfig.Gateway) error
+
     GetDB() *gorm.DB
     GetRedis() *redis.Client
     GetCache() cachex.CtxCache
@@ -69,10 +69,22 @@ type PoolManager interface {
     GetMQTT() mqtt.Client
     GetSnowflake() *snowflake.Node
     GetSMTP() smtp.MailHandler
-    GetClickHouse() clickhouse.Conn
+    GetClickHouse() *gorm.DB
     GetNats() *natsclient.NatsConn
     GetNatsX() *natsx.Client
+    GetI18n() interface{}
+
     SetDB(db *gorm.DB)
+    SetRedis(rdb *redis.Client)
+    SetCache(cache cachex.CtxCache)
+    SetMinIO(minio *minio.Client)
+    SetMQTT(mqtt mqtt.Client)
+    SetSnowflake(node *snowflake.Node)
+    SetSMTP(smtp smtp.MailHandler)
+    SetClickHouse(conn *gorm.DB)
+    SetNats(conn *natsclient.NatsConn)
+    SetI18n(i18n interface{})
+
     Close() error
     HealthCheck() map[string]bool
 }
@@ -107,17 +119,17 @@ smtp:
   enabled: true
 ```
 
-## 数据库 — MySQL / PostgreSQL / SQLite
+## 数据库 — MySQL / PostgreSQL / SQLite / CockroachDB
 
 > 源码：[cpool/database/client.go](../cpool/database/client.go)
 
-支持三种数据库驱动：
+支持四种数据库驱动，由 `database.Gorm` 根据配置 `type` 字段分发，对应工厂函数 `GormMySQL`、`GormPostgreSQL`、`GormSQLite`、`GormCockroachDB`（CockroachDB 兼容 PostgreSQL 协议）：
 
 ```yaml
 database:
   enabled: true
   db-name: mydb
-  driver: "mysql"          # mysql | postgres | sqlite
+  type: "mysql"            # mysql | postgres | sqlite | cockroachdb
   host: "127.0.0.1"
   port: 3306
   username: root
@@ -156,13 +168,14 @@ rdb.Set(ctx, "key", "value", 10*time.Minute)
 val, err := rdb.Get(ctx, "key").Result()
 ```
 
-## 对象存储 — S3 / MinIO / 阿里云 OSS
+## 对象存储 — S3 / MinIO / BoltDB
 
-> 源码：[cpool/oss/storage.go](../cpool/oss/storage.go)
+> 源码：[cpool/oss/storage.go](../cpool/oss/storage.go)、[cpool/oss/minio.go](../cpool/oss/minio.go)、[cpool/oss/boltdb.go](../cpool/oss/boltdb.go)
 
 ```yaml
 oss:
   enabled: true
+  type: "minio"            # minio | s3 | boltdb
   endpoint: "minio:9000"
   access-key: "minioadmin"
   secret-key: "minioadmin"
@@ -177,10 +190,10 @@ minioClient := gwglobal.GetMinIO()
 
 // 或使用 StorageHandler 统一接口
 storage := gwglobal.GetPoolManager().GetStorage()
-info, err := storage.Upload(ctx, bucket, key, reader, size)
+info, err := storage.PutObject(ctx, bucket, key, reader, size, "application/octet-stream")
 ```
 
-StorageHandler 统一接口支持 S3/MinIO/阿里云 OSS，屏蔽底层差异。
+`StorageHandler` 统一接口屏蔽 S3 / MinIO / BoltDB 底层差异，由 `oss.NewStorage` 根据配置 `type` 创建对应实现（`MinIOStorage`、`S3Storage`、`BoltDBStorage`）。主要方法包括 Bucket 操作（`ListBuckets`、`BucketExists`、`CreateBucket`、`DeleteBucket`）、Object 操作（`ListObjects`、`GetObject`、`GetObjectBlob`、`PutObject`、`DeleteObject`）、预签名 URL（`GetPresignedDownloadURL`、`GetPresignedUploadURL`）和 `Close`。
 
 ## ClickHouse
 
@@ -195,14 +208,13 @@ tsdb:
   password: ""
 ```
 
-获取连接：
+获取连接（返回 `*gorm.DB`，由 `NewClickHouseDB` 创建，内部基于 gorm clickhouse 驱动，并复用 `cpool/database` 的 `GormLogger` 统一 SQL 日志）：
 
 ```go
-chConn := gwglobal.GetClickHouse()
-rows, err := chConn.Query(ctx, "SELECT * FROM events LIMIT 10")
+chDB := gwglobal.GetClickHouse()
+rows, err := chDB.Raw("SELECT * FROM events LIMIT 10").Rows()
+defer rows.Close()
 ```
-
-支持原生 ClickHouse 连接和标准 database/sql 接口两种模式。
 
 ## NATS / JetStream
 
@@ -221,21 +233,21 @@ queue:
 natsConn := gwglobal.GetNats()
 natsConn.Conn.Publish("subject", data)
 
-// 使用 JetStream
+// 使用 JetStream（需配置 jetstream-enabled）
 js := natsConn.JetStream
-js.Publish(ctx, "subject", data)
+js.Publish("subject", data)
 
-// 使用 go-natsx 易用性封装
+// 使用 go-natsx 易用性封装（推荐，提供泛型发布/订阅、批量流式消费、WorkerPool）
 natsxClient := gwglobal.GetNatsX()
-natsxClient.Publish("subject", msg)
 ```
 
-NatsConn 封装结构：
+`NatsConn` 封装结构（由 `NewNats` 创建，将底层连接、JetStream 上下文与 go-natsx 客户端绑定在一起）：
 
 ```go
 type NatsConn struct {
-    Conn      *nats.Conn            // NATS 底层连接
-    JetStream nats.JetStreamContext // JetStream 上下文
+    Conn      *nats.Conn            // NATS 底层连接实例
+    JetStream nats.JetStreamContext // JetStream 上下文（启用 JetStream 时非 nil）
+    Client    *natsx.Client         // go-natsx 易用性封装客户端（启用时非 nil）
 }
 ```
 
@@ -290,53 +302,7 @@ type MailHandler interface {
 }
 ```
 
-## JWT 签发与验证
-
-> 源码：[cpool/jwt/jwt.go](../cpool/jwt/jwt.go)、[cpool/jwt/model.go](../cpool/jwt/model.go)
-
-```go
-// 创建 JWT 实例
-j := jwt.NewJWT()
-
-// 设置签名密钥
-jwt.SetJWTSignKey("your-secret-key")
-
-// 生成 Token
-claims := jwt.CustomClaims{
-    UserId:      "user-123",
-    UserName:    "john",
-    AuthorityId: "admin",
-    RegisteredClaims: jwt.RegisteredClaims{
-        ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-    },
-}
-token, err := j.GenerateToken(claims)
-
-// 解析 Token
-parsedClaims, err := j.ParseToken(tokenString)
-```
-
-CustomClaims 模型：
-
-> 源码：[cpool/jwt/model.go:CustomClaims](../cpool/jwt/model.go#L33)
-
-```go
-type CustomClaims struct {
-    TokenId      string `json:"tokenId"`
-    UserId       string `json:"userId"`
-    UserName     string `json:"userName"`
-    UserType     string `json:"userType"`
-    NickName     string `json:"nickName"`
-    PhoneNumber  string `json:"phoneNumber"`
-    AuthorityId  string `json:"authorityId"`
-    MerchantNo   string `json:"merchantNo"`
-    PlatformType int32  `json:"platformType"`
-    AppProductId int32  `json:"appProductId"`
-    Extend       string `json:"extend"`
-    BufferTime   int64  `json:"bufferTime"`
-    jwt.RegisteredClaims
-}
-```
+`SmtpClient` 是 `MailHandler` 的实现，由 `NewSmtpClient(cfg *smtpconfig.Smtp, log logger.ILogger) (*SmtpClient, error)` 创建。
 
 ## 健康检查
 
@@ -346,10 +312,13 @@ status := manager.HealthCheck()
 //     "database":    true,
 //     "redis":       true,
 //     "minio":       false,
+//     "mqtt":        true,
 //     "clickhouse":  true,
 //     "nats":        true,
 // }
 ```
+
+仅已初始化（非 nil）的连接才会出现在返回 map 中。
 
 ## 关闭所有连接
 

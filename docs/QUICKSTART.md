@@ -33,7 +33,7 @@ func main() {
 }
 ```
 
-> 源码参考：[gateway.go:NewGateway()](../gateway.go#L95)
+> 源码参考：[gateway.go:NewGateway()](../gateway.go#L119)
 
 ## 配置文件
 
@@ -228,7 +228,7 @@ flowchart TD
     style RUN_LIFE fill:#e8f5e9
 ```
 
-> 源码参考：[initializer.go:GetDefaultInitializerChain()](../global/initializer.go#L310)
+> 源码参考：[initializer.go:GetDefaultInitializerChain()](../global/initializer.go#L388)
 
 ## 下一步
 

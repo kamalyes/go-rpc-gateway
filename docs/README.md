@@ -90,6 +90,7 @@ go-rpc-gateway/
 │   ├── types.go            # 类型定义与责任链
 │   ├── recovery.go         # Panic 恢复
 │   ├── logging.go          # 统一日志
+│   ├── accesslog.go        # 访问日志
 │   ├── security.go         # CORS / CSP / CSRF
 │   ├── ratelimit.go        # 多策略限流
 │   ├── breaker.go          # 熔断器
@@ -102,10 +103,7 @@ go-rpc-gateway/
 │   ├── i18n.go             # 国际化
 │   ├── health.go           # 健康检查
 │   ├── pprof.go            # 性能分析
-│   ├── pb_validation.go    # PB 参数验证
-│   ├── pb_converter.go     # PB ↔ GORM Model 转换
 │   ├── struct_tag_validator.go  # struct tag gRPC 校验
-│   ├── grpc_interceptors.go     # gRPC 拦截器管理器
 │   ├── request_context.go  # 请求上下文传递
 │   ├── response_writer.go  # 统一 ResponseWriter
 │   ├── path_normalizer.go  # 智能路径规范化
@@ -116,10 +114,12 @@ go-rpc-gateway/
     ├── database/client.go  # 数据库（MySQL/PostgreSQL/SQLite）
     ├── redis/redis.go      # Redis
     ├── oss/storage.go      # 对象存储（S3/MinIO/阿里云 OSS）
+    ├── oss/minio.go        # MinIO 客户端
+    ├── oss/boltdb.go       # BoltDB 嵌入式存储
     ├── grpc/client.go      # gRPC 客户端
     ├── grpc/health.go      # 健康检查与 ServiceGuard
-    ├── jwt/jwt.go          # JWT 签发与验证
-    ├── jwt/model.go        # CustomClaims 模型
+    ├── grpc/auto_register.go # 自动注册与动态 handler
+    ├── grpc/compression.go # gRPC 压缩
     ├── clickhouse/client.go # ClickHouse
     ├── nats/client.go      # NATS / JetStream
     ├── mqtt/mqtt.go        # MQTT

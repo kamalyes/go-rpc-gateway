@@ -45,6 +45,7 @@ whitelist := middleware.NewWhitelistManager()
 whitelist.Register(common.HealthCheck())
 whitelist.Register(common.Metrics())
 whitelist.Register(common.Swagger())
+whitelist.Register(common.Pprof())
 whitelist.Register(common.StaticFiles("/static/"))
 whitelist.Register(common.PublicAPI("/api/v1/public/"))
 ```
@@ -101,7 +102,7 @@ middleware.NewRuleBuilder(whitelist).
 ```go
 middleware.NewRuleBuilder(whitelist).
     AddPathPrefixWithPriority("/admin/", "管理后台", 1).  // 最高优先级
-    AddPathPrefix("/api/", "API 接口", 50).
+    AddPathPrefixWithPriority("/api/", "API 接口", 50).
     Build()
 ```
 
@@ -112,6 +113,16 @@ middleware.NewRuleBuilder(whitelist).
 ```go
 AddPathPrefix("/test/", "测试页面")
 // 匹配: /test/foo, /test/bar/baz
+
+AddPathPrefixWithMethods("/api/", []string{"GET", "POST"}, "API 读写")
+// 匹配: GET /api/foo, POST /api/bar（仅限指定方法）
+```
+
+### PathGlobRule - 路径 Glob 通配符匹配
+
+```go
+AddPathGlob("/api/v*/users/*", []string{"GET"}, "用户 API 通配")
+// 匹配: GET /api/v1/users/123, GET /api/v2/users/456
 ```
 
 ### ExactPathRule - 精确路径匹配
@@ -207,12 +218,13 @@ func (h gruntime.HandlerFunc) gruntime.HandlerFunc {
 ### 动态添加规则
 
 ```go
-// 在运行时添加新规则
-middleware.RegisterAuthWhitelistRule(&gwmiddleware.PathPrefixRule{
-    Prefix:      "/new-endpoint/",
-    Description: "新增端点",
-    Priority:    100,
-})
+// 在运行时通过 Builder 向默认管理器添加新规则
+middleware.NewRuleBuilder(middleware.DefaultWhitelistManager()).
+    AddPathPrefix("/new-endpoint/", "新增端点").
+    Build()
+
+// 也可注册预设规则到默认管理器
+middleware.RegisterWhitelistRule(middleware.CommonRules{}.Pprof())
 ```
 
 ## 调试和查看规则
@@ -221,7 +233,7 @@ middleware.RegisterAuthWhitelistRule(&gwmiddleware.PathPrefixRule{
 // 获取所有规则
 rules := whitelist.GetRules()
 for _, rule := range rules {
-    fmt.Printf("规则: %s (优先级: %d)\n", 
+    fmt.Printf("规则: %s (优先级: %d) ", 
         rule.Description(), rule.Priority())
 }
 
@@ -244,12 +256,16 @@ whitelist.Clear()
 - `NewWhitelistManager()` - 创建管理器
 - `Register(rule)` - 注册规则
 - `IsWhitelisted(method, path)` - 检查是否在白名单
+- `IsWhitelistedWithIP(method, path, clientIP)` - 检查是否在白名单（含 IP 规则）
 - `GetRules()` - 获取所有规则
 - `Clear()` - 清空规则
 
 ### RuleBuilder
 
 - `AddPathPrefix(prefix, desc)` - 添加前缀规则
+- `AddPathPrefixWithPriority(prefix, desc, priority)` - 添加前缀规则（指定优先级）
+- `AddPathPrefixWithMethods(prefix, methods, desc)` - 添加前缀规则（指定 HTTP 方法）
+- `AddPathGlob(pattern, methods, desc)` - 添加 Glob 通配符规则
 - `AddExactPath(method, path, desc)` - 添加精确路径
 - `AddPathSuffix(suffix, desc)` - 添加后缀规则
 - `AddRegex(pattern, desc)` - 添加正则规则
@@ -264,5 +280,6 @@ whitelist.Clear()
 - `DefaultWhitelistManager()` - 获取默认管理器
 - `RegisterWhitelistRule(rule)` - 注册到默认管理器
 - `IsWhitelisted(method, path)` - 使用默认管理器检查
-- `IsWhitelistedWithIP(method, path, ip)` - 检查（含 IP）
-- `GetClientIP(r)` - 从 HTTP 请求提取客户端 IP
+- `IsWhitelistedWithIP(method, path, clientIP)` - 检查（含 IP）
+
+> 客户端 IP 提取请使用 `github.com/kamalyes/go-toolbox/pkg/netx` 的 `netx.GetClientIP(r)`，支持 `X-Forwarded-For`、`X-Real-IP`、`RemoteAddr` 等多种来源。

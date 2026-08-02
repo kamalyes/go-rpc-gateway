@@ -148,6 +148,50 @@ grpcStatus := appErr.GetStatusCode()  // Unauthenticated
 result := appErr.ToResult()
 ```
 
+## 🌐 业务错误码与国际化
+
+`biz.go` 提供业务错误码到 gRPC 状态码的可注册映射及 i18n 消息解析，适用于微服务场景。
+
+### 注册与查找
+
+```go
+// bootstrap 阶段批量注册业务错误码 → gRPC codes 映射
+errors.RegisterBizCodeMap(map[string]codes.Code{
+    "user_not_found": codes.NotFound,
+})
+
+// 注册单个映射
+errors.RegisterBizCode("payment_failed", codes.Internal)
+
+// 运行时查找：精确匹配 → _not_found 后缀 → 兜底 Internal
+grpcCode := errors.MapBizCodeToGRPCCode("user_not_found") // codes.NotFound
+```
+
+### 转换为 gRPC 错误
+
+> 注意：包级函数 `errors.ToGRPCError(ctx, bizCode)` 与 `AppError.ToGRPCError()` 方法不同。
+
+```go
+// 通过 i18n 键获取消息并构建 gRPC 错误
+err := errors.ToGRPCError(ctx, "user_not_found")
+
+// 支持模板变量替换
+err := errors.ToGRPCErrorWithTemplate(ctx, "error.hello", map[string]interface{}{
+    "name": "张三",
+})
+```
+
+### i18n 消息与错误串解析
+
+```go
+// 获取国际化消息（翻译失败返回 bizCode 本身）
+msg := errors.NewI18nError(ctx, "user_not_found")
+msg := errors.NewI18nErrorWithTemplate(ctx, "error.hello", map[string]interface{}{"name": "张三"})
+
+// 从 gRPC 错误串中提取 JSON 内的 msg 字段；非 JSON 返回原串
+msg := errors.ExtractRpcErrorMsg(rpcErr.Error())
+```
+
 ## 🌍 添加新错误类型
 
 ### 1. 在 `code.go` 中添加错误码

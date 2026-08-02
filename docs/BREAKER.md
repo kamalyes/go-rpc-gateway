@@ -2,9 +2,9 @@
 
 ## 概述
 
-`breaker` 包提供独立的熔断器实现，包含核心断路器逻辑、多实例管理器和 HTTP 中间件。配置管理下沉到 `go-config`，核心业务逻辑由此模块维护。
+`middleware` 包提供独立的熔断器实现，包含核心断路器逻辑、多实例管理器和 HTTP 中间件。配置管理下沉到 `go-config`（`breakerconfig.CircuitBreaker`），核心业务逻辑由此模块维护。
 
-> 源码目录：[breaker/](../breaker/)
+> 源码：[middleware/breaker.go](../middleware/breaker.go)
 
 ## 状态机
 
@@ -20,20 +20,22 @@ stateDiagram-v2
     HalfOpen --> Open : 任一请求失败
 ```
 
-| 状态 | 行为 |
-|------|------|
-| `Closed` | 正常工作，允许所有请求，累计失败数 |
-| `Open` | 拒绝所有请求，等待超时后转为 HalfOpen |
-| `HalfOpen` | 允许部分请求，成功数达到阈值则转 Closed，任一失败则转 Open |
+| 状态 | 常量 | 行为 |
+|------|------|------|
+| `BreakerClosed` | `"closed"` | 正常工作，允许所有请求，累计失败数 |
+| `BreakerOpen` | `"open"` | 拒绝所有请求，等待超时后转为 HalfOpen |
+| `BreakerHalfOpen` | `"half_open"` | 允许部分请求，成功数达到阈值则转 Closed，任一失败则转 Open |
+
+`BreakerState` 类型定义为 `type BreakerState string`，上述三个常量为其可选值。
 
 ## Breaker — 核心断路器
 
-> 源码：[breaker/breaker.go:Breaker](../breaker/breaker.go#L34)
+> 源码：[middleware/breaker.go:Breaker](../middleware/breaker.go#L37)
 
 ```go
 type Breaker struct {
     mu                sync.RWMutex
-    state             State
+    state             BreakerState
     failureThreshold  int           // 失败阈值
     successThreshold  int           // 半开→关闭的成功阈值
     timeout           time.Duration // Open→HalfOpen 超时
@@ -50,10 +52,10 @@ type Breaker struct {
 
 ### 创建
 
-> 源码：[breaker.go:New()](../breaker/breaker.go#L49)
+> 源码：[breaker.go:NewBreaker()](../middleware/breaker.go#L54)
 
 ```go
-breaker := breaker.New(
+breaker := middleware.NewBreaker(
     5,                // failureThreshold: 连续 5 次失败触发熔断
     3,                // successThreshold: 半开状态连续 3 次成功恢复
     10,               // volumeThreshold: 至少 10 次请求才开始计算
@@ -65,17 +67,34 @@ breaker := breaker.New(
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `Allow() bool` | 检查是否允许请求通过 | [breaker.go:L61](../breaker/breaker.go#L61) |
-| `RecordSuccess()` | 记录成功 | [breaker.go:L80](../breaker/breaker.go#L80) |
-| `RecordFailure()` | 记录失败 | [breaker.go:L97](../breaker/breaker.go#L97) |
-| `GetState() State` | 获取当前状态 | [breaker.go:L131](../breaker/breaker.go#L131) |
-| `GetStats() map[string]any` | 获取统计信息 | [breaker.go:L137](../breaker/breaker.go#L137) |
-| `Reset()` | 重置断路器 | [breaker.go:L168](../breaker/breaker.go#L168) |
+| `Allow() bool` | 检查是否允许请求通过 | [breaker.go:L67](../middleware/breaker.go#L67) |
+| `RecordSuccess()` | 记录成功 | [breaker.go:L96](../middleware/breaker.go#L96) |
+| `RecordFailure()` | 记录失败 | [breaker.go:L113](../middleware/breaker.go#L113) |
+| `GetState() BreakerState` | 获取当前状态 | [breaker.go:L162](../middleware/breaker.go#L162) |
+| `GetStats() BreakerSnapshot` | 获取统计信息（等价于 `Snapshot()`） | [breaker.go:L169](../middleware/breaker.go#L169) |
+| `Snapshot() BreakerSnapshot` | 获取强类型快照（用于指标采集） | [breaker.go:L183](../middleware/breaker.go#L183) |
+| `Reset()` | 重置断路器 | [breaker.go:L196](../middleware/breaker.go#L196) |
+
+### BreakerSnapshot — 强类型快照
+
+> 源码：[middleware/breaker.go:BreakerSnapshot](../middleware/breaker.go#L174)
+
+`GetStats()` 返回强类型 `BreakerSnapshot`，避免 `map[string]any` 的反射开销，便于指标采集：
+
+```go
+type BreakerSnapshot struct {
+    State          BreakerState
+    TotalRequests  int64
+    FailedRequests int64
+    FailureCount   int32
+    SuccessCount   int32
+}
+```
 
 ### 使用示例
 
 ```go
-breaker := breaker.New(5, 3, 10, 30*time.Second)
+breaker := middleware.NewBreaker(5, 3, 10, 30*time.Second)
 
 if !breaker.Allow() {
     return errors.NewError(errors.ErrCodeCircuitBreakerOpen, "service unavailable")
@@ -94,105 +113,117 @@ return result, nil
 
 ```go
 stats := breaker.GetStats()
-// stats = {
-//     "state":             "closed",
-//     "total_requests":    150,
-//     "failed_requests":   3,
-//     "failure_rate":      2.0,
-//     "failure_count":     0,
-//     "success_count":     0,
-//     "last_failure_time": "2025-01-01T12:00:00Z",
-//     "last_success_time": "2025-01-01T12:01:00Z",
-//     "last_state_change": "2025-01-01T11:00:00Z",
-//     "uptime":            "1h0m0s",
-// }
+// stats 类型为 BreakerSnapshot：
+// stats.State          = BreakerClosed
+// stats.TotalRequests  = 150
+// stats.FailedRequests = 3
+// stats.FailureCount   = 0
+// stats.SuccessCount   = 0
 ```
 
-## Manager — 断路器管理器
+## BreakerManager — 断路器管理器
 
-> 源码：[breaker/manager.go:Manager](../breaker/manager.go#L22)
+> 源码：[middleware/breaker.go:BreakerManager](../middleware/breaker.go#L217)
 
-管理多个断路器实例，每个路径一个独立断路器。
+管理多个断路器实例，每个路径一个独立断路器。直接持有 `go-config` 的 `breakerconfig.CircuitBreaker` 配置对象。
 
 ```go
-type Manager struct {
-    mu               sync.RWMutex
-    breakers         map[string]*Breaker
-    failureThreshold int
-    successThreshold int
-    timeout          int64          // 纳秒
-    volumeThreshold  int
-    preventionPaths  []string       // 需要保护的路径前缀
-    excludePaths     []string       // 排除的路径
+type BreakerManager struct {
+    mu             sync.RWMutex
+    breakers       map[string]*Breaker
+    config         *breakerconfig.CircuitBreaker // go-config 断路器配置
+    excludePathSet map[string]struct{}           // 排除路径集合，O(1) 查找替代线性扫描
 }
 ```
 
 ### 创建
 
-> 源码：[manager.go:NewManager()](../breaker/manager.go#L33)
+> 源码：[breaker.go:NewBreakerManager()](../middleware/breaker.go#L225)
+
+直接接收 `go-config` 配置对象；传 `nil` 时自动使用 `breakerconfig.Default()`：
 
 ```go
-manager := breaker.NewManager(
-    5,                // failureThreshold
-    3,                // successThreshold
-    10,               // volumeThreshold
-    30e9,             // timeout (纳秒，30秒)
-    []string{"/api/v1/external/"},  // preventionPaths
-    []string{"/api/v1/health"},     // excludePaths
+import (
+    "github.com/kamalyes/go-rpc-gateway/middleware"
+    breakerconfig "github.com/kamalyes/go-config/pkg/breaker"
 )
+
+cfg := &breakerconfig.CircuitBreaker{
+    Enabled:          true,
+    FailureThreshold: 5,
+    SuccessThreshold: 3,
+    VolumeThreshold:  10,
+    Timeout:          int64(30 * time.Second), // 纳秒
+    PreventionPaths:  []string{"/api/v1/external/"}, // 需要保护的路径前缀
+    ExcludePaths:     []string{"/api/v1/health"},    // 排除的路径
+}
+manager := middleware.NewBreakerManager(cfg)
 ```
 
 ### 核心方法
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `GetBreaker(path) *Breaker` | 获取或创建路径断路器（double-check lock） | [manager.go:L47](../breaker/manager.go#L47) |
-| `IsPathProtected(path) bool` | 检查路径是否需要保护 | [manager.go:L107](../breaker/manager.go#L107) |
-| `GetAllBreakers() map[string]*Breaker` | 获取所有断路器 | [manager.go:L73](../breaker/manager.go#L73) |
-| `ResetBreaker(path) bool` | 重置指定路径断路器 | [manager.go:L85](../breaker/manager.go#L85) |
-| `ResetAllBreakers()` | 重置所有断路器 | [manager.go:L96](../breaker/manager.go#L96) |
-| `GetStats() map[string]map[string]any` | 获取所有断路器统计 | [manager.go:L108](../breaker/manager.go#L108) |
-| `GetHealthStatus() map[string]any` | 获取健康状态 | [manager.go:L172](../breaker/manager.go#L172) |
+| `GetBreaker(path) *Breaker` | 获取或创建路径断路器（double-check lock） | [breaker.go:L240](../middleware/breaker.go#L240) |
+| `GetAllBreakers() map[string]*Breaker` | 获取所有断路器 | [breaker.go:L268](../middleware/breaker.go#L268) |
+| `GetAllBreakerSnapshots() map[string]BreakerSnapshot` | 获取所有断路器的强类型快照（用于指标采集） | [breaker.go:L280](../middleware/breaker.go#L280) |
+| `GetStats() map[string]BreakerSnapshot` | 获取所有断路器统计（等价于 `GetAllBreakerSnapshots`，兼容旧 API） | [breaker.go:L321](../middleware/breaker.go#L321) |
+| `ResetBreaker(path) bool` | 重置指定路径断路器 | [breaker.go:L292](../middleware/breaker.go#L292) |
+| `ResetAllBreakers()` | 重置所有断路器 | [breaker.go:L306](../middleware/breaker.go#L306) |
+| `IsPathProtected(path) bool` | 检查路径是否需要保护（排除路径 O(1) map 查找，保护路径前缀匹配） | [breaker.go:L326](../middleware/breaker.go#L326) |
+| `CountByState() BreakerHealthStatus` | 单次遍历统计各状态断路器数量 | [breaker.go:L352](../middleware/breaker.go#L352) |
+| `GetHealthStatus() BreakerHealthStatus` | 获取健康状态（返回强类型结构体，单次遍历） | [breaker.go:L387](../middleware/breaker.go#L387) |
 
-### 健康状态
+### BreakerHealthStatus — 健康状态
+
+> 源码：[middleware/breaker.go:BreakerHealthStatus](../middleware/breaker.go#L343)
+
+`GetHealthStatus()` 返回强类型 `BreakerHealthStatus`，替代旧的 `map[string]any`：
+
+```go
+type BreakerHealthStatus struct {
+    Total    int  // 断路器总数
+    Open     int  // 打开数量
+    HalfOpen int  // 半开数量
+    Closed   int  // 关闭数量
+    Healthy  bool // 是否健康（无打开的断路器）
+}
+```
 
 ```go
 status := manager.GetHealthStatus()
-// status = {
-//     "is_healthy":         true,
-//     "total_breakers":     5,
-//     "open_breakers":      0,
-//     "half_open_breakers": 1,
-//     "closed_breakers":    4,
-// }
+// status.Total    = 5
+// status.Open     = 0
+// status.HalfOpen = 1
+// status.Closed   = 4
+// status.Healthy  = true
 ```
 
 ### 计数方法
 
+以下方法均委托 `CountByState()` 单次遍历得到结果（替代三次独立遍历）：
+
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `CountOpenBreakers() int` | Open 状态数量 | [manager.go:L126](../breaker/manager.go#L126) |
-| `CountHalfOpenBreakers() int` | HalfOpen 状态数量 | [manager.go:L137](../breaker/manager.go#L137) |
-| `CountClosedBreakers() int` | Closed 状态数量 | [manager.go:L148](../breaker/manager.go#L148) |
+| `CountOpenBreakers() int` | Open 状态数量 | [breaker.go:L372](../middleware/breaker.go#L372) |
+| `CountHalfOpenBreakers() int` | HalfOpen 状态数量 | [breaker.go:L377](../middleware/breaker.go#L377) |
+| `CountClosedBreakers() int` | Closed 状态数量 | [breaker.go:L382](../middleware/breaker.go#L382) |
 
-## HTTPMiddleware — HTTP 中间件
+## BreakerHTTPMiddleware — HTTP 中间件
 
-> 源码：[breaker/middleware.go:HTTPMiddleware()](../breaker/middleware.go#L17)
+> 源码：[middleware/breaker.go:BreakerHTTPMiddleware()](../middleware/breaker.go#L397)
 
 ```go
-func HTTPMiddleware(manager *Manager) func(http.Handler) http.Handler
+func BreakerHTTPMiddleware(manager *BreakerManager) func(http.Handler) http.Handler
 ```
 
 为 HTTP 处理器提供断路器保护：
 
 ```go
-manager := breaker.NewManager(5, 3, 10, 30e9,
-    []string{"/api/v1/external/"},
-    []string{"/api/v1/health"},
-)
+manager := middleware.NewBreakerManager(cfg)
 
 // 应用中间件
-handler := breaker.HTTPMiddleware(manager)(nextHandler)
+handler := middleware.BreakerHTTPMiddleware(manager)(nextHandler)
 ```
 
 执行流程：
@@ -217,7 +248,7 @@ flowchart TD
     style RECORD_SUCCESS fill:#c8e6c9
 ```
 
-熔断时的响应：
+熔断时的响应（使用预分配的响应体，零分配）：
 
 ```json
 {
@@ -229,19 +260,23 @@ flowchart TD
 
 ## 配置
 
+熔断器配置通过 `go-config` 的 `breakerconfig.CircuitBreaker` 提供，YAML 中位于 `middleware.circuit-breaker`：
+
 ```yaml
 middleware:
-  breaker:
+  circuit-breaker:
     enabled: true
     failure-threshold: 5
     success-threshold: 3
     volume-threshold: 10
-    timeout: 30s
+    timeout: 30000000000  # 纳秒（30 秒）
     prevention-paths:
       - "/api/v1/external/"
     exclude-paths:
       - "/api/v1/health"
 ```
+
+> `timeout` 字段为 `int64` 纳秒值，运行时通过 `time.Duration(m.config.Timeout)` 转换。
 
 ## 下一步
 

@@ -91,15 +91,29 @@ response.WriteJSONResponse(w, http.StatusOK, map[string]any{
 })
 ```
 
+### WriteErrorResponse — 标准化错误响应（Server 包）
+
+> 源码：[response/server.go:WriteErrorResponse()](../response/server.go#L25)
+
+```go
+func WriteErrorResponse(w http.ResponseWriter, appErr *errors.AppError)
+```
+
+将 `AppError` 转换为 `Result` 后写入响应，行为与 `WriteAppError` 一致，但内部调用 `WriteResultResponse`（不使用对象池），供 `server` 包使用以避免循环导入。
+
 ### WriteResultResponse — Server 内部使用
 
 > 源码：[response/server.go:WriteResultResponse()](../response/server.go#L31)
+
+```go
+func WriteResultResponse(w http.ResponseWriter, httpStatus int, result *commonapis.Result)
+```
 
 与 `WriteResult` 功能相同，但不使用对象池（避免循环导入场景），供 `server` 包内部使用。
 
 ### WriteSimpleError — 简单错误响应
 
-> 源码：[response/server.go:WriteSimpleError()](../response/server.go#L39)
+> 源码：[response/server.go:WriteSimpleError()](../response/server.go#L41)
 
 ```go
 func WriteSimpleError(w http.ResponseWriter, httpStatus int, statusCode commonapis.StatusCode, message string)
@@ -166,7 +180,7 @@ response.WriteCSRFTokenResponse(w, "csrf-token-value")
 
 ### AppError 响应
 
-> 源码：[error.go:WriteAppError()](../response/error.go#L67)、[error.go:WriteAppErrorf()](../response/error.go#L72)
+> 源码：[error.go:WriteAppError()](../response/error.go#L67)、[error.go:WriteAppErrorf()](../response/error.go#L73)
 
 ```go
 // 直接写入 AppError
@@ -179,7 +193,7 @@ response.WriteAppErrorf(w, errors.ErrCodeBadRequest, "invalid field: %s", fieldN
 
 ### 带错误码的错误响应
 
-> 源码：[error.go:WriteErrorResponseWithCode()](../response/error.go#L78)
+> 源码：[error.go:WriteErrorResponseWithCode()](../response/error.go#L79)
 
 ```go
 response.WriteErrorResponseWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "email format invalid")
