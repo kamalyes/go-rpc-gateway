@@ -12,10 +12,11 @@
 package server
 
 import (
+	"time"
+
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
-	"time"
 )
 
 // initMiddleware 初始化中间件管理器
@@ -81,5 +82,78 @@ func (s *Server) initServers() error {
 		// 注意：不返回错误，允许系统在没有 WebSocket 的情况下继续运行
 	}
 
+	// 注入扩展指标采集函数（连接池/熔断器/WebSocket）
+	// 在所有组件初始化完成后调用，实现按需采集业务指标
+	s.injectMetricsCollectors()
+
 	return nil
+}
+
+// injectMetricsCollectors 注入扩展指标采集函数到 MetricsManager
+// 采集函数在 Prometheus scrape 时按需调用，避免后台 goroutine 轮询
+func (s *Server) injectMetricsCollectors() {
+	if s.middlewareManager == nil {
+		return
+	}
+	mm := s.middlewareManager.GetMetricsManager()
+	if mm == nil {
+		return
+	}
+
+	// 注入连接池健康检查采集函数
+	if s.poolManager != nil {
+		poolMgr := s.poolManager
+		mm.SetPoolHealthFn(func() map[string]bool {
+			return poolMgr.HealthCheck()
+		})
+	}
+
+	// 注入熔断器统计采集函数
+	if bm := s.middlewareManager.GetBreakerManager(); bm != nil {
+		breakerMgr := bm
+		mm.SetBreakerStatsFn(func() []middleware.BreakerStat {
+			snapshots := breakerMgr.GetAllBreakerSnapshots()
+			stats := make([]middleware.BreakerStat, 0, len(snapshots))
+			for path, snap := range snapshots {
+				stats = append(stats, middleware.BreakerStat{
+					Path:           path,
+					State:          string(snap.State),
+					TotalRequests:  snap.TotalRequests,
+					FailedRequests: snap.FailedRequests,
+					FailureCount:   snap.FailureCount,
+					SuccessCount:   snap.SuccessCount,
+				})
+			}
+			return stats
+		})
+	}
+
+	// 注入 WebSocket 统计采集函数
+	if s.webSocketService != nil {
+		wsSvc := s.webSocketService
+		mm.SetWSCStatsFn(func() *middleware.WSCStats {
+			hub := wsSvc.GetHub()
+			if hub == nil {
+				return nil
+			}
+			stats := hub.GetStats()
+			if stats == nil {
+				return nil
+			}
+			return &middleware.WSCStats{
+				TotalClients:     stats.TotalClients,
+				WebSocketClients: stats.WebSocketClients,
+				SSEClients:       stats.SSEClients,
+				AgentConnections: stats.AgentConnections,
+				OnlineUsers:      stats.OnlineUsers,
+				MessagesSent:     stats.MessagesSent,
+				MessagesReceived: stats.MessagesReceived,
+				BroadcastsSent:   stats.BroadcastsSent,
+				QueuedMessages:   stats.QueuedMessages,
+				Uptime:           stats.Uptime,
+			}
+		})
+	}
+
+	global.LOGGER.InfoMsg("✅ 扩展指标采集函数已注入（连接池/熔断器/WebSocket）")
 }

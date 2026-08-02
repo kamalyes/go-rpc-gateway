@@ -19,7 +19,6 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	swaggerMiddleware "github.com/kamalyes/go-swagger"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 )
 
@@ -33,6 +32,7 @@ type Manager struct {
 	dynamicSignature        DynamicSignatureProvider
 	i18nManager             *I18nManager
 	swaggerMiddleware       *swaggerMiddleware.Middleware
+	breakerManager          *BreakerManager  // 熔断器管理器（用于指标采集）
 	preRateLimitMiddlewares []HTTPMiddleware // 在限流之前执行的自定义中间件（如认证）
 }
 
@@ -102,6 +102,13 @@ func NewManager(cfg *gwconfig.Gateway) (*Manager, error) {
 		}
 		global.LOGGER.Info("限流器已初始化 [strategy=%s, rps=%d, burst=%d, enabled=%v]",
 			cfg.RateLimit.Strategy, rps, burst, true)
+	}
+
+	// 初始化熔断器管理器（直接传入 go-config 的 CircuitBreaker 配置）
+	if cfg.Middleware.CircuitBreaker.Enabled {
+		manager.breakerManager = NewBreakerManager(cfg.Middleware.CircuitBreaker)
+		global.LOGGER.Info("熔断器管理器已初始化 [failure_threshold=%d, timeout=%d, enabled=%v]",
+			cfg.Middleware.CircuitBreaker.FailureThreshold, cfg.Middleware.CircuitBreaker.Timeout, true)
 	}
 
 	return manager, nil
@@ -195,7 +202,7 @@ func (m *Manager) SCPMiddleware() MiddlewareFunc {
 
 // RateLimitMiddleware 限流中间件
 func (m *Manager) RateLimitMiddleware() MiddlewareFunc {
-	return MiddlewareFunc(newRateLimitMiddleware(m.cfg.RateLimit, m.rateLimiter, m.dynamicRateLimit).Middleware())
+	return MiddlewareFunc(newRateLimitMiddleware(m.cfg.RateLimit, m.rateLimiter, m.dynamicRateLimit, m.metricsManager).Middleware())
 }
 
 // AddPreRateLimitMiddleware 添加在限流之前执行的自定义中间件（如认证）。
@@ -251,45 +258,55 @@ func (m *Manager) NonceMiddleware() MiddlewareFunc {
 }
 
 // I18nMiddleware 国际化中间件
-// TODO: 重构为使用 go-config 的 i18n.I18N 配置
+// 由配置驱动：启用时使用 NewManager 中创建的 i18nManager，未启用时直通
 func (m *Manager) I18nMiddleware() MiddlewareFunc {
-	// if m.cfg.Middleware.I18N != nil && m.cfg.Middleware.I18N.Enabled {
-	// 	return MiddlewareFunc(ConfigurableI18nMiddleware(m.cfg.Middleware.I18N))
-	// }
-	// 使用内部 i18n 管理器
-	if m.i18nManager != nil {
-		return I18nWithManager(m.i18nManager)
+	if !m.cfg.Middleware.I18N.Enabled {
+		return MiddlewareFunc(noopMiddleware)
 	}
-	return I18n() // 回退到默认配置
+	return I18nWithManager(m.i18nManager)
 }
 
-// GRPCUnaryI18nInterceptor 返回 gRPC 服务端 i18n 一元调用拦截器
+// GRPCUnaryI18nInterceptor 返回 gRPC 服务端 i18n 一元调用拦截器（未启用时返回 nil）
 func (m *Manager) GRPCUnaryI18nInterceptor() grpc.UnaryServerInterceptor {
-	if m.i18nManager != nil {
-		return UnaryServerI18nInterceptor(m.i18nManager)
+	if !m.cfg.Middleware.I18N.Enabled {
+		return nil
 	}
-	return nil
+	return UnaryServerI18nInterceptor(m.i18nManager)
 }
 
-// GRPCStreamI18nInterceptor 返回 gRPC 服务端 i18n 流式调用拦截器
+// GRPCStreamI18nInterceptor 返回 gRPC 服务端 i18n 流式调用拦截器（未启用时返回 nil）
 func (m *Manager) GRPCStreamI18nInterceptor() grpc.StreamServerInterceptor {
-	if m.i18nManager != nil {
-		return StreamServerI18nInterceptor(m.i18nManager)
+	if !m.cfg.Middleware.I18N.Enabled {
+		return nil
 	}
-	return nil
+	return StreamServerI18nInterceptor(m.i18nManager)
 }
 
 // BreakerMiddleware 熔断中间件
+// 由配置驱动：启用时使用 NewManager 中创建的共享 breakerManager（便于指标采集），未启用时直通
 func (m *Manager) BreakerMiddleware() MiddlewareFunc {
-	return MiddlewareFunc(BreakerMiddleware(m.cfg.Middleware.CircuitBreaker))
+	if !m.cfg.Middleware.CircuitBreaker.Enabled {
+		return MiddlewareFunc(noopMiddleware)
+	}
+	return MiddlewareFunc(BreakerHTTPMiddleware(m.breakerManager))
 }
 
-// MetricsHandler 返回监控指标处理器
+// GetBreakerManager 获取熔断器管理器（供 server 包注入指标采集函数）
+func (m *Manager) GetBreakerManager() *BreakerManager {
+	return m.breakerManager
+}
+
+// MetricsHandler 返回监控指标处理器（使用 MetricsManager 的独立 registry）
 func (m *Manager) MetricsHandler() http.Handler {
 	if m.metricsManager == nil {
 		return http.NotFoundHandler()
 	}
-	return promhttp.Handler()
+	return m.metricsManager.Handler()
+}
+
+// GetMetricsManager 获取监控管理器（供 server 包注入扩展指标采集函数）
+func (m *Manager) GetMetricsManager() *MetricsManager {
+	return m.metricsManager
 }
 
 // SwaggerHandler 返回 Swagger 文档处理器

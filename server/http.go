@@ -353,10 +353,16 @@ func (s *Server) initHTTPGateway() error {
 		s.registerComponentHealthChecks()
 	}
 
-	// 注册监控指标端点
+	// 注册监控指标端点（使用 MetricsManager 的独立 registry，包含业务指标）
 	if s.config.Monitoring.Metrics.Enabled {
 		prometheusPath := s.config.Monitoring.Metrics.Endpoint
-		s.httpMux.Handle(prometheusPath, promhttp.Handler())
+		var metricsHandler http.Handler
+		if s.middlewareManager != nil {
+			metricsHandler = s.middlewareManager.MetricsHandler()
+		} else {
+			metricsHandler = promhttp.Handler()
+		}
+		s.httpMux.Handle(prometheusPath, metricsHandler)
 		s.httpRoutePatterns[prometheusPath] = struct{}{}
 
 		global.LOGGER.InfoKV("📊 监控指标服务可用", "url", "http://"+httpEndpoint+prometheusPath)

@@ -68,13 +68,15 @@ func handlePanicRecovery(w http.ResponseWriter, r *http.Request, err interface{}
 
 // logPanicError 记录 panic 错误日志
 func logPanicError(ctx context.Context, r *http.Request, err any, stackTrace string, config *recovery.Recovery) {
-	fields := []any{
+	// 预分配容量：5 基础字段 + 1 堆栈 + 4 上下文 = 最多 15 个键值对
+	fields := make([]any, 0, 15)
+	fields = append(fields,
 		constants.LogFieldError, err,
 		constants.LogFieldMethod, r.Method,
 		constants.LogFieldPath, r.URL.String(),
 		constants.LogFieldRemoteAddr, netx.GetClientIP(r),
 		constants.LogFieldUserAgent, r.UserAgent(),
-	}
+	)
 
 	// 添加堆栈信息
 	if config.EnableStack && stackTrace != "" {

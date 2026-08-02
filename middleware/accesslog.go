@@ -15,6 +15,7 @@ import (
 	"database/sql/driver"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -88,6 +89,7 @@ type AccessLogHandler func(ctx context.Context, rec *AccessRecord)
 var (
 	accessLogMu       sync.RWMutex
 	accessLogHandlers []AccessLogHandler
+	accessLogCount    atomic.Int32 // 活跃钩子计数，避免 HasAccessLogHandlers 遍历
 )
 
 // RegisterAccessLog 注册访问日志钩子，返回反注册函数
@@ -99,6 +101,7 @@ func RegisterAccessLog(h AccessLogHandler) (unregister func()) {
 	accessLogHandlers = append(accessLogHandlers, h)
 	idx := len(accessLogHandlers) - 1
 	accessLogMu.Unlock()
+	accessLogCount.Add(1)
 
 	var once sync.Once
 	return func() {
@@ -106,20 +109,14 @@ func RegisterAccessLog(h AccessLogHandler) (unregister func()) {
 			accessLogMu.Lock()
 			accessLogHandlers[idx] = nil
 			accessLogMu.Unlock()
+			accessLogCount.Add(-1)
 		})
 	}
 }
 
-// HasAccessLogHandlers 是否已注册访问日志钩子（调用方用于避免无谓的 AccessRecord 构建开销）
+// HasAccessLogHandlers 是否已注册访问日志钩子（无锁 atomic 读取，热路径零开销）
 func HasAccessLogHandlers() bool {
-	accessLogMu.RLock()
-	defer accessLogMu.RUnlock()
-	for _, h := range accessLogHandlers {
-		if h != nil {
-			return true
-		}
-	}
-	return false
+	return accessLogCount.Load() > 0
 }
 
 // DispatchAccessLog 同步派发访问日志到所有已注册钩子（单个 hook panic 不影响其他 hook 与主流程）

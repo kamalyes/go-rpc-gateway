@@ -103,22 +103,44 @@ func (n *smartPathNormalizer) Normalize(path string) string {
 }
 
 // smartNormalize 智能规范化（逐段学习路径结构）
+// 优化：先用读锁尝试快速路径（所有位置已知），仅在有未知位置时才用写锁
 func (n *smartPathNormalizer) smartNormalize(path string) string {
 	parts := strings.Split(path, "/")
 	normalized := make([]string, len(parts))
 
+	// 第一遍：读锁快速路径，检查所有位置是否已知
+	n.mu.RLock()
+	needWrite := false
 	// 逐段分析，使用前缀作为上下文
 	for i, part := range parts {
 		if part == "" {
 			normalized[i] = ""
 			continue
 		}
-
-		// 构建前缀 key（用于区分不同的路径结构）
 		prefixKey := n.buildPrefixKey(normalized[:i])
+		if n.isDynamicPositionUnsafe(prefixKey, i) {
+			normalized[i] = ":param"
+		} else if n.shouldBeDynamicUnsafe(prefixKey, i) {
+			normalized[i] = ":param"
+		} else {
+			needWrite = true
+			normalized[i] = part
+		}
+	}
+	n.mu.RUnlock()
 
-		// 使用写锁保护结构修改
-		n.mu.Lock()
+	// 所有位置已知，直接返回（无需写锁）
+	if !needWrite {
+		return strings.Join(normalized, "/")
+	}
+
+	// 第二遍：写锁慢路径，记录新值并更新路径结构
+	n.mu.Lock()
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		prefixKey := n.buildPrefixKey(normalized[:i])
 
 		// 确保该前缀的结构存在
 		if _, exists := n.pathStructure[prefixKey]; !exists {
@@ -127,7 +149,6 @@ func (n *smartPathNormalizer) smartNormalize(path string) string {
 
 		// 检查该位置是否已经判定为动态参数
 		if n.isDynamicPositionUnsafe(prefixKey, i) {
-			n.mu.Unlock()
 			normalized[i] = ":param"
 			continue
 		}
@@ -141,9 +162,8 @@ func (n *smartPathNormalizer) smartNormalize(path string) string {
 		} else {
 			normalized[i] = part
 		}
-
-		n.mu.Unlock()
 	}
+	n.mu.Unlock()
 
 	return strings.Join(normalized, "/")
 }

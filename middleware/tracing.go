@@ -277,11 +277,9 @@ func createSampler(cfg *tracing.Tracing) sdktrace.Sampler {
 
 // Tracing 链路追踪中间件
 func Tracing(manager *TracingManager) MiddlewareFunc {
-	// 如果未启用或manager为空，返回透明中间件
+	// 如果未启用或manager为空，返回直通中间件
 	if manager == nil || manager.config == nil || !manager.config.Enabled {
-		return func(next http.Handler) http.Handler {
-			return next // 直接返回下一个处理器
-		}
+		return MiddlewareFunc(noopMiddleware)
 	}
 
 	return func(next http.Handler) http.Handler {

@@ -32,9 +32,7 @@ import (
 // - 便于安全审计（可以统计 Nonce 使用频率）
 func NonceMiddleware(config *signature.Signature) HTTPMiddleware {
 	if !config.Enabled {
-		return func(next http.Handler) http.Handler {
-			return next
-		}
+		return noopMiddleware
 	}
 
 	return func(next http.Handler) http.Handler {

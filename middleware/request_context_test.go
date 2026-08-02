@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -636,7 +637,7 @@ type UserService struct {
 
 // UserRepository 数据访问层（模拟真实数据库操作）
 type UserRepository struct {
-	// 模拟数据库
+	mu    sync.RWMutex
 	users map[string]*User
 }
 
@@ -686,7 +687,9 @@ func (r *UserRepository) Create(ctx context.Context, user *User) error {
 	_ = user.ID
 	_ = user.Username
 
-	// 检查用户是否已存在
+	// 检查用户是否已存在（加锁保护并发访问）
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if _, exists := r.users[user.Username]; exists {
 		return fmt.Errorf("用户已存在: %s", user.Username)
 	}
@@ -699,6 +702,8 @@ func (r *UserRepository) Create(ctx context.Context, user *User) error {
 func (r *UserRepository) FindByUsername(ctx context.Context, username string) (*User, error) {
 	time.Sleep(5 * time.Millisecond)
 
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	user, exists := r.users[username]
 	if !exists {
 		return nil, fmt.Errorf("用户不存在: %s", username)

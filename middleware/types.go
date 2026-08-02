@@ -18,6 +18,9 @@ import (
 // MiddlewareFunc 中间件函数类型
 type MiddlewareFunc func(http.Handler) http.Handler
 
+// noopMiddleware 直通中间件，未启用时复用此变量避免重复创建闭包
+var noopMiddleware HTTPMiddleware = func(next http.Handler) http.Handler { return next }
+
 // ChainFunc 创建中间件链函数
 func ChainFunc(middlewares ...MiddlewareFunc) MiddlewareFunc {
 	return func(final http.Handler) http.Handler {

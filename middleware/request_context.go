@@ -117,39 +117,7 @@ func RequestContextMiddleware() HTTPMiddleware {
 				ForwardedHost: gccommon.ExtractAttribute(r, requestContext.ForwardedHostSources),
 			}
 
-			// 将核心链路字段注入 context，便于日志和下游组件统一获取
-			ctx = NewContextBuilder(ctx).
-				WithID(requestCommonMeta.ID).
-				WithTraceID(requestCommonMeta.TraceID).
-				WithRequestID(requestCommonMeta.RequestID).
-				WithUserID(requestCommonMeta.UserID).
-				WithDomain(requestCommonMeta.Domain).
-				WithRoleCode(requestCommonMeta.RoleCode).
-				WithTenantID(requestCommonMeta.TenantID).
-				WithTenantCode(requestCommonMeta.TenantCode).
-				WithAuthorization(requestCommonMeta.Authorization).
-				WithSessionID(requestCommonMeta.SessionID).
-				WithTimezone(requestCommonMeta.Timezone).
-				WithIPAddress(requestCommonMeta.IPAddress).
-				WithAppID(requestCommonMeta.AppID).
-				WithDeviceID(requestCommonMeta.DeviceID).
-				WithAppVersion(requestCommonMeta.AppVersion).
-				WithPlatformID(requestCommonMeta.PlatformID).
-				WithPlatformCode(requestCommonMeta.PlatformCode).
-				WithRegionID(requestCommonMeta.RegionID).
-				WithRegionCode(requestCommonMeta.RegionCode).
-				WithAgentLineID(requestCommonMeta.AgentLineID).
-				WithNonce(requestCommonMeta.Nonce).
-				WithJti(requestCommonMeta.Jti).
-				WithFamilyId(requestCommonMeta.FamilyId).
-				WithUserAgent(requestCommonMeta.UserAgent).
-				WithPushToken(requestCommonMeta.PushToken).
-				WithToken(requestCommonMeta.Token).
-				WithTimestamp(requestCommonMeta.Timestamp).
-				WithSignature(requestCommonMeta.Signature).
-				WithAccessKey(requestCommonMeta.AccessKey).
-				WithForwardedHost(requestCommonMeta.ForwardedHost).
-				Build()
+			// 单次 WithValue 存入 RequestCommonMeta，避免 30+ 层 context 嵌套
 			ctx = WithRequestCommonMeta(ctx, requestCommonMeta)
 
 			// 5. 设置响应头（便于客户端追踪）
@@ -266,113 +234,47 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		return ""
 	}
 
-	// 提取 TraceID & RequestID
-	traceID := extractOrGenerateTraceID(ctx, firstMetadataValue(constants.MetadataTraceID))
-	requestID := extractOrGenerateRequestID(firstMetadataValue(constants.MetadataRequestID))
-
-	// 提取其他可选字段
-	id := firstMetadataValue(constants.MetadataID)
-	authorization := firstMetadataValue(constants.MetadataAuthorization)
-	userID := firstMetadataValue(constants.MetadataUserID)
 	userName, _ := url.QueryUnescape(firstMetadataValue(constants.MetadataUserName))
-	domain := firstMetadataValue(constants.MetadataDomain)
-	roleCode := firstMetadataValue(constants.MetadataRoleCode)
-	sessionID := firstMetadataValue(constants.MetadataSessionID)
-	tenantID := firstMetadataValue(constants.MetadataTenantID)
-	tenantCode := firstMetadataValue(constants.MetadataTenantCode)
-	timezone := firstMetadataValue(constants.MetadataTimezone)
-	ipAddress := firstMetadataValue(constants.MetadataIPAddress)
-	appID := firstMetadataValue(constants.MetadataAppID)
-	deviceID := firstMetadataValue(constants.MetadataDeviceID)
-	appVersion := firstMetadataValue(constants.MetadataAppVersion)
-	platformID := firstMetadataValue(constants.MetadataPlatformID)
-	platformCode := firstMetadataValue(constants.MetadataPlatformCode)
-	regionID := firstMetadataValue(constants.MetadataRegionID)
-	regionCode := firstMetadataValue(constants.MetadataRegionCode)
-	agentLineID := firstMetadataValue(constants.MetadataAgentLineID)
-	nonce := firstMetadataValue(constants.MetadataNonce)
-	jti := firstMetadataValue(constants.MetadataJti)
-	familyId := firstMetadataValue(constants.MetadataFamilyId)
-	xNsID := firstMetadataValue(constants.MetadataXNsID)
-	userAgent := firstMetadataValue(constants.MetadataUserAgent)
-	pushToken := firstMetadataValue(constants.MetadataPushToken)
-	token := firstMetadataValue(constants.MetadataToken)
-	timestamp := firstMetadataValue(constants.MetadataTimestamp)
-	signature := firstMetadataValue(constants.MetadataSignature)
-	accessKey := firstMetadataValue(constants.MetadataAccessKey)
-	acceptLanguage := firstMetadataValue(constants.MetadataAcceptLanguage)
 
-	ctx = NewContextBuilder(ctx).
-		WithID(id).
-		WithRequestID(requestID).
-		WithTraceID(traceID).
-		WithAuthorization(authorization).
-		WithUserID(userID).
-		WithUserName(userName).
-		WithDomain(domain).
-		WithRoleCode(roleCode).
-		WithTenantID(tenantID).
-		WithTenantCode(tenantCode).
-		WithSessionID(sessionID).
-		WithIPAddress(ipAddress).
-		WithTimezone(timezone).
-		WithAppID(appID).
-		WithDeviceID(deviceID).
-		WithAppVersion(appVersion).
-		WithPlatformID(platformID).
-		WithPlatformCode(platformCode).
-		WithRegionID(regionID).
-		WithRegionCode(regionCode).
-		WithAgentLineID(agentLineID).
-		WithNonce(nonce).
-		WithJti(jti).
-		WithFamilyId(familyId).
-		WithXNsID(xNsID).
-		WithUserAgent(userAgent).
-		WithPushToken(pushToken).
-		WithToken(token).
-		WithTimestamp(timestamp).
-		WithSignature(signature).
-		WithAccessKey(accessKey).
-		WithAcceptLanguage(acceptLanguage).
-		WithForwardedHost(firstMetadataValue(constants.MetadataForwardedHost)).
-		Build()
-
-	return context.WithValue(ctx, requestCommonMetaKey{}, &RequestCommonMeta{
-		ID:             id,
-		TraceID:        traceID,
-		RequestID:      requestID,
-		Authorization:  authorization,
-		UserID:         userID,
+	// 提取所有字段，构建 RequestCommonMeta
+	meta := &RequestCommonMeta{
+		ID:             firstMetadataValue(constants.MetadataID),
+		TraceID:        extractOrGenerateTraceID(ctx, firstMetadataValue(constants.MetadataTraceID)),
+		RequestID:      extractOrGenerateRequestID(firstMetadataValue(constants.MetadataRequestID)),
+		Authorization:  firstMetadataValue(constants.MetadataAuthorization),
+		UserID:         firstMetadataValue(constants.MetadataUserID),
 		UserName:       userName,
-		Domain:         domain,
-		RoleCode:       roleCode,
-		TenantID:       tenantID,
-		TenantCode:     tenantCode,
-		SessionID:      sessionID,
-		Timezone:       timezone,
-		IPAddress:      ipAddress,
-		AppID:          appID,
-		DeviceID:       deviceID,
-		AppVersion:     appVersion,
-		PlatformID:     platformID,
-		PlatformCode:   platformCode,
-		RegionID:       regionID,
-		RegionCode:     regionCode,
-		AgentLineID:    agentLineID,
-		Nonce:          nonce,
-		Jti:            jti,
-		FamilyId:       familyId,
-		XNsID:          xNsID,
-		UserAgent:      userAgent,
-		PushToken:      pushToken,
-		Token:          token,
-		Timestamp:      timestamp,
-		Signature:      signature,
-		AccessKey:      accessKey,
-		AcceptLanguage: acceptLanguage,
+		Domain:         firstMetadataValue(constants.MetadataDomain),
+		RoleCode:       firstMetadataValue(constants.MetadataRoleCode),
+		TenantID:       firstMetadataValue(constants.MetadataTenantID),
+		TenantCode:     firstMetadataValue(constants.MetadataTenantCode),
+		SessionID:      firstMetadataValue(constants.MetadataSessionID),
+		Timezone:       firstMetadataValue(constants.MetadataTimezone),
+		IPAddress:      firstMetadataValue(constants.MetadataIPAddress),
+		AppID:          firstMetadataValue(constants.MetadataAppID),
+		DeviceID:       firstMetadataValue(constants.MetadataDeviceID),
+		AppVersion:     firstMetadataValue(constants.MetadataAppVersion),
+		PlatformID:     firstMetadataValue(constants.MetadataPlatformID),
+		PlatformCode:   firstMetadataValue(constants.MetadataPlatformCode),
+		RegionID:       firstMetadataValue(constants.MetadataRegionID),
+		RegionCode:     firstMetadataValue(constants.MetadataRegionCode),
+		AgentLineID:    firstMetadataValue(constants.MetadataAgentLineID),
+		Nonce:          firstMetadataValue(constants.MetadataNonce),
+		Jti:            firstMetadataValue(constants.MetadataJti),
+		FamilyId:       firstMetadataValue(constants.MetadataFamilyId),
+		XNsID:          firstMetadataValue(constants.MetadataXNsID),
+		UserAgent:      firstMetadataValue(constants.MetadataUserAgent),
+		PushToken:      firstMetadataValue(constants.MetadataPushToken),
+		Token:          firstMetadataValue(constants.MetadataToken),
+		Timestamp:      firstMetadataValue(constants.MetadataTimestamp),
+		Signature:      firstMetadataValue(constants.MetadataSignature),
+		AccessKey:      firstMetadataValue(constants.MetadataAccessKey),
+		AcceptLanguage: firstMetadataValue(constants.MetadataAcceptLanguage),
 		ForwardedHost:  firstMetadataValue(constants.MetadataForwardedHost),
-	})
+	}
+
+	// 单次 WithValue，避免 30+ 层 context 嵌套
+	return WithRequestCommonMeta(ctx, meta)
 }
 
 // setResponseMetadata 设置 gRPC 响应 metadata（与 HTTP 的 w.Header().Set 对应）

@@ -249,7 +249,7 @@ func TestRateLimitMiddleware_RouteLimit(t *testing.T) {
 		},
 	}
 
-	middleware := newRateLimitMiddleware(config, nil, nil)
+	middleware := newRateLimitMiddleware(config, nil, nil, nil)
 	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
@@ -344,7 +344,7 @@ func TestRateLimitMiddleware_PathGlobMatching(t *testing.T) {
 		},
 	}
 
-	middleware := newRateLimitMiddleware(config, nil, nil)
+	middleware := newRateLimitMiddleware(config, nil, nil, nil)
 	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -416,7 +416,7 @@ func TestRateLimitMiddleware_PathGlobMatchingPerIP(t *testing.T) {
 		},
 	}
 
-	middleware := newRateLimitMiddleware(config, nil, nil)
+	middleware := newRateLimitMiddleware(config, nil, nil, nil)
 	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -489,7 +489,7 @@ func TestRateLimitMiddleware_HTTPMethodMatching(t *testing.T) {
 		},
 	}
 
-	middleware := newRateLimitMiddleware(config, nil, nil)
+	middleware := newRateLimitMiddleware(config, nil, nil, nil)
 	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -602,7 +602,7 @@ func TestRateLimitMiddleware_IPWhitelist(t *testing.T) {
 				},
 			}
 
-			middleware := newRateLimitMiddleware(config, nil, nil)
+			middleware := newRateLimitMiddleware(config, nil, nil, nil)
 			handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
@@ -704,7 +704,7 @@ func TestRateLimitMiddleware_IPBlacklist(t *testing.T) {
 				},
 			}
 
-			middleware := newRateLimitMiddleware(config, nil, nil)
+			middleware := newRateLimitMiddleware(config, nil, nil, nil)
 			handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
@@ -765,7 +765,7 @@ func TestRateLimitMiddleware_UserWildcardMatching(t *testing.T) {
 		},
 	}
 
-	middleware := newRateLimitMiddleware(config, nil, nil)
+	middleware := newRateLimitMiddleware(config, nil, nil, nil)
 	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -858,7 +858,7 @@ func TestRateLimitMiddleware_ComplexScenario(t *testing.T) {
 		},
 	}
 
-	middleware := newRateLimitMiddleware(config, nil, nil)
+	middleware := newRateLimitMiddleware(config, nil, nil, nil)
 	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -926,7 +926,7 @@ func TestRateLimitMiddleware_GlobalLimit(t *testing.T) {
 		},
 	}
 
-	middleware := newRateLimitMiddleware(config, nil, nil)
+	middleware := newRateLimitMiddleware(config, nil, nil, nil)
 	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -965,7 +965,7 @@ func TestRateLimitMiddleware_PerIPLimit(t *testing.T) {
 		},
 	}
 
-	middleware := newRateLimitMiddleware(config, nil, nil)
+	middleware := newRateLimitMiddleware(config, nil, nil, nil)
 	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -1004,7 +1004,7 @@ func TestRateLimitMiddleware_Disabled(t *testing.T) {
 		},
 	}
 
-	middleware := newRateLimitMiddleware(config, nil, nil)
+	middleware := newRateLimitMiddleware(config, nil, nil, nil)
 	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -1130,7 +1130,7 @@ func TestRateLimitMiddleware_CompleteConfig(t *testing.T) {
 		},
 	}
 
-	middleware := newRateLimitMiddleware(config, nil, nil)
+	middleware := newRateLimitMiddleware(config, nil, nil, nil)
 	require.NotNil(t, middleware)
 	require.NotNil(t, middleware.limiter)
 
@@ -1393,7 +1393,7 @@ func TestRateLimitMiddleware_WithRedis(t *testing.T) {
 		DefaultScope: ratelimit.ScopeGlobal,
 	}
 
-	middleware := newRateLimitMiddleware(config, nil, nil)
+	middleware := newRateLimitMiddleware(config, nil, nil, nil)
 	handler := newRateLimitTestHandler(middleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -1522,7 +1522,7 @@ func TestResolveRuleAndKey_GRPCMethodPathMatch(t *testing.T) {
 		Routes: []ratelimit.RouteLimit{
 			{Path: grpcMethodSend, Limit: noRefillRule(5)},
 		},
-	}, nil, nil)
+	}, nil, nil, nil)
 
 	rule, key := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "1.2.3.4", "u1")
 	require.NotNil(t, rule)
@@ -1535,7 +1535,7 @@ func TestResolveRuleAndKey_PerUserKey(t *testing.T) {
 		Enabled:  true,
 		Strategy: ratelimit.StrategyTokenBucket,
 		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(3)}},
-	}, nil, nil)
+	}, nil, nil, nil)
 
 	_, key := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "1.2.3.4", "user-9")
 	assert.Equal(t, "route:"+grpcMethodSend+":user:user-9", key)
@@ -1546,7 +1546,7 @@ func TestResolveRuleAndKey_PerIPKey(t *testing.T) {
 		Enabled:  true,
 		Strategy: ratelimit.StrategyTokenBucket,
 		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerIP: true, Limit: noRefillRule(3)}},
-	}, nil, nil)
+	}, nil, nil, nil)
 
 	_, key := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "10.0.0.7", "u1")
 	assert.Equal(t, "route:"+grpcMethodSend+":ip:10.0.0.7", key)
@@ -1559,7 +1559,7 @@ func TestResolveRuleAndKey_RouteWhitelist(t *testing.T) {
 		Routes: []ratelimit.RouteLimit{
 			{Path: grpcMethodSend, Whitelist: []string{"10.0.0.0/24"}, Limit: noRefillRule(3)},
 		},
-	}, nil, nil)
+	}, nil, nil, nil)
 
 	// 命中白名单 → 放行（nil 规则）
 	rule, _ := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "10.0.0.50", "u1")
@@ -1577,7 +1577,7 @@ func TestResolveRuleAndKey_RouteBlacklist(t *testing.T) {
 		Routes: []ratelimit.RouteLimit{
 			{Path: grpcMethodSend, Blacklist: []string{"10.0.0.0/24"}},
 		},
-	}, nil, nil)
+	}, nil, nil, nil)
 
 	// 命中黑名单 → 严格限流规则（1/1）
 	rule, key := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "10.0.0.50", "u1")
@@ -1598,7 +1598,7 @@ func TestResolveRuleAndKey_IPRuleWhitelist(t *testing.T) {
 		IPRules: []ratelimit.IPRule{
 			{IP: "10.0.0.0/24", Type: typeWhitelist},
 		},
-	}, nil, nil)
+	}, nil, nil, nil)
 
 	// IP 白名单匹配 → 放行
 	rule, _ := mw.resolveRuleAndKey(context.Background(), "/any", "POST", "10.0.0.9", "u1")
@@ -1612,7 +1612,7 @@ func TestResolveRuleAndKey_IPRuleLimit(t *testing.T) {
 		IPRules: []ratelimit.IPRule{
 			{IP: "10.0.0.0/24", Type: "blacklist", Limit: noRefillRule(2)},
 		},
-	}, nil, nil)
+	}, nil, nil, nil)
 
 	rule, key := mw.resolveRuleAndKey(context.Background(), "/any", "POST", "10.0.0.9", "u1")
 	require.NotNil(t, rule)
@@ -1626,7 +1626,7 @@ func TestResolveRuleAndKey_UserRuleMatch(t *testing.T) {
 		UserRules: []ratelimit.UserRule{
 			{UserID: "vip-*", Limit: noRefillRule(100)},
 		},
-	}, nil, nil)
+	}, nil, nil, nil)
 
 	rule, key := mw.resolveRuleAndKey(context.Background(), "/any", "POST", "1.2.3.4", "vip-007")
 	require.NotNil(t, rule)
@@ -1643,7 +1643,7 @@ func TestResolveRuleAndKey_GlobalFallback(t *testing.T) {
 		Strategy:     ratelimit.StrategyTokenBucket,
 		DefaultScope: ratelimit.ScopeGlobal,
 		GlobalLimit:  noRefillRule(10),
-	}, nil, nil)
+	}, nil, nil, nil)
 
 	// 无路由/IP/用户规则命中 → 全局规则
 	rule, key := mw.resolveRuleAndKey(context.Background(), "/unmatched", "POST", "1.2.3.4", "u1")
@@ -1656,14 +1656,14 @@ func TestResolveRuleAndKey_NoConfig(t *testing.T) {
 	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
 		Enabled:  true,
 		Strategy: ratelimit.StrategyTokenBucket,
-	}, nil, nil)
+	}, nil, nil, nil)
 
 	rule, _ := mw.resolveRuleAndKey(context.Background(), "/any", "POST", "1.2.3.4", "u1")
 	assert.Nil(t, rule)
 }
 
 func TestGenerateKeyForScope(t *testing.T) {
-	mw := newRateLimitMiddleware(&ratelimit.RateLimit{Enabled: true, Strategy: ratelimit.StrategyTokenBucket}, nil, nil)
+	mw := newRateLimitMiddleware(&ratelimit.RateLimit{Enabled: true, Strategy: ratelimit.StrategyTokenBucket}, nil, nil, nil)
 
 	cases := []struct {
 		scope    ratelimit.Scope
@@ -1942,7 +1942,7 @@ func TestGRPCRateLimit_HTTPPathUnchangedRegression(t *testing.T) {
 		DefaultScope: ratelimit.ScopeGlobal,
 		GlobalLimit:  noRefillRule(3),
 	}
-	mw := newRateLimitMiddleware(config, nil, nil)
+	mw := newRateLimitMiddleware(config, nil, nil, nil)
 	handler := newRateLimitTestHandler(mw, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))

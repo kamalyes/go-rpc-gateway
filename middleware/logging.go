@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
@@ -33,25 +34,52 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// 预计算日志消息常量，避免每次请求字符串拼接
+var (
+	logMsgHTTPRequestInfo  = "🚀 " + constants.LogMsgHTTPRequest
+	logMsgHTTPRequestError = "❌ " + constants.LogMsgHTTPRequest
+	logMsgHTTPRequestWarn  = "⚠️ " + constants.LogMsgHTTPRequest
+	logMsgHTTPRequestOK    = "✅ " + constants.LogMsgHTTPRequest
+	logMsgHTTPRequestSkip  = "⚠️ " + constants.LogMsgHTTPRequestSkip
+)
+
+// protojsonOptionsCache 缓存 protobuf JSON 序列化选项，避免每次请求创建新对象
+// 配置热重载时通过 ResetProtojsonOptions 重置
+var protojsonOptionsCache atomic.Pointer[protojson.MarshalOptions]
+
+// ResetProtojsonOptions 重置缓存的 protojson 选项（配置热重载时调用）
+func ResetProtojsonOptions() {
+	protojsonOptionsCache.Store(nil)
+}
+
 // getProtojsonOptions 从全局配置 Gateway.JSON 获取 protobuf JSON 序列化选项
 // 与 API 响应的序列化配置保持一致，支持配置文件修改和热重载
 // 注意：DiscardUnknown 属于反序列化选项，序列化时不适用，故不传入
 func getProtojsonOptions() protojson.MarshalOptions {
+	if cached := protojsonOptionsCache.Load(); cached != nil {
+		return *cached
+	}
+
+	var opts protojson.MarshalOptions
 	if global.GATEWAY != nil && global.GATEWAY.JSON != nil {
 		j := global.GATEWAY.JSON
-		return protojson.MarshalOptions{
+		opts = protojson.MarshalOptions{
 			UseProtoNames:   j.UseProtoNames,
 			EmitUnpopulated: j.EmitUnpopulated,
 			Multiline:       false,
 		}
+	} else {
+		// 回退：使用 go-config 的默认 JSON 配置
+		d := gwconfig.DefaultJSON()
+		opts = protojson.MarshalOptions{
+			UseProtoNames:   d.UseProtoNames,
+			EmitUnpopulated: d.EmitUnpopulated,
+			Multiline:       false,
+		}
 	}
-	// 回退：使用 go-config 的默认 JSON 配置
-	d := gwconfig.DefaultJSON()
-	return protojson.MarshalOptions{
-		UseProtoNames:   d.UseProtoNames,
-		EmitUnpopulated: d.EmitUnpopulated,
-		Multiline:       false,
-	}
+
+	protojsonOptionsCache.Store(&opts)
+	return opts
 }
 
 // RequestLogger 统一的请求日志记录器
@@ -211,10 +239,8 @@ func isLoggableContentType(config *logging.Logging, contentType string) bool {
 		return true
 	}
 
-	contentType = strings.ToLower(contentType)
-
 	for _, prefix := range config.LoggableContentTypes {
-		if strings.HasPrefix(contentType, prefix) {
+		if strings.EqualFold(contentType, prefix) || strings.HasPrefix(strings.ToLower(contentType), prefix) {
 			return true
 		}
 	}
@@ -265,7 +291,8 @@ func LoggingMiddleware() HTTPMiddleware {
 			}
 
 			// 捕获请求体：运行时日志开启 或 存在访问日志钩子 时读取，避免访问日志 body 受运行时日志开关影响而丢失
-			needCaptureBody := reqConfig.EnableRequest || HasAccessLogHandlers()
+			hasAccessLog := HasAccessLogHandlers()
+			needCaptureBody := reqConfig.EnableRequest || hasAccessLog
 			var reqBody []byte
 			if needCaptureBody && r.Body != nil {
 				var err error
@@ -281,7 +308,7 @@ func LoggingMiddleware() HTTPMiddleware {
 
 			// 包装响应：运行时日志开启 或 存在访问日志钩子 时启用响应体捕获
 			wrapped := NewResponseWriter(w)
-			if reqConfig.EnableResponse || HasAccessLogHandlers() {
+			if reqConfig.EnableResponse || hasAccessLog {
 				wrapped.EnableBodyCapture()
 			}
 			defer wrapped.Release()
@@ -290,13 +317,13 @@ func LoggingMiddleware() HTTPMiddleware {
 			next.ServeHTTP(wrapped, r)
 
 			// 记录日志
-			logHTTPRequest(ctx, r, wrapped, start, time.Since(start), reqConfig, reqBody)
+			logHTTPRequest(ctx, r, wrapped, start, time.Since(start), reqConfig, reqBody, hasAccessLog)
 		})
 	}
 }
 
 // logHTTPRequest 记录 HTTP 请求
-func logHTTPRequest(ctx context.Context, r *http.Request, rw *ResponseWriter, start time.Time, duration time.Duration, config *logging.Logging, reqBody []byte) {
+func logHTTPRequest(ctx context.Context, r *http.Request, rw *ResponseWriter, start time.Time, duration time.Duration, config *logging.Logging, reqBody []byte, hasAccessLog bool) {
 	logger := NewRequestLogger(ctx)
 	masker := global.DATAMASKER
 
@@ -327,21 +354,21 @@ func logHTTPRequest(ctx context.Context, r *http.Request, rw *ResponseWriter, st
 	}
 
 	level := constants.LogLevelInfo
-	message := "🚀 " + constants.LogMsgHTTPRequest
+	message := logMsgHTTPRequestInfo
 	if rw.StatusCode() >= 500 {
 		level = constants.LogLevelError
-		message = "❌ " + constants.LogMsgHTTPRequest
+		message = logMsgHTTPRequestError
 	} else if rw.StatusCode() >= 400 {
 		level = constants.LogLevelWarn
-		message = "⚠️ " + constants.LogMsgHTTPRequest
+		message = logMsgHTTPRequestWarn
 	} else {
-		message = "✅ " + constants.LogMsgHTTPRequest
+		message = logMsgHTTPRequestOK
 	}
 
 	logger.Log(level, message, fields)
 
 	// 派发访问日志钩子
-	if HasAccessLogHandlers() {
+	if hasAccessLog {
 		captureAccessLog(ctx, r, rw, start, duration, reqBody, rw.GetBody(), time.Duration(config.SlowHTTPThreshold)*time.Millisecond)
 	}
 }
@@ -355,7 +382,7 @@ func logHTTPError(ctx context.Context, r *http.Request, rw *ResponseWriter, dura
 		AddValue(constants.LogFieldDuration, duration.Milliseconds()).
 		AddRequestContext(ctx)
 
-	logger.Log(constants.LogLevelWarn, "⚠️ "+constants.LogMsgHTTPRequestSkip, fields)
+	logger.Log(constants.LogLevelWarn, logMsgHTTPRequestSkip, fields)
 }
 
 // ============================================================================

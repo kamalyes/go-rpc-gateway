@@ -33,9 +33,7 @@ import (
 // - 通常与签名验证中间件配合使用
 func TimestampMiddleware(config *signature.Signature) HTTPMiddleware {
 	if !config.Enabled {
-		return func(next http.Handler) http.Handler {
-			return next
-		}
+		return noopMiddleware
 	}
 
 	return func(next http.Handler) http.Handler {

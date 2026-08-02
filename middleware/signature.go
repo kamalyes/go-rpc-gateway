@@ -17,7 +17,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"strings"
 
+	validator "github.com/kamalyes/go-argus"
 	"github.com/kamalyes/go-config/pkg/signature"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	gwerrors "github.com/kamalyes/go-rpc-gateway/errors"
@@ -26,7 +28,6 @@ import (
 	"github.com/kamalyes/go-toolbox/pkg/httpx"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/sign"
-	"github.com/kamalyes/go-argus"
 )
 
 // SignatureValidator 签名验证器接口
@@ -74,9 +75,14 @@ func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) e
 
 	// 验证签名
 	if expectedSign != requestCommonMeta.Signature {
-		global.LOGGER.DebugContext(r.Context(), "🔐 HMAC 签名验证失败:")
-		global.LOGGER.DebugContext(r.Context(), "  - 期望签名: %s", expectedSign)
-		global.LOGGER.DebugContext(r.Context(), "  - 实际签名: %s", requestCommonMeta.Signature)
+		global.LOGGER.ErrorLines(
+			"🔐 HMAC 签名验证失败",
+			fmt.Sprintf("  - Timestamp: %s", requestCommonMeta.Timestamp),
+			fmt.Sprintf("  - QueryString: %s", queryString),
+			fmt.Sprintf("  - Body: %s", string(body)),
+			fmt.Sprintf("  - 期望签名: %s", expectedSign),
+			fmt.Sprintf("  - 实际签名: %s", requestCommonMeta.Signature),
+		)
 		return fmt.Errorf(constants.SignatureErrorMismatch)
 	}
 
@@ -145,7 +151,13 @@ func (v *RSAValidator) Validate(r *http.Request, config *signature.Signature) er
 
 	// 验证 RSA 签名
 	if err := v.verifySignature(dataToSign, requestCommonMeta.Signature); err != nil {
-		global.LOGGER.DebugContext(r.Context(), "🔐 RSA 签名验证失败: %v", err)
+		global.LOGGER.ErrorLines(
+			"🔐 RSA 签名验证失败",
+			fmt.Sprintf("  - Timestamp: %s", requestCommonMeta.Timestamp),
+			fmt.Sprintf("  - QueryString: %s", queryString),
+			fmt.Sprintf("  - Body: %s", string(body)),
+			fmt.Sprintf("  - 错误: %v", err),
+		)
 		return fmt.Errorf(constants.SignatureErrorMismatch)
 	}
 
@@ -179,31 +191,21 @@ func (v *RSAValidator) verifySignature(dataToSign, signatureBase64 string) error
 // buildSigningData 构建签名数据（HMAC 和 RSA 使用相同的逻辑）
 // 签名数据格式：timestamp + queryString + body
 func buildSigningData(req *RequestCommonMeta, queryString string, body []byte) string {
-	var dataToSign string
+	// 预估容量：timestamp + queryString + body
+	var sb strings.Builder
+	sb.Grow(len(req.Timestamp) + len(queryString) + len(body))
 
-	// 添加时间戳
-	dataToSign += req.Timestamp
+	sb.WriteString(req.Timestamp)
 
-	// 添加查询字符串（直接使用原始字符串，保持参数顺序）
 	if queryString != "" {
-		dataToSign += queryString
+		sb.WriteString(queryString)
 	}
 
-	// 添加请求体
-	if body != nil {
-		bodyStr := string(body)
-		// 调试：打印签名参
-		// 调试：打印签名参数
-		global.LOGGER.Debug("🔐 后端签名参数:")
-		global.LOGGER.Debug("  - Timestamp: %s", req.Timestamp)
-		global.LOGGER.Debug("  - QueryString: %s", queryString)
-		global.LOGGER.Debug("  - Body length: %d bytes, %d chars", len(body), len(bodyStr))
-		global.LOGGER.Debug("  - Body 完整内容: %s", body)
-		global.LOGGER.Debug("  - 客户端签名: %s", req.Signature)
-		dataToSign += bodyStr
+	if len(body) > 0 {
+		sb.Write(body)
 	}
 
-	return dataToSign
+	return sb.String()
 }
 
 // readRequestBody 读取请求体
@@ -258,42 +260,15 @@ func buildSignatureValidator(config *signature.Signature) (SignatureValidator, *
 //	middleware.SignatureMiddleware(config)
 func SignatureMiddleware(config *signature.Signature) HTTPMiddleware {
 	if !config.Enabled {
-		return func(next http.Handler) http.Handler {
-			return next
-		}
+		return noopMiddleware
 	}
-
-	validator, appErr := buildSignatureValidator(config)
-	if appErr != nil {
-		global.LOGGER.Error("❌ 创建签名验证器失败: %v", appErr)
-		return func(next http.Handler) http.Handler {
-			return next
-		}
-	}
-	if validator == nil {
-		return func(next http.Handler) http.Handler {
-			return next
-		}
-	}
-
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 验证签名
-			if err := validator.Validate(r, config); err != nil {
-				response.WriteErrorResponseWithCode(w, http.StatusForbidden, constants.SignatureErrorCodeInvalid, err.Error())
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
+	return SignatureMiddlewareWithProvider(config, nil)
 }
 
 // SignatureMiddlewareWithProvider 签名验证中间件（按请求动态解析配置/验证器）
 func SignatureMiddlewareWithProvider(config *signature.Signature, provider DynamicSignatureProvider) HTTPMiddleware {
 	if !config.Enabled {
-		return func(next http.Handler) http.Handler {
-			return next
-		}
+		return noopMiddleware
 	}
 
 	return func(next http.Handler) http.Handler {
