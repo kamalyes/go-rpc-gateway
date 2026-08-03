@@ -19,6 +19,7 @@ import (
 
 	gccommon "github.com/kamalyes/go-config/pkg/common"
 	goi18n "github.com/kamalyes/go-i18n"
+	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/contextx"
@@ -119,6 +120,8 @@ func RequestContextMiddleware() HTTPMiddleware {
 
 			// 单次 WithValue 存入 RequestCommonMeta，避免 30+ 层 context 嵌套
 			ctx = WithRequestCommonMeta(ctx, requestCommonMeta)
+			// 同步写入 context.Value，确保 OTel 未启用时 go-logger 也能通过 fallback 提取 trace_id
+			ctx = contextx.WithValue(ctx, logger.ContextKeyTraceID, requestCommonMeta.TraceID)
 
 			// 5. 设置响应头（便于客户端追踪）
 			w.Header().Set(constants.HeaderXTraceID, requestCommonMeta.TraceID)
@@ -145,7 +148,7 @@ func GetRequestCommonMeta(ctx context.Context) *RequestCommonMeta {
 	// 回退：直接从 context 中提取链路字段，避免递归调用。
 	return &RequestCommonMeta{
 		ID:             contextx.GetValue[string](ctx, constants.MetadataID),
-		TraceID:        contextx.GetValue[string](ctx, constants.MetadataTraceID),
+		TraceID:        contextx.GetValue[string](ctx, logger.ContextKeyTraceID),
 		RequestID:      contextx.GetValue[string](ctx, constants.MetadataRequestID),
 		Authorization:  contextx.GetValue[string](ctx, constants.MetadataAuthorization),
 		UserID:         contextx.GetValue[string](ctx, constants.MetadataUserID),
@@ -274,7 +277,9 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 	}
 
 	// 单次 WithValue，避免 30+ 层 context 嵌套
-	return WithRequestCommonMeta(ctx, meta)
+	ctx = WithRequestCommonMeta(ctx, meta)
+	// 同步写入 context.Value，确保 OTel 未启用时 go-logger 也能通过 fallback 提取 trace_id
+	return contextx.WithValue(ctx, logger.ContextKeyTraceID, meta.TraceID)
 }
 
 // setResponseMetadata 设置 gRPC 响应 metadata（与 HTTP 的 w.Header().Set 对应）
@@ -657,7 +662,7 @@ func updateRequestCommonMetaField(ctx context.Context, update func(*RequestCommo
 
 // WithTraceID 将 TraceID 设置到 context 并同步更新 RequestCommonMeta
 func WithTraceID(ctx context.Context, traceID string) context.Context {
-	ctx = contextx.WithValue(ctx, constants.MetadataTraceID, traceID)
+	ctx = contextx.WithValue(ctx, logger.ContextKeyTraceID, traceID)
 	updateRequestCommonMetaField(ctx, func(m *RequestCommonMeta) { m.TraceID = traceID })
 	return ctx
 }
