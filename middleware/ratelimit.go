@@ -119,10 +119,21 @@ func (t *TokenBucketLimiter) Allow(ctx context.Context, key string, rule *rateli
 		// 计算应该补充的令牌(防止时钟回拨) - AtMost实际是max函数
 		elapsed := mathx.AtMost(0, now-oldLastRefill)
 
-		// 计算新令牌数（整数运算,先除后乘避免溢出）
+		// 限制 elapsed 不超过填满桶所需时间（避免长时间空闲后大数溢出，且超过部分本就会被 maxTokens 截断）
+		// 填满时间(纳秒) = maxTokens * billion / rps，其中 rps = refillRate / billion（精确整除）
+		if rps := bucket.refillRate / billion; rps > 0 {
+			if maxElapsed := bucket.maxTokens * billion / rps; elapsed > maxElapsed {
+				elapsed = maxElapsed
+			}
+		}
+
+		// 计算新令牌数（整数运算）
+		// 注意: sub-second 项必须用 remainderNanos*(refillRate/billion) 而非 (remainderNanos*refillRate)/billion
+		// 后者的中间值 remainderNanos*refillRate 在 rps>=50、sub-second 间隔时会溢出 int64 产生负数
+		// 由于 refillRate = rps*billion，refillRate/billion == rps 精确整除，重排后 remainderNanos*rps 不会溢出
 		elapsedSeconds := elapsed / billion
 		remainderNanos := elapsed % billion
-		addTokens := elapsedSeconds*bucket.refillRate + (remainderNanos*bucket.refillRate)/billion
+		addTokens := elapsedSeconds*bucket.refillRate + remainderNanos*(bucket.refillRate/billion)
 
 		// 计算新令牌数: min(maxTokens*billion, oldTokens+addTokens), 然后 max(0, result)
 		// 注意: mathx.AtLeast实际是min, mathx.AtMost实际是max
