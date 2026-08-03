@@ -1959,3 +1959,163 @@ func TestGRPCRateLimit_HTTPPathUnchangedRegression(t *testing.T) {
 	}
 	assert.Equal(t, 3, ok, "HTTP 全局限流应与重构前一致：3 次成功 1 次失败")
 }
+
+// ============================================================================
+// E. 令牌桶补充公式 int64 溢出回归测试
+//
+// 原公式 (remainderNanos*refillRate)/billion 的中间值 remainderNanos*refillRate
+// 在 rps>=50 且 sub-second 间隔时溢出 int64，导致 addTokens 为负数，令牌桶被错误抽干。
+// 修复后改为 remainderNanos*(refillRate/billion)，利用 refillRate=rps*billion 精确整除，
+// 将中间值降至 remainderNanos*rps，避免溢出。
+// ============================================================================
+
+// computeAddTokens 与生产代码 ratelimit.go 中的补充公式保持一致
+// refillRate = rps * billion，结果单位为纳令牌（1 令牌 = billion 纳令牌）
+func computeAddTokens(elapsed, refillRate int64) int64 {
+	elapsedSeconds := elapsed / billion
+	remainderNanos := elapsed % billion
+	return elapsedSeconds*refillRate + remainderNanos*(refillRate/billion)
+}
+
+// TestTokenBucket_RefillSubSecondPrecision 验证 sub-second 间隔下补充精度
+// rps=500（测试配置值）时，原公式在间隔>18ms 即溢出为负数，修复后应精确匹配期望值
+func TestTokenBucket_RefillSubSecondPrecision(t *testing.T) {
+	rps := int64(500) // 来自 gateway-tenant-test.yaml 的 requests-per-second
+	refillRate := rps * billion
+
+	cases := []struct {
+		name    string
+		elapsed int64
+	}{
+		{"1纳秒", 1},
+		{"100纳秒", 100},
+		{"1微秒", 1_000},
+		{"1毫秒", 1_000_000},
+		{"10毫秒", 10_000_000},
+		{"18毫秒(原溢出临界内)", 18_000_000},
+		{"19毫秒(原溢出临界外)", 19_000_000},
+		{"100毫秒", 100_000_000},
+		{"500毫秒", 500_000_000},
+		{"999毫秒", 999_000_000},
+	}
+
+	for _, c := range cases {
+		expected := rps * c.elapsed
+		got := computeAddTokens(c.elapsed, refillRate)
+
+		t.Logf("%-24s elapsed=%-12d got=%-15d expected=%-15d", c.name, c.elapsed, got, expected)
+
+		assert.Equalf(t, expected, got, "[%s] 补充令牌数不正确", c.name)
+		// 期望值非0时，结果不应为0（不会"压入0"）
+		if expected != 0 {
+			assert.NotZerof(t, got, "[%s] 不应压入0", c.name)
+		}
+	}
+}
+
+// TestTokenBucket_RefillVariousRps 验证多个 rps 值下补充公式均正确
+// 覆盖从 rps=1 到 rps=100000 的范围，确保无溢出
+func TestTokenBucket_RefillVariousRps(t *testing.T) {
+	elapsedNanos := int64(500 * 1e6) // 0.5 秒
+
+	for _, rps := range []int64{1, 5, 9, 10, 50, 100, 500, 1000, 5000, 10000, 100000} {
+		refillRate := rps * billion
+		expected := rps * elapsedNanos
+		got := computeAddTokens(elapsedNanos, refillRate)
+
+		t.Logf("rps=%-7d got=%-25d expected=%-25d", rps, got, expected)
+
+		assert.Equalf(t, expected, got, "rps=%d 补充令牌数不正确", rps)
+	}
+}
+
+// TestTokenBucket_RefillFuzz fuzz 验证 0~2 秒范围全匹配（7919 质数步长覆盖面广）
+func TestTokenBucket_RefillFuzz(t *testing.T) {
+	rps := int64(500)
+	refillRate := rps * billion
+
+	for elapsed := int64(0); elapsed <= 2*billion; elapsed += 7919 {
+		expected := rps * elapsed
+		got := computeAddTokens(elapsed, refillRate)
+		assert.Equalf(t, expected, got, "elapsed=%d 不匹配", elapsed)
+	}
+	t.Logf("Fuzz 验证通过：0~2秒范围（步长7919纳秒）全部匹配期望值")
+}
+
+// TestTokenBucket_RefillEndToEnd 端到端验证：rps=500 时 sub-second 补充正确
+func TestTokenBucket_RefillEndToEnd(t *testing.T) {
+	const rps = int64(500)
+	const burst = int64(1000)
+	limiter := NewTokenBucketLimiter(nil)
+
+	rule := &ratelimit.LimitRule{
+		RequestsPerSecond: int(rps),
+		BurstSize:         int(burst),
+	}
+
+	ctx := context.Background()
+
+	// 第1阶段：消耗全部 burst 令牌
+	consumed := 0
+	for i := 0; i < int(burst); i++ {
+		ok, err := limiter.Allow(ctx, "refill-test", rule)
+		assert.NoError(t, err)
+		if !ok {
+			break
+		}
+		consumed++
+	}
+	t.Logf("第1阶段：成功消耗 %d 个令牌（burst=%d）", consumed, burst)
+	assert.Equal(t, int(burst), consumed, "应能消耗全部 burst 令牌")
+
+	// 第2阶段：令牌应已耗尽
+	ok, err := limiter.Allow(ctx, "refill-test", rule)
+	assert.NoError(t, err)
+	assert.False(t, ok, "burst 耗尽后应拒绝请求")
+
+	// 第3阶段：等待 0.5 秒，应补充约 250 令牌
+	time.Sleep(500 * time.Millisecond)
+	allowed := 0
+	for i := 0; i < int(burst); i++ {
+		ok, err := limiter.Allow(ctx, "refill-test", rule)
+		assert.NoError(t, err)
+		if !ok {
+			break
+		}
+		allowed++
+	}
+	t.Logf("第3阶段：等待0.5秒后可消费 %d 个令牌", allowed)
+
+	// 0.5秒 * 500rps = 250 令牌（消耗过程耗时极短，补充量应接近 250）
+	assert.GreaterOrEqual(t, allowed, 240, "0.5秒后应补充约250个令牌")
+	assert.LessOrEqual(t, allowed, 260, "补充量不应超过250太多")
+}
+
+// TestTokenBucket_RefillNoNegative 验证补充后令牌数不会变为负数
+func TestTokenBucket_RefillNoNegative(t *testing.T) {
+	const rps = int64(500)
+	const burst = int64(1000)
+	limiter := NewTokenBucketLimiter(nil)
+
+	rule := &ratelimit.LimitRule{
+		RequestsPerSecond: int(rps),
+		BurstSize:         int(burst),
+	}
+
+	ctx := context.Background()
+
+	// 消耗大部分令牌（留少量）
+	for i := 0; i < 900; i++ {
+		ok, err := limiter.Allow(ctx, "neg-test", rule)
+		assert.NoError(t, err)
+		assert.True(t, ok)
+	}
+
+	// 等待 0.5 秒（原 bug 会在此处补充负数令牌）
+	time.Sleep(500 * time.Millisecond)
+
+	// 应能继续消费（补充了令牌，而非被抽干）
+	ok, err := limiter.Allow(ctx, "neg-test", rule)
+	assert.NoError(t, err)
+	assert.True(t, ok, "补充后应有令牌可用（不应因溢出负数而抽干）")
+}

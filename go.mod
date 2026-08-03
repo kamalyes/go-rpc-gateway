@@ -119,7 +119,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12
-	github.com/kamalyes/go-cachex v0.2.7
+	github.com/kamalyes/go-cachex v0.2.8
 	github.com/klauspost/compress v1.18.6
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
