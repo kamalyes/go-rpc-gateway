@@ -29,6 +29,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/utilities"
@@ -674,9 +675,29 @@ func RegisterDynamicHandlers(
 
 // RediscoverAndRegisterService 重新发现并注册单个服务
 // 用于服务恢复健康后，重新通过 reflection 发现服务并注册 HTTP 路由
+// 包含重试机制（3 次），避免服务刚恢复时 reflection 瞬态失败导致路由永久丢失
 func RediscoverAndRegisterService(ctx context.Context, mux *runtime.ServeMux, serviceName string) error {
 	gwglobal.LOGGER.InfoContext(ctx, "🔄 服务 %s 恢复健康，重新发现并注册...", serviceName)
 
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if attempt > 1 {
+			delay := time.Duration(attempt) * time.Second
+			gwglobal.LOGGER.ErrorContext(ctx, "🔄 服务 %s 重新发现第 %d 次尝试（等待 %v）...", serviceName, attempt, delay)
+			time.Sleep(delay)
+		}
+		lastErr = rediscoverAndRegisterOnce(ctx, mux, serviceName)
+		if lastErr == nil {
+			return nil
+		}
+		gwglobal.LOGGER.ErrorContext(ctx, "⚠️ 服务 %s 重新发现第 %d/%d 次失败: %v", serviceName, attempt, maxAttempts, lastErr)
+	}
+	return fmt.Errorf("服务 %s 重新发现失败（已重试 %d 次）: %w", serviceName, maxAttempts, lastErr)
+}
+
+// rediscoverAndRegisterOnce 执行一次完整的重新发现和注册流程
+func rediscoverAndRegisterOnce(ctx context.Context, mux *runtime.ServeMux, serviceName string) error {
 	// 1. 重新发现服务
 	services, fileCache, err := discoverSingleClient(ctx, serviceName)
 	if err != nil {
