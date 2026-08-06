@@ -408,6 +408,7 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 		constants.MetadataSignature, requestCommonMeta.Signature,
 		constants.MetadataAccessKey, requestCommonMeta.AccessKey,
 		constants.MetadataAcceptLanguage, acceptLanguage,
+		constants.MetadataForwardedHost, requestCommonMeta.ForwardedHost,
 	)
 
 	// 合并已有的 outgoing metadata
