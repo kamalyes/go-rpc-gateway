@@ -421,6 +421,12 @@ func discoverServices(ctx context.Context, conn *grpc.ClientConn) ([]ReflectionS
 	if sendErr := stream.Send(&grpc_reflection_v1.ServerReflectionRequest{
 		MessageRequest: &grpc_reflection_v1.ServerReflectionRequest_ListServices{},
 	}); sendErr != nil {
+		// gRPC 规范：Send 返回 io.EOF 表示流已被服务端终止，需调用 Recv 获取真实错误
+		if sendErr == io.EOF {
+			if _, recvErr := stream.Recv(); recvErr != nil && recvErr != io.EOF {
+				sendErr = recvErr
+			}
+		}
 		return nil, nil, fmt.Errorf("发送 ListServices 请求失败: %w", sendErr)
 	}
 

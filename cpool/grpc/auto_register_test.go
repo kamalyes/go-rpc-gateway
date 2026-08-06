@@ -15,14 +15,21 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -430,4 +437,166 @@ func buildTestWellKnownMessageDescriptor(t *testing.T, msgName, fieldName, wellK
 	file, err := protodesc.NewFile(fd, protoregistry.GlobalFiles)
 	assert.NoError(t, err)
 	return file.Messages().Get(0)
+}
+
+// =============================================================================
+// discoverServices 测试（EOF 处理 + reflection 集成）
+// =============================================================================
+
+// TestDiscoverServices_Success 正常 reflection 发现
+func TestDiscoverServices_Success(t *testing.T) {
+	addr, stop := startTestGRPCServer(t)
+	defer stop()
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+	waitForConnReady(t, conn, 5*time.Second)
+
+	services, files, err := discoverServices(context.Background(), conn)
+	assert.NoError(t, err)
+	// 服务器仅注册了 reflection，reflection 服务会被跳过 → 空列表
+	assert.Empty(t, services)
+	assert.Empty(t, files)
+}
+
+// TestDiscoverServices_ConnectionRefused 连接不可达时的错误处理
+func TestDiscoverServices_ConnectionRefused(t *testing.T) {
+	conn, err := grpc.NewClient("localhost:59999", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	_, _, err = discoverServices(context.Background(), conn)
+	assert.Error(t, err)
+	// 错误应包含 reflection stream 创建或发送失败的信息
+	errMsg := err.Error()
+	assert.True(t,
+		strings.Contains(errMsg, "reflection") || strings.Contains(errMsg, "ListServices") || strings.Contains(errMsg, "Unavailable"),
+		"错误应包含 reflection 相关信息, got: %s", errMsg)
+}
+
+// TestDiscoverServices_ServerRejectsStream 服务端拒绝 stream 时的 EOF 处理
+// 验证：Send 返回 EOF 时调用 Recv 获取真实错误，而非丢失为纯 EOF
+func TestDiscoverServices_ServerRejectsStream(t *testing.T) {
+	rejectErr := status.Error(codes.PermissionDenied, "reflection denied")
+	addr, stop := startTestGRPCServerWithStreamInterceptor(t, rejectErr)
+	defer stop()
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+	waitForConnReady(t, conn, 5*time.Second)
+
+	_, _, err = discoverServices(context.Background(), conn)
+	assert.Error(t, err)
+	// 关键验证：错误不应是纯 EOF，应包含服务端返回的真实状态
+	errMsg := err.Error()
+	assert.Contains(t, errMsg, "PermissionDenied",
+		"Send 返回 EOF 时应通过 Recv 获取真实错误，而非丢失为纯 EOF, got: %s", errMsg)
+	assert.NotContains(t, errMsg, "发送 ListServices 请求失败: EOF",
+		"错误不应是纯 EOF，应包含真实 gRPC 状态")
+}
+
+// TestDiscoverServices_ServerShutdown 服务端关闭后的错误处理
+func TestDiscoverServices_ServerShutdown(t *testing.T) {
+	addr, stop := startTestGRPCServer(t)
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+	waitForConnReady(t, conn, 5*time.Second)
+
+	// 先验证正常工作
+	_, _, err = discoverServices(context.Background(), conn)
+	assert.NoError(t, err, "服务器运行时 discovery 应成功")
+
+	// 停止服务器
+	stop()
+
+	// 等待 ClientConn 检测到连接断开
+	time.Sleep(2 * time.Second)
+
+	// 再次调用应失败，错误应包含有意义的信息（非纯 EOF）
+	_, _, err = discoverServices(context.Background(), conn)
+	assert.Error(t, err)
+	errMsg := err.Error()
+	// 错误应包含 Unavailable 或 EOF 或 reflection 相关信息
+	assert.True(t,
+		strings.Contains(errMsg, "Unavailable") ||
+			strings.Contains(errMsg, "EOF") ||
+			strings.Contains(errMsg, "reflection") ||
+			strings.Contains(errMsg, "ListServices"),
+		"服务器关闭后应返回有意义的错误, got: %s", errMsg)
+}
+
+// TestDiscoverServices_ContextCanceled 上下文取消时的错误处理
+func TestDiscoverServices_ContextCanceled(t *testing.T) {
+	addr, stop := startTestGRPCServer(t)
+	defer stop()
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+	waitForConnReady(t, conn, 5*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 立即取消
+
+	_, _, err = discoverServices(ctx, conn)
+	assert.Error(t, err)
+}
+
+// TestDiscoverServices_MultipleServers 多个服务器的 reflection 发现
+func TestDiscoverServices_MultipleServers(t *testing.T) {
+	addr1, stop1 := startTestGRPCServer(t)
+	defer stop1()
+
+	addr2, stop2 := startTestGRPCServer(t)
+	defer stop2()
+
+	// 服务器1
+	conn1, err := grpc.NewClient(addr1, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn1.Close()
+	waitForConnReady(t, conn1, 5*time.Second)
+
+	// 服务器2
+	conn2, err := grpc.NewClient(addr2, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn2.Close()
+	waitForConnReady(t, conn2, 5*time.Second)
+
+	// 分别 discovery
+	_, _, err1 := discoverServices(context.Background(), conn1)
+	_, _, err2 := discoverServices(context.Background(), conn2)
+	assert.NoError(t, err1)
+	assert.NoError(t, err2)
+}
+
+// TestDiscoverServices_RetryAfterRecovery 服务恢复后 discovery 可再次成功
+func TestDiscoverServices_RetryAfterRecovery(t *testing.T) {
+	freePort := findFreePort(t)
+
+	conn, err := grpc.NewClient(freePort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// 初始：端口未监听 → discovery 失败
+	_, _, err = discoverServices(context.Background(), conn)
+	assert.Error(t, err, "端口未监听时 discovery 应失败")
+
+	// 启动服务器
+	lis, err := net.Listen("tcp", freePort)
+	require.NoError(t, err)
+	server := grpc.NewServer()
+	reflection.Register(server)
+	go server.Serve(lis)
+	defer server.Stop()
+
+	// 等待 ClientConn 自动重连
+	waitForConnReady(t, conn, 15*time.Second)
+
+	// 恢复后 discovery 应成功
+	_, _, err = discoverServices(context.Background(), conn)
+	assert.NoError(t, err, "服务恢复后 discovery 应成功")
 }
