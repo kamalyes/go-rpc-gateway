@@ -1138,7 +1138,7 @@ func (g *Gateway) InitDatabaseModels(models ...interface{}) error {
 }
 
 // GetRedis 获取Redis客户端
-func (g *Gateway) GetRedis() *redis.Client {
+func (g *Gateway) GetRedis() redis.UniversalClient {
 	if poolManager := g.GetPoolManager(); poolManager != nil {
 		return poolManager.GetRedis()
 	}

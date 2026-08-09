@@ -132,7 +132,7 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 
 // initDistributedPubSub 创建分布式 PubSub 实例
 // 从 WSC 配置的 redis-repository.pubsub 段构建 cachex.PubSubConfig，用于跨节点消息路由
-func initDistributedPubSub(redisClient *redis.Client, cfg *wscconfig.WSC) *cachex.PubSub {
+func initDistributedPubSub(redisClient redis.UniversalClient, cfg *wscconfig.WSC) *cachex.PubSub {
 	pubsubCfg := cachex.DefaultPubSubConfig()
 	if cfg.RedisRepository != nil && cfg.RedisRepository.PubSub != nil && cfg.RedisRepository.PubSub.GetEnabled() {
 		ps := cfg.RedisRepository.PubSub
@@ -144,7 +144,15 @@ func initDistributedPubSub(redisClient *redis.Client, cfg *wscconfig.WSC) *cache
 		pubsubCfg.EnableCompression = ps.GetEnableCompression()
 		pubsubCfg.CompressionMinSize = ps.GetCompressionMinSize()
 	}
-	return cachex.NewPubSub(redisClient, pubsubCfg)
+	return cachex.NewPubSub(redisClient,
+		cachex.WithPubSubNamespace(pubsubCfg.Namespace),
+		cachex.WithPubSubMaxRetries(pubsubCfg.MaxRetries),
+		cachex.WithPubSubRetryDelay(pubsubCfg.RetryDelay),
+		cachex.WithPubSubBufferSize(pubsubCfg.BufferSize),
+		cachex.WithPubSubPingInterval(pubsubCfg.PingInterval),
+		cachex.WithPubSubCompression(pubsubCfg.EnableCompression),
+		cachex.WithPubSubCompressionMinSize(pubsubCfg.CompressionMinSize),
+	)
 }
 
 // ============================================================================

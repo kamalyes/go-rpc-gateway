@@ -41,7 +41,7 @@ var (
 	Node           *snowflake.Node                           // 雪花算法节点（用于分布式ID生成）
 	LOG            logger.ILogger                            // 日志器别名（兼容旧代码）
 	DB             *gorm.DB                                  // 数据库连接（便捷引用，实际由 PoolManager 管理）
-	REDIS          *redis.Client                             // Redis连接（便捷引用，实际由 PoolManager 管理）
+	REDIS          redis.UniversalClient                     // Redis连接（便捷引用，实际由 PoolManager 管理）
 	MinIO          *minio.Client                             // MinIO连接（便捷引用，实际由 PoolManager 管理）
 	DATAMASKER     *desensitize.DataMasker                   // 数据脱敏器
 	SERVER_NODE    string                                    // 当前服务节点标识（K8s 环境下为 Pod 名称），用于响应头和 gRPC metadata 透传
@@ -140,7 +140,7 @@ func GetDB() *gorm.DB {
 }
 
 // GetRedis 获取Redis连接
-func GetRedis() *redis.Client {
+func GetRedis() redis.UniversalClient {
 	return REDIS
 }
 

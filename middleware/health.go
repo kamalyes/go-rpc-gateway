@@ -56,7 +56,7 @@ type HealthCheckResult struct {
 
 // RedisChecker Redis健康检查器
 type RedisChecker struct {
-	client    *redis.Client
+	client    redis.UniversalClient
 	timeout   time.Duration
 	useGlobal bool
 }
@@ -73,7 +73,7 @@ func NewRedisChecker(timeout time.Duration) *RedisChecker {
 }
 
 // NewRedisCheckerWithClient 使用指定Redis客户端创建检查器
-func NewRedisCheckerWithClient(client *redis.Client, timeout time.Duration) *RedisChecker {
+func NewRedisCheckerWithClient(client redis.UniversalClient, timeout time.Duration) *RedisChecker {
 	if timeout == 0 {
 		timeout = 5 * time.Second
 	}
@@ -90,7 +90,7 @@ func (r *RedisChecker) Name() string {
 func (r *RedisChecker) Check(ctx context.Context) HealthStatus {
 	start := time.Now()
 
-	var client *redis.Client
+	var client redis.UniversalClient
 	if r.useGlobal {
 		client = global.REDIS
 	} else {

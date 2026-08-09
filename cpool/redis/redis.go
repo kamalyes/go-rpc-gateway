@@ -19,13 +19,13 @@ import (
 )
 
 // Redis 初始化redis客户端
-func Redis(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogger) *redis.Client {
-	// 检查缓存是否启用
-	if !cfg.Cache.Enabled {
-		return nil
-	}
-
-	// 检查Redis配置
+// 使用 redis.NewUniversalClient 根据地址数量自动选择底层 client 类型：
+//   - 单地址 → *redis.Client（单机）
+//   - 多地址 → *redis.ClusterClient（集群）
+//
+// 返回 redis.UniversalClient 接口，统一单机与集群调用方式
+func Redis(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogger) redis.UniversalClient {
+	// 先检查配置是否存在，再检查是否启用，避免 cfg.Cache 为 nil 时 panic
 	if cfg.Cache == nil {
 		if log != nil {
 			log.WarnContext(ctx, "Redis configuration not found")
@@ -33,47 +33,69 @@ func Redis(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILogger) *redi
 		return nil
 	}
 
+	if !cfg.Cache.Enabled {
+		return nil
+	}
+
 	// 使用配置创建Redis客户端
 	redisCfg := cfg.Cache.Redis
-	if redisCfg.Addr == "" {
-		if log != nil {
-			log.WarnContext(ctx, "Redis address not configured")
+
+	// 统一地址列表：优先使用 Addrs（集群），回退到 Addr（单机兼容旧配置）
+	addrs := redisCfg.Addrs
+	if len(addrs) == 0 {
+		if redisCfg.Addr == "" {
+			if log != nil {
+				log.WarnContext(ctx, "Redis address not configured")
+			}
+			return nil
 		}
-		return nil
+		addrs = []string{redisCfg.Addr}
 	}
 
-	db := 0
-	if redisCfg.DB >= 0 && redisCfg.DB <= 15 {
-		db = redisCfg.DB
+	// 构建通用配置，字段与 go-config Redis 结构体一一映射
+	// MaxConnAge → ConnMaxLifetime, IdleTimeout → ConnMaxIdleTime（go-redis 字段名不同但语义一致）
+	opts := &redis.UniversalOptions{
+		Addrs:                 addrs,
+		ClientName:            redisCfg.ClientName,
+		Protocol:              redisCfg.Protocol,
+		Username:              redisCfg.Username,
+		Password:              redisCfg.Password,
+		SentinelUsername:      redisCfg.SentinelUsername,
+		SentinelPassword:      redisCfg.SentinelPassword,
+		DB:                    redisCfg.DB,
+		MaxRetries:            redisCfg.MaxRetries,
+		MaxRedirects:          redisCfg.MaxRedirects,
+		PoolSize:              redisCfg.PoolSize,
+		MaxActiveConns:        redisCfg.MaxActiveConns,
+		MinIdleConns:          redisCfg.MinIdleConns,
+		MaxIdleConns:          redisCfg.MaxIdleConns,
+		ReadBufferSize:        redisCfg.ReadBufferSize,
+		WriteBufferSize:       redisCfg.WriteBufferSize,
+		ConnMaxLifetime:       redisCfg.MaxConnAge,
+		ConnMaxIdleTime:       redisCfg.IdleTimeout,
+		DialTimeout:           redisCfg.DialTimeout,
+		PoolTimeout:           redisCfg.PoolTimeout,
+		ReadTimeout:           redisCfg.ReadTimeout,
+		WriteTimeout:          redisCfg.WriteTimeout,
+		MinRetryBackoff:       redisCfg.MinRetryBackoff,
+		MaxRetryBackoff:       redisCfg.MaxRetryBackoff,
+		ContextTimeoutEnabled: redisCfg.ContextTimeoutEnabled,
+		ReadOnly:              redisCfg.ReadOnly,
+		RouteByLatency:        redisCfg.RouteByLatency,
+		RouteRandomly:         redisCfg.RouteRandomly,
+		MasterName:            redisCfg.MasterName,
+		IsClusterMode:         redisCfg.ClusterMode,
+		DisableIdentity:       true, // 禁用 CLIENT SETINFO，避免 maint_notifications 错误
 	}
 
-	client := redis.NewClient(&redis.Options{
-		Addr:             redisCfg.Addr,
-		Username:         redisCfg.Username,
-		Password:         redisCfg.Password,
-		DB:               db,
-		MaxRetries:       redisCfg.MaxRetries,
-		PoolSize:         redisCfg.PoolSize,
-		MinIdleConns:     redisCfg.MinIdleConns,
-		MaxIdleConns:     redisCfg.MaxIdleConns,
-		PoolTimeout:      redisCfg.PoolTimeout,
-		DialTimeout:      redisCfg.DialTimeout,
-		WriteTimeout:     redisCfg.WriteTimeout,
-		ReadTimeout:      redisCfg.ReadTimeout,
-		MaxRetryBackoff:  redisCfg.MaxRetryBackoff,
-		MinRetryBackoff:  redisCfg.MinRetryBackoff,
-		DisableIndentity: true, // 禁用客户端身份标识，避免 maint_notifications 错误
-	})
+	client := redis.NewUniversalClient(opts)
 
 	// 测试连接
-	pong, err := client.Ping(ctx).Result()
-	if err != nil {
-		log.ErrorContextKV(ctx, "Redis connection failed", "addr", redisCfg.Addr, "db", db, "err", err)
+	if err := client.Ping(ctx).Err(); err != nil {
+		if log != nil {
+			log.ErrorContextKV(ctx, "Redis connection failed", "addrs", addrs, "err", err)
+		}
 		return nil
-	}
-
-	if log != nil {
-		log.InfoContextKV(ctx, "Redis connect ping response", "pong", pong)
 	}
 
 	return client

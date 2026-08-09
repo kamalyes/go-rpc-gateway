@@ -41,7 +41,7 @@ type PoolManager interface {
 	GetDB() *gorm.DB
 
 	// 获取Redis客户端
-	GetRedis() *redisClient.Client
+	GetRedis() redisClient.UniversalClient
 
 	// 获取缓存客户端
 	GetCache() cachex.CtxCache
@@ -74,7 +74,7 @@ type PoolManager interface {
 	SetDB(db *gorm.DB)
 
 	// 设置Redis客户端
-	SetRedis(rdb *redisClient.Client)
+	SetRedis(rdb redisClient.UniversalClient)
 
 	// 设置缓存客户端
 	SetCache(cache cachex.CtxCache)
@@ -117,7 +117,7 @@ type Manager struct {
 
 	// 连接实例
 	db         *gorm.DB
-	redis      *redisClient.Client
+	redis      redisClient.UniversalClient
 	cache      cachex.CtxCache
 	minio      *minio.Client
 	storage    oss.StorageHandler
@@ -364,7 +364,7 @@ func (m *Manager) GetDB() *gorm.DB {
 	return m.db
 }
 
-func (m *Manager) GetRedis() *redisClient.Client {
+func (m *Manager) GetRedis() redisClient.UniversalClient {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.redis
@@ -440,7 +440,7 @@ func (m *Manager) SetDB(db *gorm.DB) {
 	m.db = db
 }
 
-func (m *Manager) SetRedis(rdb *redisClient.Client) {
+func (m *Manager) SetRedis(rdb redisClient.UniversalClient) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.redis = rdb
