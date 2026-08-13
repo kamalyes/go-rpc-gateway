@@ -161,6 +161,11 @@ func (m *Manager) GRPCTracingInterceptor() GRPCInterceptor {
 	return GRPCTracingInterceptor(m.tracingManager)
 }
 
+// GRPCTracingStreamInterceptor gRPC 流式链路追踪拦截器
+func (m *Manager) GRPCTracingStreamInterceptor() grpc.StreamServerInterceptor {
+	return GRPCTracingStreamInterceptor(m.tracingManager)
+}
+
 // GRPCStructTagValidatorInterceptor gRPC struct tag 参数校验拦截器
 // 配合 protoc-go-inject-tag 在 pb 字段上注入的 `validate:"..."` 标签生效。
 func (m *Manager) GRPCStructTagValidatorInterceptor() GRPCInterceptor {
@@ -332,27 +337,31 @@ func (m *Manager) GetMiddlewares() []MiddlewareFunc {
 	// 1. Recovery 中间件（始终启用，最先执行）
 	middlewares = append(middlewares, m.RecoveryMiddleware())
 
-	// 2. Context 追踪中间件（始终启用）
+	// 2. 链路追踪中间件（必须在 RequestContext 之前）
+	// 原因：先创建 OTel span，后续 RequestContextMiddleware 的 extractOrGenerateTraceID
+	// 才能从 span context 中提取 OTel trace_id，确保日志、gRPC metadata、OTel 后端
+	// 使用同一个 trace_id，实现全链路打通；若顺序颠倒，Logging 等中间件会记录
+	// RequestContext 自行生成的随机 trace_id，与 OTel trace_id 不一致
+	if m.cfg.Middleware.Tracing.Enabled && m.tracingManager != nil {
+		middlewares = append(middlewares, m.HTTPTracingMiddleware())
+	}
+
+	// 3. Context 追踪中间件（始终启用）
 	middlewares = append(middlewares, m.RequestContextMiddlewareFunc())
 
-	// 3. 日志中间件（根据配置）
+	// 4. 日志中间件（根据配置）
 	if m.cfg.Middleware.Logging.Enabled {
 		middlewares = append(middlewares, m.LoggingMiddleware())
 	}
 
-	// 4. 国际化中间件（根据配置）
+	// 5. 国际化中间件（根据配置）
 	if m.cfg.Middleware.I18N.Enabled {
 		middlewares = append(middlewares, m.I18nMiddleware())
 	}
 
-	// 5. 监控中间件（根据配置）
+	// 6. 监控中间件（根据配置）
 	if m.cfg.Monitoring.Metrics.Enabled && m.metricsManager != nil {
 		middlewares = append(middlewares, m.HTTPMetricsMiddleware())
-	}
-
-	// 6. 链路追踪中间件（根据配置）
-	if m.cfg.Middleware.Tracing.Enabled && m.tracingManager != nil {
-		middlewares = append(middlewares, m.HTTPTracingMiddleware())
 	}
 
 	// 6.5. 限流前自定义中间件（如认证，需要在限流之前注入 UserID）

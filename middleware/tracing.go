@@ -62,6 +62,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -71,6 +72,7 @@ import (
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -297,7 +299,7 @@ func Tracing(manager *TracingManager) MiddlewareFunc {
 			ctx, span := manager.tracer.Start(ctx, r.Method+" "+r.URL.Path)
 			defer span.End()
 
-			// 设置span属性
+			// 设置span属性（请求阶段）
 			setSpanAttributes(span, r)
 
 			// 注入trace信息到响应头
@@ -321,8 +323,8 @@ func Tracing(manager *TracingManager) MiddlewareFunc {
 			// 将上下文传递给下一个处理器
 			next.ServeHTTP(rw, r.WithContext(ctx))
 
-			// 设置响应状态相关属性
-			span.SetAttributes(attribute.Int(constants.TracingAttrHTTPStatusCode, rw.StatusCode()))
+			// 设置响应阶段属性
+			setResponseAttributes(span, rw)
 			if rw.IsError() {
 				span.RecordError(nil) // 记录错误状态
 			}
@@ -350,8 +352,9 @@ func shouldSkipTracing(r *http.Request) bool {
 	return false
 }
 
-// setSpanAttributes 设置span属性
+// setSpanAttributes 设置span属性（请求阶段）
 func setSpanAttributes(span oteltrace.Span, r *http.Request) {
+	// ---- HTTP 基础属性 ----
 	span.SetAttributes(
 		attribute.String(constants.TracingAttrHTTPMethod, r.Method),
 		attribute.String(constants.TracingAttrHTTPURL, r.URL.String()),
@@ -359,13 +362,50 @@ func setSpanAttributes(span oteltrace.Span, r *http.Request) {
 		attribute.String(constants.TracingAttrHTTPScheme, r.URL.Scheme),
 		attribute.String(constants.TracingAttrHTTPHost, r.Host),
 		attribute.String(constants.TracingAttrHTTPUserAgent, r.Header.Get(constants.HeaderUserAgent)),
+		attribute.String(constants.TracingAttrHTTPFlavor, r.Proto),
+		attribute.String(constants.TracingAttrHTTPRequestContentType, r.Header.Get(constants.HeaderContentType)),
+		attribute.String(constants.TracingAttrHTTPClientIP, netx.GetClientIP(r)),
 	)
 
-	// 添加网络相关属性
-	if remoteAddr := r.RemoteAddr; remoteAddr != "" {
-		span.SetAttributes(attribute.String(constants.TracingAttrNetPeerIP, remoteAddr))
+	// 请求体大小
+	if r.ContentLength > 0 {
+		span.SetAttributes(attribute.Int64(constants.TracingAttrHTTPRequestContentLength, r.ContentLength))
 	}
 
+	// 查询参数
+	if r.URL.RawQuery != "" {
+		span.SetAttributes(attribute.String(constants.TracingAttrHTTPQuery, r.URL.RawQuery))
+	}
+
+	// Referer
+	if referer := r.Referer(); referer != "" {
+		span.SetAttributes(attribute.String(constants.TracingAttrHTTPReferer, referer))
+	}
+
+	// X-Forwarded-For（记录原始转发链路）
+	if xff := r.Header.Get(constants.HeaderXForwardedFor); xff != "" {
+		span.SetAttributes(attribute.String(constants.TracingAttrForwardedFor, xff))
+	}
+
+	// ---- 网络属性 ----
+	if remoteAddr := r.RemoteAddr; remoteAddr != "" {
+		host, port, _ := net.SplitHostPort(remoteAddr)
+		if host != "" {
+			span.SetAttributes(attribute.String(constants.TracingAttrNetPeerIP, host))
+		}
+		if port != "" {
+			span.SetAttributes(attribute.String(constants.TracingAttrNetPeerPort, port))
+		}
+	}
+
+}
+
+// setResponseAttributes 设置响应阶段span属性
+func setResponseAttributes(span oteltrace.Span, rw *ResponseWriter) {
+	span.SetAttributes(attribute.Int(constants.TracingAttrHTTPStatusCode, rw.StatusCode()))
+	if bytesWritten := rw.BytesWritten(); bytesWritten > 0 {
+		span.SetAttributes(attribute.Int64(constants.TracingAttrHTTPResponseContentLength, bytesWritten))
+	}
 }
 
 // Shutdown 关闭链路追踪

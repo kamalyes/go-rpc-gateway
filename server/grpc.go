@@ -103,10 +103,21 @@ func (s *Server) initGRPCServer() error {
 	// 添加中间件拦截器链（按执行顺序）
 	if s.middlewareManager != nil {
 		// 构建 Unary 拦截器链
-		unaryInterceptors := []grpc.UnaryServerInterceptor{
-			middleware.UnaryServerRequestContextInterceptor(), // 1. RequestContext 注入（最先执行，注入 trace_id/request_id）
-			middleware.UnaryServerLoggingInterceptor(),        // 2. 日志记录
+		var unaryInterceptors []grpc.UnaryServerInterceptor
+
+		// 链路追踪拦截器（必须在 RequestContext 之前，与 HTTP 中间件顺序一致）
+		// 原因：先创建 OTel span，后续 RequestContextInterceptor 的 extractOrGenerateTraceID
+		// 才能从 span context 中提取 OTel trace_id，确保日志、gRPC metadata、OTel 后端
+		// 使用同一个 trace_id，实现全链路打通
+		if tracingInterceptor := s.middlewareManager.GRPCTracingInterceptor(); tracingInterceptor != nil {
+			unaryInterceptors = append(unaryInterceptors, tracingInterceptor)
 		}
+
+		// RequestContext 注入（在 Tracing 之后，可从 OTel span 提取 trace_id）
+		unaryInterceptors = append(unaryInterceptors, middleware.UnaryServerRequestContextInterceptor())
+
+		// 日志记录
+		unaryInterceptors = append(unaryInterceptors, middleware.UnaryServerLoggingInterceptor())
 
 		// 添加 i18n 拦截器（如果启用国际化，在 RequestContext 之后注入 i18n context）
 		if i18nInterceptor := s.middlewareManager.GRPCUnaryI18nInterceptor(); i18nInterceptor != nil {
@@ -116,11 +127,6 @@ func (s *Server) initGRPCServer() error {
 		// 添加监控拦截器（如果启用）
 		if metricsInterceptor := s.middlewareManager.GRPCMetricsInterceptor(); metricsInterceptor != nil {
 			unaryInterceptors = append(unaryInterceptors, metricsInterceptor)
-		}
-
-		// 添加链路追踪拦截器（如果启用）
-		if tracingInterceptor := s.middlewareManager.GRPCTracingInterceptor(); tracingInterceptor != nil {
-			unaryInterceptors = append(unaryInterceptors, tracingInterceptor)
 		}
 
 		// 添加限流拦截器（如果启用，放在校验之前以尽早丢弃过载请求）
@@ -139,10 +145,18 @@ func (s *Server) initGRPCServer() error {
 		opts = append(opts, grpc.ChainUnaryInterceptor(unaryInterceptors...))
 
 		// 构建 Stream 拦截器链
-		streamInterceptors := []grpc.StreamServerInterceptor{
-			middleware.StreamServerRequestContextInterceptor(), // 1. RequestContext 注入
-			middleware.StreamServerLoggingInterceptor(),        // 2. 日志记录
+		var streamInterceptors []grpc.StreamServerInterceptor
+
+		// 链路追踪拦截器（必须在 RequestContext 之前，与 Unary 链和 HTTP 链顺序一致）
+		if tracingStreamInterceptor := s.middlewareManager.GRPCTracingStreamInterceptor(); tracingStreamInterceptor != nil {
+			streamInterceptors = append(streamInterceptors, tracingStreamInterceptor)
 		}
+
+		// RequestContext 注入（在 Tracing 之后）
+		streamInterceptors = append(streamInterceptors, middleware.StreamServerRequestContextInterceptor())
+
+		// 日志记录
+		streamInterceptors = append(streamInterceptors, middleware.StreamServerLoggingInterceptor())
 
 		// 添加限流拦截器（如果启用，放在校验之前以尽早丢弃过载请求）
 		if rlStreamInterceptor := s.middlewareManager.GRPCRateLimitStreamInterceptor(); rlStreamInterceptor != nil {

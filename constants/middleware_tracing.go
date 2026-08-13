@@ -79,13 +79,21 @@ const (
 // Span 属性常量
 const (
 	// HTTP 相关属性
-	TracingAttrHTTPMethod     = "http.method"
-	TracingAttrHTTPURL        = "http.url"
-	TracingAttrHTTPPath       = "http.target"
-	TracingAttrHTTPStatusCode = "http.status_code"
-	TracingAttrHTTPUserAgent  = "http.user_agent"
-	TracingAttrHTTPScheme     = "http.scheme"
-	TracingAttrHTTPHost       = "http.host"
+	TracingAttrHTTPMethod                = "http.method"
+	TracingAttrHTTPURL                   = "http.url"
+	TracingAttrHTTPPath                  = "http.target"
+	TracingAttrHTTPStatusCode            = "http.status_code"
+	TracingAttrHTTPUserAgent             = "http.user_agent"
+	TracingAttrHTTPScheme                = "http.scheme"
+	TracingAttrHTTPHost                  = "http.host"
+	TracingAttrHTTPFlavor                = "http.flavor"                  // HTTP 协议版本（1.1, 2.0）
+	TracingAttrHTTPRequestContentLength  = "http.request_content_length"  // 请求体大小
+	TracingAttrHTTPResponseContentLength = "http.response_content_length" // 响应体大小
+	TracingAttrHTTPRequestContentType    = "http.request_content_type"    // 请求 Content-Type
+	TracingAttrHTTPClientIP              = "http.client_ip"               // 客户端真实 IP
+	TracingAttrHTTPQuery                 = "http.query"                   // URL 查询参数
+	TracingAttrHTTPReferer               = "http.referer"                 // 来源页
+	TracingAttrForwardedFor              = "http.x_forwarded_for"         // X-Forwarded-For 头
 
 	// gRPC 相关属性
 	TracingAttrRPCSystem  = "rpc.system"
@@ -95,15 +103,6 @@ const (
 	// 网络相关属性
 	TracingAttrNetPeerIP   = "net.peer.ip"
 	TracingAttrNetPeerPort = "net.peer.port"
-
-	// 用户相关属性
-	TracingAttrUserID    = "user.id"
-	TracingAttrUserAgent = "user.agent"
-
-	// 自定义属性
-	TracingAttrRequestID = "request.id"
-	TracingAttrSessionID = "session.id"
-	TracingAttrTenantID  = "tenant.id"
 )
 
 // Span 事件常量

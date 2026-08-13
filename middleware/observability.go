@@ -22,7 +22,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -345,8 +347,9 @@ func (mm *MetricsManager) Handler() http.Handler {
 }
 
 // ExemplarFromContext 从上下文中提取 Exemplar（用于关联 trace）
-func ExemplarFromContext(ctx interface{}) prometheus.Labels {
-	if spanCtx, ok := ctx.(trace.SpanContext); ok && spanCtx.IsSampled() {
+// 传入 context.Context，从中提取 OTel span 的 trace_id 作为 Prometheus Exemplar
+func ExemplarFromContext(ctx context.Context) prometheus.Labels {
+	if spanCtx := trace.SpanContextFromContext(ctx); spanCtx.IsValid() && spanCtx.IsSampled() {
 		return prometheus.Labels{"trace_id": spanCtx.TraceID().String()}
 	}
 	return nil
@@ -434,6 +437,8 @@ type HTTPMiddleware func(http.Handler) http.Handler
 type GRPCInterceptor = grpc.UnaryServerInterceptor
 
 // HTTPTracingMiddleware HTTP 链路追踪中间件
+// Deprecated: 此实现缺少 W3C traceparent 传播提取/注入及 trace_id 同步，
+// 请使用 tracing.go 中的 Tracing() 中间件（Manager.HTTPTracingMiddleware 已正确委托）。
 func HTTPTracingMiddleware(tracingManager *TracingManager) HTTPMiddleware {
 	return func(next http.Handler) http.Handler {
 		if tracingManager == nil || tracingManager.GetTracer() == nil {
@@ -484,10 +489,14 @@ func GRPCTracingInterceptor(tracingManager *TracingManager) GRPCInterceptor {
 			return handler(ctx, req)
 		}
 
+		// 从 gRPC metadata 提取 W3C traceparent 传播上下文
+		ctx = extractPropagationFromMetadata(ctx)
+
+		// 创建 span
 		ctx, span := tracingManager.GetTracer().Start(ctx, info.FullMethod)
 		defer span.End()
 
-		// 添加属性
+		// 设置 span 属性
 		span.SetAttributes(
 			attribute.String(constants.TracingAttrRPCSystem, "grpc"),
 			attribute.String(constants.TracingAttrRPCMethod, info.FullMethod),
@@ -496,13 +505,85 @@ func GRPCTracingInterceptor(tracingManager *TracingManager) GRPCInterceptor {
 		// 从 metadata 中获取额外信息
 		if md, ok := metadata.FromIncomingContext(ctx); ok {
 			if userAgent := md.Get("user-agent"); len(userAgent) > 0 {
-				span.SetAttributes(attribute.String("user_agent", userAgent[0]))
+				span.SetAttributes(attribute.String(constants.TracingAttrHTTPUserAgent, userAgent[0]))
+			}
+		}
+
+		// 同步 OTel trace_id 与自定义 trace_id，确保日志、gRPC metadata、OTel 后端一致
+		if md, ok := metadata.FromIncomingContext(ctx); ok {
+			if len(md.Get(constants.MetadataTraceID)) == 0 {
+				if spanCtx := span.SpanContext(); spanCtx.IsValid() {
+					otelTraceID := spanCtx.TraceID().String()
+					ctx = WithTraceID(ctx, otelTraceID)
+				}
 			}
 		}
 
 		// 处理请求
 		return handler(ctx, req)
 	}
+}
+
+// GRPCTracingStreamInterceptor gRPC 流式链路追踪拦截器
+func GRPCTracingStreamInterceptor(tracingManager *TracingManager) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if tracingManager == nil || tracingManager.GetTracer() == nil {
+			return handler(srv, ss)
+		}
+
+		ctx := ss.Context()
+
+		// 从 gRPC metadata 提取 W3C traceparent 传播上下文
+		ctx = extractPropagationFromMetadata(ctx)
+
+		// 创建 span
+		ctx, span := tracingManager.GetTracer().Start(ctx, info.FullMethod)
+		defer span.End()
+
+		// 设置 span 属性
+		span.SetAttributes(
+			attribute.String(constants.TracingAttrRPCSystem, "grpc"),
+			attribute.String(constants.TracingAttrRPCMethod, info.FullMethod),
+		)
+
+		// 从 metadata 中获取额外信息
+		if md, ok := metadata.FromIncomingContext(ctx); ok {
+			if userAgent := md.Get("user-agent"); len(userAgent) > 0 {
+				span.SetAttributes(attribute.String(constants.TracingAttrHTTPUserAgent, userAgent[0]))
+			}
+		}
+
+		// 同步 OTel trace_id
+		if md, ok := metadata.FromIncomingContext(ctx); ok {
+			if len(md.Get(constants.MetadataTraceID)) == 0 {
+				if spanCtx := span.SpanContext(); spanCtx.IsValid() {
+					ctx = WithTraceID(ctx, spanCtx.TraceID().String())
+				}
+			}
+		}
+
+		// 包装 ServerStream 以使用增强后的 context
+		wrappedStream := &contextWrappedServerStream{
+			ServerStream: ss,
+			ctx:          ctx,
+		}
+
+		return handler(srv, wrappedStream)
+	}
+}
+
+// extractPropagationFromMetadata 从 gRPC metadata 提取 W3C traceparent 传播上下文
+// gRPC 场景下传播信息存放在 metadata（等价于 HTTP/2 头部）中，
+// 需要手动提取后注入 context，后续 tracer.Start 才能正确关联父 span
+func extractPropagationFromMetadata(ctx context.Context) context.Context {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return ctx
+	}
+
+	// 将 gRPC metadata 转为 HTTP HeaderCarrier 以复用 OTel TextMapPropagator
+	carrier := propagation.HeaderCarrier(md)
+	return otel.GetTextMapPropagator().Extract(ctx, carrier)
 }
 
 // ============================================================================
