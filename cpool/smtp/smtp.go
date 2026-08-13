@@ -13,11 +13,12 @@ package smtp
 
 import (
 	"context"
-	"fmt"
+	"net/smtp"
+
 	"github.com/jordan-wright/email"
 	smtpconfig "github.com/kamalyes/go-config/pkg/smtp"
 	"github.com/kamalyes/go-logger"
-	"net/smtp"
+	"github.com/kamalyes/go-toolbox/pkg/netx"
 )
 
 // MailHandler SMTP邮件处理接口
@@ -55,7 +56,7 @@ func NewSmtpClient(cfg *smtpconfig.Smtp, log logger.ILogger) (*SmtpClient, error
 
 // send 通用发送邮件方法
 func (s *SmtpClient) send(em *email.Email) error {
-	addr := fmt.Sprintf("%s:%d", s.config.SMTPHost, s.config.SMTPPort)
+	addr := netx.JoinHostPort(s.config.SMTPHost, s.config.SMTPPort)
 	auth := smtp.PlainAuth("", s.config.Username, s.config.Password, s.config.SMTPHost)
 	return em.Send(addr, auth)
 }

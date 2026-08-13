@@ -18,6 +18,7 @@ import (
 
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
+	"github.com/kamalyes/go-toolbox/pkg/netx"
 )
 
 type startupField struct {
@@ -133,9 +134,9 @@ func (b *BannerManager) buildStartupReport() startupReport {
 	startedAt := time.Now().Format(time.RFC3339)
 	title := mathx.IfEmpty(b.config.Banner.Title, "Gateway")
 
-	baseURL := fmt.Sprintf("http://%s:%d", b.config.HTTPServer.Host, b.config.HTTPServer.Port)
-	metricsURL := fmt.Sprintf("http://%s:%d%s", b.config.HTTPServer.Host, b.config.Monitoring.Prometheus.Port, b.config.Monitoring.Prometheus.Path)
-	pprofURL := fmt.Sprintf("http://%s:%d%s/", b.config.HTTPServer.Host, b.config.Middleware.PProf.Port, b.config.Middleware.PProf.PathPrefix)
+	baseURL := fmt.Sprintf("http://%s", netx.JoinHostPort(b.config.HTTPServer.Host, b.config.HTTPServer.Port))
+	metricsURL := fmt.Sprintf("http://%s%s", netx.JoinHostPort(b.config.HTTPServer.Host, b.config.Monitoring.Prometheus.Port), b.config.Monitoring.Prometheus.Path)
+	pprofURL := fmt.Sprintf("http://%s%s/", netx.JoinHostPort(b.config.HTTPServer.Host, b.config.Middleware.PProf.Port), b.config.Middleware.PProf.PathPrefix)
 	pprofAuthStatus := "已禁用 (开发模式)"
 	if b.config.Middleware.PProf.Authentication.Enabled {
 		pprofAuthStatus = "已启用"

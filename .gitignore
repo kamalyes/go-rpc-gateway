@@ -40,3 +40,4 @@ go.work.sum
 build/*
 
 generate/*
+.trae/*

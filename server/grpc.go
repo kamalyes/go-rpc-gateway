@@ -13,7 +13,6 @@ package server
 
 import (
 	stderrors "errors"
-	"fmt"
 	"net"
 	"time"
 
@@ -21,6 +20,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
+	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -221,7 +221,7 @@ func (s *Server) startGRPCServer() error {
 		return nil
 	}
 
-	address := fmt.Sprintf("%s:%d", grpcServer.Host, grpcServer.Port)
+	address := netx.JoinHostPort(grpcServer.Host, grpcServer.Port)
 
 	listener, err := net.Listen(grpcServer.Network, address)
 	if err != nil {

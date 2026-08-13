@@ -389,7 +389,11 @@ func setSpanAttributes(span oteltrace.Span, r *http.Request) {
 
 	// ---- 网络属性 ----
 	if remoteAddr := r.RemoteAddr; remoteAddr != "" {
-		host, port, _ := net.SplitHostPort(remoteAddr)
+		host, port, err := net.SplitHostPort(remoteAddr)
+		if err != nil {
+			// SplitHostPort 失败（可能是裸 IP，不含端口），使用 NormalizeIP 兜底
+			host = netx.NormalizeIP(remoteAddr)
+		}
 		if host != "" {
 			span.SetAttributes(attribute.String(constants.TracingAttrNetPeerIP, host))
 		}
@@ -563,4 +567,61 @@ func formatOtelMsg(msg string, keysAndValues ...interface{}) string {
 		parts = append(parts, fmt.Sprintf("%v=%v", keysAndValues[i], keysAndValues[i+1]))
 	}
 	return "[otel] " + strings.Join(parts, " ")
+}
+
+// ============================================================================
+// WebSocket (WSC) 链路追踪集成
+// ============================================================================
+
+// WSCTracingWrapper 包装 WebSocket 升级处理器，注入 OTel 链路追踪
+// 从 HTTP 升级请求中提取 W3C traceparent，创建连接级 span，
+// 并将 OTel context 注入到 Client.Context，使后续回调可继承 trace
+func WSCTracingWrapper(manager *TracingManager, handler http.HandlerFunc) http.HandlerFunc {
+	if manager == nil || manager.config == nil || !manager.config.Enabled {
+		return handler
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		// 从请求头提取 W3C traceparent 传播上下文
+		ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+
+		// 创建连接级 span
+		ctx, span := manager.tracer.Start(ctx, "wsc.upgrade "+r.URL.Path)
+		defer span.End()
+
+		// 设置 HTTP 基础属性
+		span.SetAttributes(
+			attribute.String(constants.TracingAttrHTTPMethod, r.Method),
+			attribute.String(constants.TracingAttrHTTPURL, r.URL.String()),
+			attribute.String(constants.TracingAttrHTTPPath, r.URL.Path),
+			attribute.String(constants.TracingAttrHTTPClientIP, netx.GetClientIP(r)),
+			attribute.String(constants.TracingAttrHTTPFlavor, r.Proto),
+		)
+
+		// 同步 OTel trace_id 到自定义 context（与 HTTP Tracing 中间件行为一致）
+		if r.Header.Get(constants.HeaderXTraceID) == "" {
+			if spanCtx := span.SpanContext(); spanCtx.IsValid() {
+				otelTraceID := spanCtx.TraceID().String()
+				ctx = WithTraceID(ctx, otelTraceID)
+			}
+		}
+
+		// 将增强后的 context 注入到请求，go-wsc HandleWebSocketUpgrade
+		// 会将 r.Context() 传递给 Client.Context，从而实现全链路追踪
+		handler(w, r.WithContext(ctx))
+	}
+}
+
+// WSCStartSpan 在 WSC 回调中创建子 span
+// 使用场景：OnMessageReceived、OnClientConnect 等回调中
+// ctx 参数来自回调函数，parentCtx 来自 Client.Context（承载连接级 span context）
+func WSCStartSpan(manager *TracingManager, parentCtx context.Context, operationName string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
+	if manager == nil || manager.tracer == nil {
+		return parentCtx, oteltrace.SpanFromContext(parentCtx)
+	}
+	ctx, span := manager.tracer.Start(parentCtx, operationName)
+	if len(attrs) > 0 {
+		span.SetAttributes(attrs...)
+	}
+	return ctx, span
 }

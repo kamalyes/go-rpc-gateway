@@ -32,6 +32,7 @@ import (
 	"github.com/kamalyes/go-toolbox/pkg/desensitize"
 	"github.com/kamalyes/go-toolbox/pkg/httpx"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
+	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -339,7 +340,7 @@ func (s *Server) initHTTPGateway() error {
 	s.httpMux.Handle("/", s.gwMux)
 	s.httpRoutePatterns["/"] = struct{}{}
 
-	httpEndpoint := fmt.Sprintf("%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port)
+	httpEndpoint := netx.JoinHostPort(s.config.HTTPServer.Host, s.config.HTTPServer.Port)
 
 	// 注册健康检查
 	if s.config.Health.Enabled {
@@ -414,7 +415,7 @@ func (s *Server) RebuildHTTPGateway() error {
 
 // registerComponentHealthChecks 注册组件级健康检查端点
 func (s *Server) registerComponentHealthChecks() {
-	baseURL := fmt.Sprintf("http://%s:%d", s.config.HTTPServer.Host, s.config.HTTPServer.Port)
+	baseURL := fmt.Sprintf("http://%s", netx.JoinHostPort(s.config.HTTPServer.Host, s.config.HTTPServer.Port))
 
 	// 注册Redis健康检查
 	if s.config.Health.Redis.Enabled {
@@ -670,7 +671,7 @@ func (s *Server) initNamedListeners() error {
 			handler = h2c.NewHandler(handler, h2s)
 		}
 
-		addr := fmt.Sprintf("%s:%d", l.Host, l.Port)
+		addr := netx.JoinHostPort(l.Host, l.Port)
 		srv := &http.Server{
 			Addr:              addr,
 			Handler:           handler,

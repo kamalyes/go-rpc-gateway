@@ -18,6 +18,7 @@ import (
 	"github.com/kamalyes/go-config/pkg/banner"
 	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
 	"github.com/kamalyes/go-logger"
+	"github.com/kamalyes/go-toolbox/pkg/netx"
 )
 
 // BannerManager 横幅管理器
@@ -169,7 +170,7 @@ func (b *BannerManager) printPProfInfo(report startupReport) {
 func (b *BannerManager) serverFields(report startupReport) []startupField {
 	fields := make([]startupField, 0, len(report.services)+1)
 	for _, service := range report.services {
-		value := fmt.Sprintf("%s:%d", service.host, service.port)
+		value := netx.JoinHostPort(service.host, service.port)
 		if service.name == "HTTP" {
 			value = report.baseURL
 		}

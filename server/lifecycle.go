@@ -22,6 +22,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
+	"github.com/kamalyes/go-toolbox/pkg/netx"
 )
 
 // Start 启动服务器
@@ -95,13 +96,13 @@ func (s *Server) Start() error {
 	endpoints := []map[string]any{
 		{
 			"服务类型": "HTTP",
-			"地址":   fmt.Sprintf("%s:%d", httpHost, httpPort),
-			"URL":  fmt.Sprintf("http://%s:%d", httpHost, httpPort),
+			"地址":   netx.JoinHostPort(httpHost, httpPort),
+			"URL":  fmt.Sprintf("http://%s", netx.JoinHostPort(httpHost, httpPort)),
 		},
 		{
 			"服务类型": "gRPC",
-			"地址":   fmt.Sprintf("%s:%d", grpcHost, grpcPort),
-			"URL":  fmt.Sprintf("grpc://%s:%d", grpcHost, grpcPort),
+			"地址":   netx.JoinHostPort(grpcHost, grpcPort),
+			"URL":  fmt.Sprintf("grpc://%s", netx.JoinHostPort(grpcHost, grpcPort)),
 		},
 	}
 
@@ -110,8 +111,8 @@ func (s *Server) Start() error {
 		wsPort := s.webSocketService.GetConfig().NodePort
 		endpoints = append(endpoints, map[string]any{
 			"服务类型": "WebSocket",
-			"地址":   fmt.Sprintf("%s:%d", wsHost, wsPort),
-			"URL":  fmt.Sprintf("ws://%s:%d", wsHost, wsPort),
+			"地址":   netx.JoinHostPort(wsHost, wsPort),
+			"URL":  fmt.Sprintf("ws://%s", netx.JoinHostPort(wsHost, wsPort)),
 		})
 	}
 

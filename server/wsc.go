@@ -17,7 +17,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -26,10 +25,16 @@ import (
 
 	"github.com/kamalyes/go-cachex"
 	wscconfig "github.com/kamalyes/go-config/pkg/wsc"
+	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-rpc-gateway/middleware"
+	"github.com/kamalyes/go-toolbox/pkg/errorx"
+	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"github.com/kamalyes/go-wsc"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 // ============================================================================
@@ -40,12 +45,13 @@ import (
 // 只负责：HTTP 服务器管理、应用层配置
 // 所有 WebSocket 功能直接使用 go-wsc Hub
 type WebSocketService struct {
-	hub        *wsc.Hub       // go-wsc Hub 实例（直接暴露）
-	config     *wscconfig.WSC // 配置
-	httpServer *http.Server   // HTTP 服务器
-	ctx        context.Context
-	cancel     context.CancelFunc
-	running    atomic.Bool
+	hub            *wsc.Hub                   // go-wsc Hub 实例（直接暴露）
+	config         *wscconfig.WSC             // 配置
+	httpServer     *http.Server               // HTTP 服务器
+	tracingManager *middleware.TracingManager // 链路追踪管理器（可选）
+	ctx            context.Context
+	cancel         context.CancelFunc
+	running        atomic.Bool
 }
 
 // ============================================================================
@@ -54,7 +60,7 @@ type WebSocketService struct {
 
 // NewWebSocketService 创建 WebSocket 服务
 // 仅初始化配置和 Hub，不启动 HTTP 服务器
-func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
+func NewWebSocketService(cfg *wscconfig.WSC, tracingManager *middleware.TracingManager) (*WebSocketService, error) {
 	// 1. 直接使用传入的配置创建 Hub
 	hub := wsc.NewHub(cfg)
 	if hub == nil {
@@ -96,10 +102,11 @@ func NewWebSocketService(cfg *wscconfig.WSC) (*WebSocketService, error) {
 	// 7. 创建服务实例
 	ctx, cancel := context.WithCancel(context.Background())
 	service := &WebSocketService{
-		hub:    hub,
-		config: cfg,
-		ctx:    ctx,
-		cancel: cancel,
+		hub:            hub,
+		config:         cfg,
+		tracingManager: tracingManager,
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	// 8. 使用 Console 展示服务配置
@@ -171,11 +178,14 @@ func (ws *WebSocketService) Start() error {
 	}
 
 	// 创建 HTTP 路由（使用 go-wsc Hub 的 HandleWebSocketUpgrade 方法）
+	// 包装链路追踪：从升级请求提取 W3C traceparent，创建连接级 span，
+	// 并将 OTel context 注入到 Client.Context，实现 WSC 全链路追踪
 	mux := http.NewServeMux()
-	mux.HandleFunc(ws.config.Path, ws.hub.HandleWebSocketUpgrade)
+	upgradeHandler := middleware.WSCTracingWrapper(ws.tracingManager, ws.hub.HandleWebSocketUpgrade)
+	mux.HandleFunc(ws.config.Path, upgradeHandler)
 
 	ws.httpServer = &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", ws.config.NodeIP, ws.config.NodePort),
+		Addr:         netx.JoinHostPort(ws.config.NodeIP, ws.config.NodePort),
 		Handler:      mux,
 		ReadTimeout:  ws.config.ReadTimeout,
 		WriteTimeout: ws.config.WriteTimeout,
@@ -274,6 +284,7 @@ func (ws *WebSocketService) SendToUserWithRetry(ctx context.Context, userID stri
 
 // OnClientConnect 注册客户端连接回调
 // 在客户端成功建立连接时调用
+// 链路追踪已自动注入：若 TracingManager 可用，会在回调执行前自动创建 wsc.client.connect span
 //
 // 参数:
 //   - callback: 客户端连接回调函数，接收 ctx, client 参数
@@ -285,11 +296,28 @@ func (ws *WebSocketService) SendToUserWithRetry(ctx context.Context, userID stri
 //	    return nil
 //	})
 func (ws *WebSocketService) OnClientConnect(callback wsc.ClientConnectCallback) {
-	ws.hub.OnClientConnect(callback)
+	if ws.tracingManager != nil && ws.tracingManager.IsEnabled() {
+		ws.hub.OnClientConnect(func(ctx context.Context, client *wsc.Client) error {
+			_, span := middleware.WSCStartSpan(ws.tracingManager, client.Context, "wsc.client.connect",
+				attribute.String("wsc.client.id", client.ID),
+				attribute.String("wsc.user.id", client.UserID),
+			)
+			defer span.End()
+
+			err := callback(ctx, client)
+			if err != nil {
+				span.RecordError(err)
+			}
+			return err
+		})
+	} else {
+		ws.hub.OnClientConnect(callback)
+	}
 }
 
 // OnClientDisconnect 注册客户端断开连接回调
 // 在客户端断开连接时调用
+// 链路追踪已自动注入：若 TracingManager 可用，会在回调执行前自动创建 wsc.client.disconnect span
 //
 // 参数:
 //   - callback: 客户端断开回调函数，接收 ctx, client, reason 参数
@@ -301,11 +329,29 @@ func (ws *WebSocketService) OnClientConnect(callback wsc.ClientConnectCallback) 
 //	    return nil
 //	})
 func (ws *WebSocketService) OnClientDisconnect(callback wsc.ClientDisconnectCallback) {
-	ws.hub.OnClientDisconnect(callback)
+	if ws.tracingManager != nil && ws.tracingManager.IsEnabled() {
+		ws.hub.OnClientDisconnect(func(ctx context.Context, client *wsc.Client, reason wsc.DisconnectReason) error {
+			_, span := middleware.WSCStartSpan(ws.tracingManager, client.Context, "wsc.client.disconnect",
+				attribute.String("wsc.client.id", client.ID),
+				attribute.String("wsc.user.id", client.UserID),
+				attribute.String("wsc.disconnect.reason", string(reason)),
+			)
+			defer span.End()
+
+			err := callback(ctx, client, reason)
+			if err != nil {
+				span.RecordError(err)
+			}
+			return err
+		})
+	} else {
+		ws.hub.OnClientDisconnect(callback)
+	}
 }
 
 // OnMessageReceived 注册消息接收回调
 // 在接收到客户端消息时调用
+// 链路追踪已自动注入：若 TracingManager 可用，会在回调执行前自动创建 wsc.message.receive span
 //
 // 参数:
 //   - callback: 消息接收回调函数，接收 ctx, client, msg 参数
@@ -317,11 +363,31 @@ func (ws *WebSocketService) OnClientDisconnect(callback wsc.ClientDisconnectCall
 //	    return nil
 //	})
 func (ws *WebSocketService) OnMessageReceived(callback wsc.MessageReceivedCallback) {
-	ws.hub.OnMessageReceived(callback)
+	if ws.tracingManager != nil && ws.tracingManager.IsEnabled() {
+		ws.hub.OnMessageReceived(func(ctx context.Context, client *wsc.Client, msg *wsc.HubMessage) error {
+			_, span := middleware.WSCStartSpan(ws.tracingManager, client.Context, "wsc.message.receive",
+				attribute.String(constants.TracingAttrRPCMethod, "wsc.message.receive"),
+				attribute.String("wsc.client.id", client.ID),
+				attribute.String("wsc.user.id", client.UserID),
+				attribute.String("wsc.message.id", msg.ID),
+				attribute.String("wsc.message.type", string(msg.MessageType)),
+			)
+			defer span.End()
+
+			err := callback(ctx, client, msg)
+			if err != nil {
+				span.RecordError(err)
+			}
+			return err
+		})
+	} else {
+		ws.hub.OnMessageReceived(callback)
+	}
 }
 
 // OnError 注册错误处理回调
 // 在发生错误时调用
+// 链路追踪已自动注入：若 TracingManager 可用，会在回调执行前自动创建 wsc.error span 并记录错误
 //
 // 参数:
 //   - callback: 错误处理回调函数，接收 ctx, err, severity 参数
@@ -333,7 +399,26 @@ func (ws *WebSocketService) OnMessageReceived(callback wsc.MessageReceivedCallba
 //	    return nil
 //	})
 func (ws *WebSocketService) OnError(callback wsc.ErrorCallback) {
-	ws.hub.OnError(callback)
+	if ws.tracingManager != nil && ws.tracingManager.IsEnabled() {
+		ws.hub.OnError(func(ctx context.Context, err error, severity wsc.ErrorSeverity) error {
+			_, span := middleware.WSCStartSpan(ws.tracingManager, ctx, "wsc.error",
+				attribute.String("wsc.error.severity", string(severity)),
+			)
+			defer span.End()
+
+			if err != nil {
+				span.RecordError(err)
+			}
+
+			callbackErr := callback(ctx, err, severity)
+			if callbackErr != nil {
+				span.RecordError(callbackErr)
+			}
+			return callbackErr
+		})
+	} else {
+		ws.hub.OnError(callback)
+	}
 }
 
 // ============================================================================
@@ -342,6 +427,7 @@ func (ws *WebSocketService) OnError(callback wsc.ErrorCallback) {
 
 // OnHeartbeatTimeout 注册心跳超时回调函数
 // 当客户端心跳超时时会调用此回调
+// 链路追踪已自动注入：若 TracingManager 可用，会在回调执行前自动创建 wsc.heartbeat.timeout span
 //
 // 参数:
 //   - callback: 心跳超时回调函数，接收 clientID, userID, lastHeartbeat 参数
@@ -353,7 +439,21 @@ func (ws *WebSocketService) OnError(callback wsc.ErrorCallback) {
 //	    // 更新数据库、清理缓存等
 //	})
 func (ws *WebSocketService) OnHeartbeatTimeout(callback wsc.HeartbeatTimeoutCallback) {
-	ws.hub.OnHeartbeatTimeout(callback)
+	if ws.tracingManager != nil && ws.tracingManager.IsEnabled() {
+		ws.hub.OnHeartbeatTimeout(func(clientID, userID string, lastHeartbeat time.Time) {
+			_, span := ws.tracingManager.GetTracer().Start(context.Background(), "wsc.heartbeat.timeout",
+				oteltrace.WithAttributes(
+					attribute.String("wsc.client.id", clientID),
+					attribute.String("wsc.user.id", userID),
+					attribute.String("wsc.heartbeat.last", lastHeartbeat.Format(time.RFC3339)),
+				),
+			)
+			defer span.End()
+			callback(clientID, userID, lastHeartbeat)
+		})
+	} else {
+		ws.hub.OnHeartbeatTimeout(callback)
+	}
 }
 
 // OnHeartbeatReport 注册心跳上报回调函数
@@ -452,7 +552,25 @@ func (ws *WebSocketService) OnMessageSend(callback wsc.MessageSendCallback) {
 //	    log.Printf("队列满: 接收者=%s, 类型=%s", recipient, queueType)
 //	})
 func (ws *WebSocketService) OnQueueFull(callback wsc.QueueFullCallback) {
-	ws.hub.OnQueueFull(callback)
+	if ws.tracingManager != nil && ws.tracingManager.IsEnabled() {
+		ws.hub.OnQueueFull(func(msg *wsc.HubMessage, recipient string, queueType wsc.QueueType, err errorx.BaseError) {
+			_, span := ws.tracingManager.GetTracer().Start(context.Background(), "wsc.queue.full",
+				oteltrace.WithAttributes(
+					attribute.String("wsc.message.id", msg.ID),
+					attribute.String("wsc.message.type", string(msg.MessageType)),
+					attribute.String("wsc.queue.recipient", recipient),
+					attribute.String("wsc.queue.type", string(queueType)),
+				),
+			)
+			defer span.End()
+			if err.Error() != "" {
+				span.RecordError(err)
+			}
+			callback(msg, recipient, queueType, err)
+		})
+	} else {
+		ws.hub.OnQueueFull(callback)
+	}
 }
 
 // initWebSocket 初始化 WebSocket 服务
@@ -463,8 +581,14 @@ func (s *Server) initWebSocket() error {
 		return nil
 	}
 
+	// 获取链路追踪管理器（可能为 nil，WSC 内部会优雅处理）
+	var tracingManager *middleware.TracingManager
+	if s.middlewareManager != nil {
+		tracingManager = s.middlewareManager.GetTracingManager()
+	}
+
 	// 创建 WebSocket 服务
-	wsSvc, err := NewWebSocketService(s.config.WSC)
+	wsSvc, err := NewWebSocketService(s.config.WSC, tracingManager)
 	if err != nil {
 		return errors.NewErrorf(errors.ErrCodeInternalServerError, "failed to create WebSocket service: %v", err)
 	}
