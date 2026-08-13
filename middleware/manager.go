@@ -166,6 +166,11 @@ func (m *Manager) GRPCTracingStreamInterceptor() grpc.StreamServerInterceptor {
 	return GRPCTracingStreamInterceptor(m.tracingManager)
 }
 
+// GetTracingManager 获取链路追踪管理器（供 WSC 等非中间件链组件使用）
+func (m *Manager) GetTracingManager() *TracingManager {
+	return m.tracingManager
+}
+
 // GRPCStructTagValidatorInterceptor gRPC struct tag 参数校验拦截器
 // 配合 protoc-go-inject-tag 在 pb 字段上注入的 `validate:"..."` 标签生效。
 func (m *Manager) GRPCStructTagValidatorInterceptor() GRPCInterceptor {
