@@ -155,8 +155,8 @@ github.com/kamalyes/go-config v0.21.13 h1:A4pVT/6QX3y5Z+RLPiiw5SoWAiFu+UdDjhLxb/
 github.com/kamalyes/go-config v0.21.13/go.mod h1:OxyTcQKBTmcYlzC4VY7sjrvWA3zi6iQ7EGcnDA4CxSo=
 github.com/kamalyes/go-i18n v0.2.6 h1:qMzSn0Iyt8lfXTfHAUgaVOI7WLZJFOMdaovn9WfS/E8=
 github.com/kamalyes/go-i18n v0.2.6/go.mod h1:XuVQDVtbkgWDhDmWwDgUMs2S4U8xeXXJ6gLYhil6FD8=
-github.com/kamalyes/go-logger v0.5.9-0.20260813103002-af4a587d95c7 h1:MvUqKmgh4yevntqp6fQHxnPuGJKp97h/0w5oWReWuvw=
-github.com/kamalyes/go-logger v0.5.9-0.20260813103002-af4a587d95c7/go.mod h1:C/iVo0VXk/mJBR9J4iZHt8OzIgzmu3EQHtvolitziwA=
+github.com/kamalyes/go-logger v0.5.9 h1:rN+H2jZYKcJq9GSghJCUuMHxOm0Is0IDTYrO15KBVTc=
+github.com/kamalyes/go-logger v0.5.9/go.mod h1:FFUVU0SX6/qMfDUiNd+u+By2qBqWg+NsgUbNuwO3h14=
 github.com/kamalyes/go-natsx v0.2.0 h1:Ei9++e5AnOD9jGNVnC48YVXOVMmsp874RwPWCK4Hyxc=
 github.com/kamalyes/go-natsx v0.2.0/go.mod h1:kipM+dllYhz8/hIp3hIGkKIyAvYUwH2XMiI9Euet+5E=
 github.com/kamalyes/go-pbmo v0.1.9 h1:EHzhnlw9E/54TmtqlSQInnhwQJ6k5Q5H/ZlpkUCjMQE=
@@ -165,8 +165,10 @@ github.com/kamalyes/go-sqlbuilder v0.6.4 h1:ZerDlHWL15DHDMYyLiHN1q2zP3X+kUmJrgI2
 github.com/kamalyes/go-sqlbuilder v0.6.4/go.mod h1:Ci6qogRJc8/uClDKegKPMdfSEb6alcAzAPWtBKLk5b4=
 github.com/kamalyes/go-swagger v0.2.5 h1:YGkT2qXmTjhvxwHU9gCE0o3jZ2j7TeSoi1jK42xnK8A=
 github.com/kamalyes/go-swagger v0.2.5/go.mod h1:aiLmD6WBlDkAieXymcfqMk4QDuVzAKbjA1uillOH7xk=
-github.com/kamalyes/go-toolbox v0.15.10-0.20260813100755-b3afa3d759b5 h1:F122p3SyqF/390w0VBFiHTZVKgO0K0emvCWgFR0BiSo=
-github.com/kamalyes/go-toolbox v0.15.10-0.20260813100755-b3afa3d759b5/go.mod h1:BJriH1vHBjcok+2mwjccrtbSOyCYMrMFEW8OrncsbEU=
+github.com/kamalyes/go-toolbox v0.16.0 h1:aDSW0l8MPYUDMa/oS1Zq0H+F3APiyZGMIuiDwjMuotU=
+github.com/kamalyes/go-toolbox v0.16.0/go.mod h1:BJriH1vHBjcok+2mwjccrtbSOyCYMrMFEW8OrncsbEU=
+github.com/kamalyes/go-wsc v0.10.2 h1:nbPFJc5ftDcBfEDUShjZzn8QquHDwwtahiXyekaujNo=
+github.com/kamalyes/go-wsc v0.10.2/go.mod h1:iKn435+ckYP+N7Tw9hno4x4bxH6pIgDcDKFPQD1EPUs=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/klauspost/compress v1.13.6/go.mod h1:/3/Vjq9QcHkK5uEr5lBEmyoZ1iFhe47etQ6QUkpK6sk=

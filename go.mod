@@ -16,11 +16,11 @@ require (
 	github.com/kamalyes/go-argus v0.3.1
 	github.com/kamalyes/go-config v0.21.13
 	github.com/kamalyes/go-i18n v0.2.6
-	github.com/kamalyes/go-logger v0.5.9-0.20260813103002-af4a587d95c7
+	github.com/kamalyes/go-logger v0.5.9
 	github.com/kamalyes/go-natsx v0.2.0
 	github.com/kamalyes/go-swagger v0.2.5
-	github.com/kamalyes/go-toolbox v0.15.10-0.20260813100755-b3afa3d759b5
-	github.com/kamalyes/go-wsc v0.10.2-0.20260813145624-15a6dac64367
+	github.com/kamalyes/go-toolbox v0.16.0
+	github.com/kamalyes/go-wsc v0.10.2
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.22.0
@@ -155,7 +155,7 @@ require (
 )
 
 // 本地开发替换
-replace github.com/kamalyes/go-wsc => ./go-wsc
+// replace github.com/kamalyes/go-wsc => ./go-wsc
 
 // replace github.com/kamalyes/go-cachex => ../go-cachex
 

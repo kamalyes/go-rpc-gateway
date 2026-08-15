@@ -603,8 +603,15 @@ func WSCTracingWrapper(manager *TracingManager, handler http.HandlerFunc) http.H
 			if spanCtx := span.SpanContext(); spanCtx.IsValid() {
 				otelTraceID := spanCtx.TraceID().String()
 				ctx = WithTraceID(ctx, otelTraceID)
+				w.Header().Set(constants.HeaderXTraceID, otelTraceID)
 			}
+		} else {
+			w.Header().Set(constants.HeaderXTraceID, r.Header.Get(constants.HeaderXTraceID))
 		}
+
+		// 注入 W3C traceparent/baggage 到响应头（与 HTTP Tracing 中间件行为一致）
+		// gorilla/websocket Upgrade 会合并 w.Header() 与 responseHeader
+		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(w.Header()))
 
 		// 将增强后的 context 注入到请求，go-wsc HandleWebSocketUpgrade
 		// 会将 r.Context() 传递给 Client.Context，从而实现全链路追踪
