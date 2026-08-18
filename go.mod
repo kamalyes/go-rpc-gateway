@@ -14,17 +14,17 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-argus v0.3.1
-	github.com/kamalyes/go-config v0.21.13
+	github.com/kamalyes/go-config v0.21.14-0.20260818152618-04f9ca92bb20
 	github.com/kamalyes/go-i18n v0.2.6
 	github.com/kamalyes/go-logger v0.5.9
 	github.com/kamalyes/go-natsx v0.2.0
 	github.com/kamalyes/go-swagger v0.2.5
 	github.com/kamalyes/go-toolbox v0.16.0
-	github.com/kamalyes/go-wsc v0.10.2
+	github.com/kamalyes/go-wsc v0.10.3-0.20260819073305-96571e886f4e
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.22.0
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.0
 	go.etcd.io/bbolt v1.4.3
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0
 	go.opentelemetry.io/otel v1.45.0
@@ -33,7 +33,7 @@ require (
 	go.opentelemetry.io/otel/exporters/zipkin v1.38.0
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.45.0
-	google.golang.org/grpc v1.83.0
+	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.12
 	gorm.io/driver/clickhouse v0.7.0
 	gorm.io/driver/mysql v1.6.0
@@ -119,7 +119,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12
-	github.com/kamalyes/go-cachex v0.3.5
+	github.com/kamalyes/go-cachex v0.3.6-0.20260819025023-d5c746879eb2
 	github.com/klauspost/compress v1.18.6
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
@@ -128,7 +128,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/openzipkin/zipkin-go v0.4.3 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
-	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/prometheus/common v0.48.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
@@ -150,7 +149,7 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260810153831-ec0a7760b754 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260818201246-1b0934165a6f // indirect
 	gopkg.in/yaml.v3 v3.0.1
 )
 
