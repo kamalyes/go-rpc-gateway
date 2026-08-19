@@ -295,6 +295,13 @@ func buildDSN(provider database.DatabaseProvider, dbType database.DBType) string
 		if configString != "" {
 			parts = append(parts, configString)
 		}
+		// 固定会话时区为 UTC。注意：player_users 等表的 created_at 是 timestamptz，内部存 UTC，
+		// pgx 驱动比较时会自动转 UTC，本就时区安全（与 ClickHouse 的 naive DateTime64 不同）
+		// 这里设 TimeZone=UTC 的目的不是修查询错位，而是：(1) 让 now()/CURRENT_TIMESTAMP 等
+		// SQL 函数返回 UTC，避免受服务器默认时区影响；(2) 若存在 naive timestamp 列，行为可预测；
+		// (3) 与 ClickHouse 会话统一 UTC，对称。pgx 将 TimeZone 作为 RuntimeParam 随连接发送
+		// （见 pgx pgconn/config.go notRuntimeParams 不含 TimeZone），等价 SET TimeZone='UTC'
+		parts = append(parts, pgKeyValue("TimeZone", "UTC"))
 		dsn = strings.Join(parts, " ")
 	case database.DBTypeSQLite:
 		dsn = dbname // SQLite使用DbPath

@@ -84,10 +84,18 @@ func NewClickHouseDB(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILog
 	// 复用 cpool/database 的 GormLogger，统一 SQL 日志走 go-logger
 	database.SetContextLogger(log)
 
-	dsn := buildClickHouseDSN(chCfg)
 	logLevel := parseGormLogLevel(chCfg.LogLevel, chCfg.Debug)
 
-	gormDB, err := gorm.Open(gormch.Open(dsn), &gorm.Config{
+	// 用 clickhouse.OpenDB(opts) 拿 *sql.DB，再注入 gorm clickhouse 驱动
+	// 不能走 gormch.Open(dsn) 路径：该路径内部调用 clickhouse.ParseDSN，会把 DSN query 参数的值
+	// 全部小写化（clickhouse_options.go default 分支 strings.ToLower），导致 session_timezone=UTC
+	// 变成 session_timezone=utc，CH 服务端拒绝（code: 36 Invalid time zone: utc）
+	// OpenDB 直接基于 Options 构建连接（clickhouse_std.go:124 setDefaults），Settings 原样保留，
+	// session_timezone=UTC 大写不被篡改
+	chOpts := buildClickHouseOptions(chCfg)
+	chSqlDB := clickhouse.OpenDB(chOpts)
+
+	gormDB, err := gorm.Open(gormch.New(gormch.Config{Conn: chSqlDB}), &gorm.Config{
 		SkipDefaultTransaction:                   chCfg.SkipDefaultTransaction,
 		PrepareStmt:                              chCfg.PrepareStmt,
 		DisableForeignKeyConstraintWhenMigrating: chCfg.DisableForeignKeyConstraintWhenMigrating,
@@ -110,16 +118,18 @@ func NewClickHouseDB(ctx context.Context, cfg *gwconfig.Gateway, log logger.ILog
 		return nil
 	}
 
-	sqlDB, err := gormDB.DB()
-	if err == nil {
-		sqlDB.SetMaxIdleConns(chCfg.MaxIdleConns)
-		sqlDB.SetMaxOpenConns(chCfg.MaxOpenConns)
-		if chCfg.ConnMaxIdleTime > 0 {
-			sqlDB.SetConnMaxIdleTime(time.Duration(chCfg.ConnMaxIdleTime) * time.Second)
-		}
-		if chCfg.ConnMaxLifeTime > 0 {
-			sqlDB.SetConnMaxLifetime(time.Duration(chCfg.ConnMaxLifeTime) * time.Second)
-		}
+	// OpenDB 已设置默认连接池参数，这里按配置覆盖（与 initDB 风格一致）
+	if chCfg.MaxIdleConns > 0 {
+		chSqlDB.SetMaxIdleConns(chCfg.MaxIdleConns)
+	}
+	if chCfg.MaxOpenConns > 0 {
+		chSqlDB.SetMaxOpenConns(chCfg.MaxOpenConns)
+	}
+	if chCfg.ConnMaxIdleTime > 0 {
+		chSqlDB.SetConnMaxIdleTime(time.Duration(chCfg.ConnMaxIdleTime) * time.Second)
+	}
+	if chCfg.ConnMaxLifeTime > 0 {
+		chSqlDB.SetConnMaxLifetime(time.Duration(chCfg.ConnMaxLifeTime) * time.Second)
 	}
 
 	log.InfoContextKV(ctx, "ClickHouse gorm connected successfully",
@@ -150,6 +160,16 @@ func buildClickHouseOptions(cfg *tsdb.ClickHouse) *clickhouse.Options {
 		MaxOpenConns:    cfg.MaxOpenConns,
 		ConnMaxLifetime: time.Duration(cfg.ConnMaxLifeTime) * time.Second,
 		Debug:           cfg.Debug,
+		// 固定会话时区为 UTC：deposit_orders/withdraw_orders/game_trades 的时间列均为 naive DateTime64(3)（无时区），
+		// clickhouse-go 会对这类列用会话时区作为 Location 解释（lib/column/datetime64.go WithLocation）。
+		// 若不显式设置，会话时区取服务器默认值，导致前端传入的 UTC 时间参数与 naive 列比较时被错误偏移，
+		// 窄窗口（如1天）查询直接命中错位返回空（player-rank 返回 {"items":[]} 即此问题）。
+		// 设为 UTC 后，naive 时间列与前端 UTC 参数在同一时区下比较，结果与会话/服务器时区解耦。
+		// 注意 setting 名必须是 session_timezone（CH 22.x+），用 "timezone" 会被服务端拒绝
+		// （code: 115 Unknown setting 'timezone'），导致连接建立失败返回 nil → "clickhouse is unavailable"。
+		Settings: clickhouse.Settings{
+			"session_timezone": "UTC",
+		},
 	}
 
 	// 启用 TLS 安全连接
@@ -165,37 +185,6 @@ func buildClickHouseOptions(cfg *tsdb.ClickHouse) *clickhouse.Options {
 	}
 
 	return opts
-}
-
-// buildClickHouseDSN 根据 ClickHouse 配置构建 DSN 连接字符串
-// 支持原生协议和 HTTP 协议，支持安全连接和压缩选项
-func buildClickHouseDSN(cfg *tsdb.ClickHouse) string {
-	protocol := "clickhouse"
-	if cfg.Protocol == "http" {
-		protocol = "http"
-	}
-
-	dsn := fmt.Sprintf("%s://%s:%s@%s:%s/%s",
-		protocol,
-		cfg.Username,
-		cfg.Password,
-		cfg.Host,
-		cfg.Port,
-		cfg.Dbname,
-	)
-
-	if cfg.Secure {
-		dsn += "?secure=true"
-	}
-	if cfg.Compress {
-		if cfg.Secure {
-			dsn += "&compress=true"
-		} else {
-			dsn += "?compress=true"
-		}
-	}
-
-	return dsn
 }
 
 // parseGormLogLevel 将配置中的日志等级字符串映射为 GORM LogLevel
