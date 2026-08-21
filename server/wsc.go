@@ -287,24 +287,24 @@ func (ws *WebSocketService) SendToUserWithRetry(ctx context.Context, userID stri
 // 链路追踪已自动注入：若 TracingManager 可用，会在回调执行前自动创建 wsc.client.connect span
 //
 // 参数:
-//   - callback: 客户端连接回调函数，接收 ctx, client 参数
+//   - callback: 客户端连接回调函数，接收 ctx, client, record 参数
 //
 // 示例:
 //
-//	ws.OnClientConnect(func(ctx context.Context, client *wsc.Client) error {
+//	ws.OnClientConnect(func(ctx context.Context, client *wsc.Client, record *wsc.ConnectionRecord) error {
 //	    log.Printf("客户端连接: %s", client.ID)
 //	    return nil
 //	})
 func (ws *WebSocketService) OnClientConnect(callback wsc.ClientConnectCallback) {
 	if ws.tracingManager != nil && ws.tracingManager.IsEnabled() {
-		ws.hub.OnClientConnect(func(ctx context.Context, client *wsc.Client) error {
+		ws.hub.OnClientConnect(func(ctx context.Context, client *wsc.Client, record *wsc.ConnectionRecord) error {
 			_, span := middleware.WSCStartSpan(ws.tracingManager, client.Context, "wsc.client.connect",
 				attribute.String("wsc.client.id", client.ID),
 				attribute.String("wsc.user.id", client.UserID),
 			)
 			defer span.End()
 
-			err := callback(ctx, client)
+			err := callback(ctx, client, record)
 			if err != nil {
 				span.RecordError(err)
 			}
