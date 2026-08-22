@@ -25,7 +25,6 @@ import (
 	gologger "github.com/kamalyes/go-logger"
 	mysqldriver "gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
@@ -108,19 +107,9 @@ func GormPostgreSQL(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILo
 }
 
 // GormSQLite 连接SQLite数据库
-// SQLite 为文件型数据库，使用 DbPath 指定数据库文件路径
-func GormSQLite(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gorm.DB {
-	if cfg == nil || cfg.Database == nil || cfg.Database.SQLite == nil {
-		log.ErrorContext(ctx, "SQLite config not found")
-		return nil
-	}
-
-	config := cfg.Database.SQLite
-	// SQLite 直接使用文件路径打开，不需要 DSN
-	return initDB(ctx, config, database.DBTypeSQLite, log, func(dsn string) (*gorm.DB, error) {
-		return gorm.Open(sqlite.Open(config.DbPath), gormConfig(config))
-	})
-}
+// 实现见 sqlite_support.go（启用 -tags sqlite 时编译）或 sqlite_stub.go（默认返回 nil）
+// SQLite 驱动 gorm.io/driver/sqlite 会传递性引入 mattn/go-sqlite3（CGO，约 10MB），
+// 默认不编译进生产二进制；需要 SQLite 支持时用 -tags sqlite 构建。
 
 // GormCockroachDB 初始化CockroachDB数据库
 // CockroachDB兼容PostgreSQL协议，使用postgres驱动
