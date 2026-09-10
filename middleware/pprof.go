@@ -20,11 +20,11 @@ import (
 	"strings"
 	"sync"
 
+	validator "github.com/kamalyes/go-argus"
 	gopprof "github.com/kamalyes/go-config/pkg/pprof"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
-	"github.com/kamalyes/go-argus"
 )
 
 // PProfServer 可控制的pprof服务器实例 它允许在配置更改时停止和重新创建服务器
@@ -93,18 +93,6 @@ func checkPProfIPWhitelist(cfg *gopprof.PProf, r *http.Request) bool {
 	return validator.IsIPAllowed(clientIP, cfg.Authentication.AllowedIPs)
 }
 
-// logAccess 记录访问日志
-func logAccess(cfg *gopprof.PProf, r *http.Request) {
-	if cfg.Gateway == nil || !cfg.Gateway.EnableLogging {
-		return
-	}
-
-	global.LOGGER.InfoContextKV(r.Context(), "🔍 PProf访问",
-		"ip", netx.GetClientIP(r),
-		"path", r.URL.Path,
-		"method", r.Method)
-}
-
 // isProfileEnabled 检查是否启用了对应的性能分析
 func isProfileEnabled(cfg *gopprof.PProf, pprofPath string) bool {
 	if cfg.EnableProfiles == nil {
@@ -150,9 +138,6 @@ func createAuthMiddleware(cfg *gopprof.PProf) func(http.Handler) http.Handler {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
-
-			// 记录访问日志
-			logAccess(cfg, r)
 
 			// 检查Profile是否启用
 			pprofPath := strings.TrimPrefix(r.URL.Path, cfg.PathPrefix)
