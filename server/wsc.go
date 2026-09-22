@@ -90,8 +90,15 @@ func NewWebSocketService(cfg *wscconfig.WSC, tracingManager *middleware.TracingM
 	// 4. 初始化分布式 PubSub（启用跨节点消息路由）
 	// SetPubSub 内部会自动初始化节点间 gRPC 通信（若 node-grpc.enabled=true）
 	// gRPC 直连优先于 PubSub 用于点对点路由，降低跨节点消息延迟
-	pubsub := initDistributedPubSub(redisClient, cfg)
-	hub.SetPubSub(pubsub)
+	// 注意：pubsub.enabled=false 时必须完全不挂 PubSub——否则 hub 会以空 namespace
+	// 订阅裸频道（如 wsc_notify:node:<id>），与其他实例的带命名空间频道
+	// （wsc_notify:pubsub:wsc_notify:node:<id>）完全错配，跨节点消息静默丢失
+	if cfg.RedisRepository != nil && cfg.RedisRepository.PubSub != nil && cfg.RedisRepository.PubSub.GetEnabled() {
+		pubsub := initDistributedPubSub(redisClient, cfg)
+		hub.SetPubSub(pubsub)
+	} else {
+		global.LOGGER.WarnMsg("⚠️ 分布式 PubSub 未启用，跨节点消息路由将不可用")
+	}
 
 	// 5. 启动 Hub 事件循环
 	go hub.Run()
@@ -139,9 +146,10 @@ func NewWebSocketService(cfg *wscconfig.WSC, tracingManager *middleware.TracingM
 
 // initDistributedPubSub 创建分布式 PubSub 实例
 // 从 WSC 配置的 redis-repository.pubsub 段构建 cachex.PubSubConfig，用于跨节点消息路由
+// 调用方已保证 pubsub.enabled=true，此处直接全量读取配置
 func initDistributedPubSub(redisClient redis.UniversalClient, cfg *wscconfig.WSC) *cachex.PubSub {
 	pubsubCfg := cachex.DefaultPubSubConfig()
-	if cfg.RedisRepository != nil && cfg.RedisRepository.PubSub != nil && cfg.RedisRepository.PubSub.GetEnabled() {
+	if cfg.RedisRepository != nil && cfg.RedisRepository.PubSub != nil {
 		ps := cfg.RedisRepository.PubSub
 		pubsubCfg.Namespace = ps.GetNamespace()
 		pubsubCfg.MaxRetries = ps.GetMaxRetries()
