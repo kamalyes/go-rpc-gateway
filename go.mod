@@ -21,7 +21,7 @@ require (
 	github.com/kamalyes/go-sqlbuilder v0.6.6
 	github.com/kamalyes/go-swagger v0.4.1
 	github.com/kamalyes/go-toolbox v0.16.3
-	github.com/kamalyes/go-wsc v0.11.4-0.20260920070817-81a9f9cb1fa9
+	github.com/kamalyes/go-wsc v0.11.4-0.20260922095603-c8848fb45a36
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.22.0
@@ -113,7 +113,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12
-	github.com/kamalyes/go-cachex v0.3.8
+	github.com/kamalyes/go-cachex v0.3.9-0.20260922081736-5656b5287fea
 	github.com/klauspost/compress v1.18.6
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
