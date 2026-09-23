@@ -10,14 +10,14 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-argus v0.3.1
-	github.com/kamalyes/go-config v0.21.19-0.20260923151010-a7118ae5d6a5
+	github.com/kamalyes/go-config v0.21.19-0.20260924162819-7738f3378b1a
 	github.com/kamalyes/go-i18n v0.2.8
 	github.com/kamalyes/go-logger v0.6.2
 	github.com/kamalyes/go-natsx v0.4.0
 	github.com/kamalyes/go-sqlbuilder v0.6.6
 	github.com/kamalyes/go-swagger v0.4.1
 	github.com/kamalyes/go-toolbox v0.16.3
-	github.com/kamalyes/go-wsc v0.11.4-0.20260922131107-2be777f152e7
+	github.com/kamalyes/go-wsc v0.11.4-0.20260923130837-4fad4c9d1970
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.22.0
@@ -44,11 +44,9 @@ require (
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
-	github.com/glebarez/go-sqlite v1.23.0 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3 // indirect
 	github.com/hashicorp/go-version v1.8.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -69,8 +67,6 @@ require (
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	modernc.org/libc v1.75.3 // indirect
-	modernc.org/sqlite v1.56.0 // indirect
 )
 
 require (
