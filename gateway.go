@@ -34,7 +34,6 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-rpc-gateway/server"
 	"github.com/kamalyes/go-toolbox/pkg/safe"
-	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
@@ -1141,14 +1140,6 @@ func (g *Gateway) InitDatabaseModels(models ...interface{}) error {
 func (g *Gateway) GetRedis() redis.UniversalClient {
 	if poolManager := g.GetPoolManager(); poolManager != nil {
 		return poolManager.GetRedis()
-	}
-	return nil
-}
-
-// GetMinIO 获取MinIO客户端
-func (g *Gateway) GetMinIO() *minio.Client {
-	if poolManager := g.GetPoolManager(); poolManager != nil {
-		return poolManager.GetMinIO()
 	}
 	return nil
 }

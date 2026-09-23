@@ -24,10 +24,8 @@ import (
 	chclient "github.com/kamalyes/go-rpc-gateway/cpool/clickhouse"
 	"github.com/kamalyes/go-rpc-gateway/cpool/database"
 	natsclient "github.com/kamalyes/go-rpc-gateway/cpool/nats"
-	"github.com/kamalyes/go-rpc-gateway/cpool/oss"
 	"github.com/kamalyes/go-rpc-gateway/cpool/redis"
 	"github.com/kamalyes/go-rpc-gateway/cpool/smtp"
-	"github.com/minio/minio-go/v7"
 	redisClient "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
@@ -45,12 +43,6 @@ type PoolManager interface {
 
 	// 获取缓存客户端
 	GetCache() cachex.CtxCache
-
-	// 获取MinIO客户端
-	GetMinIO() *minio.Client
-
-	// 获取Storage处理器
-	GetStorage() oss.StorageHandler
 
 	// 获取MQTT客户端
 	GetMQTT() mqtt.Client
@@ -78,9 +70,6 @@ type PoolManager interface {
 
 	// 设置缓存客户端
 	SetCache(cache cachex.CtxCache)
-
-	// 设置MinIO客户端
-	SetMinIO(minio *minio.Client)
 
 	// 设置MQTT客户端
 	SetMQTT(mqtt mqtt.Client)
@@ -119,8 +108,6 @@ type Manager struct {
 	db         *gorm.DB
 	redis      redisClient.UniversalClient
 	cache      cachex.CtxCache
-	minio      *minio.Client
-	storage    oss.StorageHandler
 	smtp       smtp.MailHandler
 	mqtt       mqtt.Client
 	snowflake  *snowflake.Node
@@ -171,14 +158,6 @@ func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
 
 	if err := m.initCache(); err != nil {
 		return fmt.Errorf("failed to initialize cache: %w", err)
-	}
-
-	if err := m.initMinIO(ctx); err != nil {
-		return fmt.Errorf("failed to initialize minio: %w", err)
-	}
-
-	if err := m.initStorage(ctx); err != nil {
-		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
 	if err := m.initSMTP(ctx); err != nil {
@@ -244,35 +223,6 @@ func (m *Manager) initCache() error {
 		// 这里可以初始化基于Redis的缓存
 		m.logger.InfoContext(ctx, "Cache will use Redis as backend")
 	}
-	return nil
-}
-
-// initMinIO 初始化MinIO客户端
-func (m *Manager) initMinIO(ctx context.Context) error {
-	// 检查 MinIO 配置是否存在
-	minio := oss.Minio(ctx, m.cfg, m.logger)
-	if minio != nil {
-		m.minio = minio
-		m.logger.InfoContext(ctx, "MinIO initialized successfully")
-	} else {
-		m.logger.WarnContext(ctx, "Failed to initialize MinIO")
-	}
-
-	return nil
-}
-
-// initStorage 初始化Storage处理器
-func (m *Manager) initStorage(ctx context.Context) error {
-	// 创建统一的Storage处理器
-	storage, err := oss.NewStorage(ctx, m.cfg, m.logger)
-	if err != nil {
-		m.logger.WarnContextKV(ctx, "Failed to initialize Storage", "error", err)
-		return nil // 非关键组件,不阻止启动
-	}
-
-	m.storage = storage
-	m.logger.InfoContext(ctx, "Storage initialized successfully")
-
 	return nil
 }
 
@@ -376,19 +326,6 @@ func (m *Manager) GetCache() cachex.CtxCache {
 	return m.cache
 }
 
-func (m *Manager) GetMinIO() *minio.Client {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.minio
-}
-
-// GetStorage 获取Storage处理器
-func (m *Manager) GetStorage() oss.StorageHandler {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.storage
-}
-
 func (m *Manager) GetMQTT() mqtt.Client {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -450,12 +387,6 @@ func (m *Manager) SetCache(cache cachex.CtxCache) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.cache = cache
-}
-
-func (m *Manager) SetMinIO(minio *minio.Client) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.minio = minio
 }
 
 func (m *Manager) SetMQTT(mqtt mqtt.Client) {
@@ -529,19 +460,6 @@ func (m *Manager) Close() error {
 		m.redis = nil
 	}
 
-	// 关闭 MinIO
-	if m.minio != nil {
-		m.minio = nil
-	}
-
-	// 关闭 Storage
-	if m.storage != nil {
-		if err := m.storage.Close(); err != nil {
-			m.logger.ErrorKV("Failed to close storage", "error", err)
-		}
-		m.storage = nil
-	}
-
 	// 关闭 SMTP
 	if m.smtp != nil {
 		if err := m.smtp.Close(); err != nil {
@@ -612,12 +530,6 @@ func (m *Manager) HealthCheck() map[string]bool {
 		ctx := context.Background()
 		_, err := m.redis.Ping(ctx).Result()
 		status["redis"] = err == nil
-	}
-
-	// 检查MinIO
-	if m.minio != nil {
-		_, err := m.minio.HealthCheck(3)
-		status["minio"] = err == nil
 	}
 
 	// 检查MQTT

@@ -311,7 +311,6 @@ func (i *PoolManagerInitializer) Initialize(ctx context.Context, cfg *gwconfig.G
 	// ClickHouse 和 NATS 不再存储为独立全局变量，通过 GetClickHouse()/GetNats() 从 PoolManager 获取
 	DB = manager.GetDB()
 	REDIS = manager.GetRedis()
-	MinIO = manager.GetMinIO()
 
 	return nil
 }

@@ -25,7 +25,6 @@ import (
 	natsclient "github.com/kamalyes/go-rpc-gateway/cpool/nats"
 	"github.com/kamalyes/go-toolbox/pkg/desensitize"
 	gowsc "github.com/kamalyes/go-wsc"
-	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
@@ -42,7 +41,6 @@ var (
 	LOG            logger.ILogger                            // 日志器别名（兼容旧代码）
 	DB             *gorm.DB                                  // 数据库连接（便捷引用，实际由 PoolManager 管理）
 	REDIS          redis.UniversalClient                     // Redis连接（便捷引用，实际由 PoolManager 管理）
-	MinIO          *minio.Client                             // MinIO连接（便捷引用，实际由 PoolManager 管理）
 	DATAMASKER     *desensitize.DataMasker                   // 数据脱敏器
 	SERVER_NODE    string                                    // 当前服务节点标识（K8s 环境下为 Pod 名称），用于响应头和 gRPC metadata 透传
 	GPerFix        string                            = "gw_" // 全局表前缀
@@ -77,7 +75,7 @@ func CleanupGlobal() {
 		CANCEL()
 	}
 
-	// 关闭连接池管理器（会自动关闭所有连接：DB、Redis、MinIO、ClickHouse、NATS 等）
+	// 关闭连接池管理器（会自动关闭所有连接：DB、Redis、ClickHouse、NATS 等）
 	if POOL_MANAGER != nil {
 		if err := POOL_MANAGER.Close(); err != nil {
 			LOGGER.InfoContext(ctx, "❌ 关闭连接池管理器失败: %v", err)
@@ -101,7 +99,6 @@ func CleanupGlobal() {
 	POOL_MANAGER = nil
 	REDIS = nil
 	DB = nil
-	MinIO = nil
 	Node = nil
 	CTX = nil
 	CANCEL = nil
@@ -142,11 +139,6 @@ func GetDB() *gorm.DB {
 // GetRedis 获取Redis连接
 func GetRedis() redis.UniversalClient {
 	return REDIS
-}
-
-// GetMinIO 获取MinIO连接
-func GetMinIO() *minio.Client {
-	return MinIO
 }
 
 // GetClickHouse 获取 ClickHouse gorm 连接
