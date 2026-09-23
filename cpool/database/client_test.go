@@ -46,9 +46,9 @@ func TestBuildDSN(t *testing.T) {
 		Config:   "sslmode=disable",
 	}
 
-	// 测试PostgreSQL DSN
+	// 测试PostgreSQL DSN（TimeZone=UTC 为有意追加：会话级时区与 ClickHouse 统一，见 buildDSN 注释）
 	postgresDSN := buildDSN(postgresConfig, database.DBTypePostgreSQL)
-	expected = "host=localhost user=user password=pass dbname=testdb port=5432 sslmode=disable"
+	expected = "host=localhost user=user password=pass dbname=testdb port=5432 sslmode=disable TimeZone=UTC"
 	assert.Equal(t, expected, postgresDSN)
 
 	cockroachConfig := &database.CockroachDB{
@@ -61,7 +61,7 @@ func TestBuildDSN(t *testing.T) {
 	}
 
 	cockroachDSN := buildDSN(cockroachConfig, database.DBTypeCockroachDB)
-	expected = "host=localhost user=root password='' dbname=apex_ac port=26257 sslmode=disable"
+	expected = "host=localhost user=root password='' dbname=apex_ac port=26257 sslmode=disable TimeZone=UTC"
 	assert.Equal(t, expected, cockroachDSN)
 
 	// 创建SQLite配置
