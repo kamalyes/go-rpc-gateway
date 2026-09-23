@@ -74,8 +74,11 @@ func NewNats(ctx context.Context, log logger.ILogger, opts *queue.Nats) *NatsCon
 		js := client.JetStream()
 		result.JetStream = js
 
+		// 流名由业务建流时决策；此处上报基础设施级运维参数（业务 AddStream 时取用）
 		log.InfoContextKV(ctx, "NATS JetStream enabled",
-			"stream", opts.StreamName,
+			"replicas", opts.Replicas,
+			"storage", opts.Storage,
+			"retention", opts.Retention,
 		)
 	}
 
@@ -144,6 +147,29 @@ func buildNatsOptions(cfg *queue.Nats, log logger.ILogger) []nats.Option {
 	// 如果配置了 Token，添加 Token 认证
 	if cfg.Token != "" {
 		opts = append(opts, nats.Token(cfg.Token))
+	}
+
+	// 官方 nats.Options 对齐项：0 值不传选项，走官方库默认
+	//（官方默认见 nats.go：ReconnectJitter=100ms/PingInterval=2m/MaxPingsOut=2/
+	//  ReconnectBufSize=8MB/FlusherTimeout=10s/DrainTimeout=30s）
+	if cfg.ReconnectJitter > 0 {
+		jitter := time.Duration(cfg.ReconnectJitter) * time.Second
+		opts = append(opts, nats.ReconnectJitter(jitter, jitter)) // 单值字段：TLS 场景共用同一抖动
+	}
+	if cfg.ReconnectBufSize > 0 {
+		opts = append(opts, nats.ReconnectBufSize(int(cfg.ReconnectBufSize)))
+	}
+	if cfg.PingInterval > 0 {
+		opts = append(opts, nats.PingInterval(time.Duration(cfg.PingInterval)*time.Second))
+	}
+	if cfg.MaxPingsOut > 0 {
+		opts = append(opts, nats.MaxPingsOutstanding(cfg.MaxPingsOut))
+	}
+	if cfg.FlushTimeout > 0 {
+		opts = append(opts, nats.FlusherTimeout(time.Duration(cfg.FlushTimeout)*time.Second))
+	}
+	if cfg.DrainTimeout > 0 {
+		opts = append(opts, nats.DrainTimeout(time.Duration(cfg.DrainTimeout)*time.Second))
 	}
 
 	return opts
