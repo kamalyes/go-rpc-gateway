@@ -13,6 +13,7 @@ package middleware
 import (
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	breakerconfig "github.com/kamalyes/go-config/pkg/breaker"
@@ -33,45 +34,49 @@ const (
 )
 
 // Breaker 断路器 - 核心业务逻辑
-// 所有字段由 mu 互斥锁保护，不使用 atomic（锁内操作已保证原子性）
+// 状态用 atomic.Value 存储，计数字段用原子操作，热路径（Allow/RecordSuccess/RecordFailure）完全无锁
+// mu 仅保护状态转换复合操作（lastFailureTime/lastStateChangeAt 及转换原子性）
 type Breaker struct {
-	mu                sync.RWMutex
-	state             BreakerState
+	mu                sync.Mutex
+	state             atomic.Value // BreakerState
 	failureThreshold  int
 	successThreshold  int
 	timeout           time.Duration
 	volumeThreshold   int
-	failureCount      int32
-	successCount      int32
-	totalRequests     int64
-	failedRequests    int64
-	lastFailureTime   time.Time
-	lastSuccessTime   time.Time
-	lastStateChangeAt time.Time
+	failureCount      atomic.Int32 // 连续失败计数
+	successCount      atomic.Int32 // 半开状态连续成功计数
+	totalRequests     atomic.Int64
+	failedRequests    atomic.Int64
+	lastFailureTime   time.Time // mu 保护，仅 Open 超时判断读取
+	lastStateChangeAt time.Time // mu 保护
 }
 
 // NewBreaker 创建断路器
 func NewBreaker(failureThreshold, successThreshold, volumeThreshold int, timeout time.Duration) *Breaker {
-	return &Breaker{
-		state:             BreakerClosed,
+	b := &Breaker{
 		failureThreshold:  failureThreshold,
 		successThreshold:  successThreshold,
 		volumeThreshold:   volumeThreshold,
 		timeout:           timeout,
 		lastStateChangeAt: time.Now(),
 	}
+	b.state.Store(BreakerClosed)
+	return b
+}
+
+// currentState 无锁读取当前状态（atomic.Value 保证读原子性）
+func (b *Breaker) currentState() BreakerState {
+	if v := b.state.Load(); v != nil {
+		return v.(BreakerState)
+	}
+	return BreakerClosed
 }
 
 // Allow 检查是否允许请求
-// 优化：Closed/HalfOpen 状态（常态）仅用 RLock 快速返回，仅 Open 状态升级写锁
+// Closed/HalfOpen 常态无锁放行，仅 Open 状态升级写锁检查超时恢复
 func (b *Breaker) Allow() bool {
-	// 快速路径：读锁检查状态
-	b.mu.RLock()
-	state := b.state
-	b.mu.RUnlock()
-
-	// Closed 和 HalfOpen 无需修改状态，直接放行
-	if state == BreakerClosed || state == BreakerHalfOpen {
+	// 快速路径：非 Open 状态直接放行（无锁）
+	if b.currentState() != BreakerOpen {
 		return true
 	}
 
@@ -79,8 +84,8 @@ func (b *Breaker) Allow() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// 二次检查（可能在 RUnlock 与 Lock 之间被其他 goroutine 转换）
-	if b.state != BreakerOpen {
+	// 二次检查（可能在升级写锁前被其他 goroutine 转换）
+	if b.currentState() != BreakerOpen {
 		return true
 	}
 
@@ -93,36 +98,63 @@ func (b *Breaker) Allow() bool {
 }
 
 // RecordSuccess 记录成功
+// Closed 常态仅原子清零失败计数，完全无锁
 func (b *Breaker) RecordSuccess() {
+	b.totalRequests.Add(1)
+
+	if b.currentState() == BreakerClosed {
+		b.failureCount.Store(0)
+		return
+	}
+
+	// 慢路径：HalfOpen 需维护连续成功计数并可能恢复闭合
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.totalRequests++
-	b.failureCount = 0
-	b.lastSuccessTime = time.Now()
-
-	if b.state == BreakerHalfOpen {
-		b.successCount++
-		if b.successCount >= int32(b.successThreshold) {
+	b.failureCount.Store(0)
+	if b.currentState() == BreakerHalfOpen {
+		if b.successCount.Add(1) >= int32(b.successThreshold) {
 			b.transitionToLocked(BreakerClosed)
 		}
 	}
 }
 
 // RecordFailure 记录失败
+// Closed 常态仅原子更新计数，达到阈值时才升级写锁完成状态转换
 func (b *Breaker) RecordFailure() {
+	b.totalRequests.Add(1)
+	b.failedRequests.Add(1)
+	b.successCount.Store(0)
+
+	if b.currentState() == BreakerClosed {
+		// 快速路径：未达阈值直接返回（绝大多数失败请求走此分支）
+		if b.failureCount.Add(1) < int32(b.failureThreshold) ||
+			b.totalRequests.Load() < int64(b.volumeThreshold) {
+			return
+		}
+		// 达到阈值：升级写锁完成状态转换（double-check）
+		b.mu.Lock()
+		b.lastFailureTime = time.Now()
+		if b.currentState() == BreakerClosed &&
+			b.failureCount.Load() >= int32(b.failureThreshold) &&
+			b.totalRequests.Load() >= int64(b.volumeThreshold) {
+			b.transitionToLocked(BreakerOpen)
+		}
+		b.mu.Unlock()
+		return
+	}
+
+	// 慢路径：HalfOpen 失败立即重新熔断
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.totalRequests++
-	b.failedRequests++
-	b.failureCount++
-	b.successCount = 0
+	b.failureCount.Add(1)
 	b.lastFailureTime = time.Now()
 
-	switch b.state {
-	case BreakerClosed:
-		if b.failureCount >= int32(b.failureThreshold) && b.totalRequests >= int64(b.volumeThreshold) {
+	switch b.currentState() {
+	case BreakerClosed: // 竞态兜底：快速路径读取状态后可能已被转换
+		if b.failureCount.Load() >= int32(b.failureThreshold) &&
+			b.totalRequests.Load() >= int64(b.volumeThreshold) {
 			b.transitionToLocked(BreakerOpen)
 		}
 	case BreakerHalfOpen:
@@ -132,14 +164,14 @@ func (b *Breaker) RecordFailure() {
 
 // transitionToLocked 转换状态（调用者必须持有 mu 写锁）
 func (b *Breaker) transitionToLocked(newState BreakerState) {
-	oldState := b.state
-	b.state = newState
+	oldState := b.currentState()
+	b.state.Store(newState)
 	b.lastStateChangeAt = time.Now()
 
 	// Closed 和 HalfOpen 重置计数器
 	if newState == BreakerClosed || newState == BreakerHalfOpen {
-		b.failureCount = 0
-		b.successCount = 0
+		b.failureCount.Store(0)
+		b.successCount.Store(0)
 	}
 
 	// 状态转换非热路径，日志在锁内可接受
@@ -149,8 +181,8 @@ func (b *Breaker) transitionToLocked(newState BreakerState) {
 			"new_state": newState,
 		}
 		if newState == BreakerOpen {
-			fields["failure_count"] = b.failureCount
-			fields["total_requests"] = b.totalRequests
+			fields["failure_count"] = b.failureCount.Load()
+			fields["total_requests"] = b.totalRequests.Load()
 			global.LOGGER.WithFields(fields).WarnMsg("Circuit breaker opened due to high failure rate")
 		} else {
 			global.LOGGER.WithFields(fields).InfoMsg("Circuit breaker state changed")
@@ -160,9 +192,7 @@ func (b *Breaker) transitionToLocked(newState BreakerState) {
 
 // GetState 获取当前状态
 func (b *Breaker) GetState() BreakerState {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.state
+	return b.currentState()
 }
 
 // GetStats 获取统计信息（基于 Snapshot，避免 map 分配）
@@ -179,16 +209,14 @@ type BreakerSnapshot struct {
 	SuccessCount   int32
 }
 
-// Snapshot 获取强类型快照（用于指标采集，避免类型断言）
+// Snapshot 获取强类型快照（全原子读取，无锁）
 func (b *Breaker) Snapshot() BreakerSnapshot {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
 	return BreakerSnapshot{
-		State:          b.state,
-		TotalRequests:  b.totalRequests,
-		FailedRequests: b.failedRequests,
-		FailureCount:   b.failureCount,
-		SuccessCount:   b.successCount,
+		State:          b.currentState(),
+		TotalRequests:  b.totalRequests.Load(),
+		FailedRequests: b.failedRequests.Load(),
+		FailureCount:   b.failureCount.Load(),
+		SuccessCount:   b.successCount.Load(),
 	}
 }
 
@@ -197,11 +225,11 @@ func (b *Breaker) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.state = BreakerClosed
-	b.failureCount = 0
-	b.successCount = 0
-	b.totalRequests = 0
-	b.failedRequests = 0
+	b.state.Store(BreakerClosed)
+	b.failureCount.Store(0)
+	b.successCount.Store(0)
+	b.totalRequests.Store(0)
+	b.failedRequests.Store(0)
 	b.lastStateChangeAt = time.Now()
 
 	if global.LOGGER != nil {
