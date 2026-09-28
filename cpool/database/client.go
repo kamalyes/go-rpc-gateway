@@ -374,12 +374,27 @@ func gormConfig(provider database.DatabaseProvider) *gorm.Config {
 	config.Logger = NewGormLogger(
 		gormlogger.Config{
 			SlowThreshold:             time.Duration(slowThreshold) * time.Millisecond, // 从配置读取慢查询阈值
-			LogLevel:                  gormlogger.Info,                                 // 记录所有SQL
+			LogLevel:                  parseGormLogLevel(provider.GetLogLevel()),       // 从配置读取SQL日志等级（silent/error/warn/info）
 			IgnoreRecordNotFoundError: ignoreRecordNotFoundError,                       // 从配置读取是否忽略记录未找到错误
 			Colorful:                  false,                                           // 使用JSON格式,不需要彩色
 		},
 	)
 	return config
+}
+
+// parseGormLogLevel 解析配置的 SQL 日志等级为 gorm logger 级别
+// 空串与未知值兜底 info（与 go-config database.yaml 默认 log-level: info 语义一致）
+func parseGormLogLevel(level string) gormlogger.LogLevel {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "silent":
+		return gormlogger.Silent
+	case "error":
+		return gormlogger.Error
+	case "warn", "warning":
+		return gormlogger.Warn
+	default: // "info"、空串、未知值
+		return gormlogger.Info
+	}
 }
 
 // GormLogger 自定义GORM日志记录器,支持JSON格式和trace_id自动注入
@@ -429,6 +444,10 @@ func (l *GormLogger) Error(ctx context.Context, msg string, data ...interface{})
 // 2. SQL 执行错误 → 记录为 ERROR
 // 3. 慢查询（超过阈值）→ 记录为 WARN
 // 4. 正常执行 → 记录为 INFO
+//
+// fc 是惰性闭包（postgres.Dialector.Explain，内含正则格式化），仅在真正进入打印分支时才调用
+// （与 gorm 官方 logger 同款写法）：级别不足或非目标场景时零格式化开销
+// —— warn 级别下正常 SQL 不进任何分支，fc 不执行，避免每条 SQL 白付一次正则格式化
 func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	if l.Config.LogLevel <= gormlogger.Silent || contextLogger == nil {
 		return
@@ -436,12 +455,11 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 
 	// 计算 SQL 执行耗时
 	elapsed := time.Since(begin)
-	// 获取 SQL 语句和影响行数
-	sql, rows := fc()
 
 	switch {
-	case err != nil && errors.Is(err, gormlogger.ErrRecordNotFound) && l.Config.LogLevel >= gormlogger.Warn:
+	case err != nil && errors.Is(err, gormlogger.ErrRecordNotFound) && !l.Config.IgnoreRecordNotFoundError && l.Config.LogLevel >= gormlogger.Warn:
 		// Record Not Found - 降级为WARN
+		sql, rows := fc()
 		contextLogger.WarnContextKV(
 			ctx,
 			"⚠️ Record Not Found",
@@ -451,6 +469,7 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 		)
 	case err != nil && l.Config.LogLevel >= gormlogger.Error:
 		// SQL错误 - 显示完整信息
+		sql, rows := fc()
 		contextLogger.ErrorContextKV(
 			ctx,
 			"❌ SQL Error",
@@ -461,6 +480,7 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 		)
 	case elapsed > l.Config.SlowThreshold && l.Config.SlowThreshold != 0 && l.Config.LogLevel >= gormlogger.Warn:
 		// 慢查询 - 显示详细信息
+		sql, rows := fc()
 		contextLogger.WarnContextKV(
 			ctx,
 			"🐌 SLOW SQL",
@@ -471,6 +491,7 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 		)
 	case l.Config.LogLevel >= gormlogger.Info:
 		// 正常SQL执行
+		sql, rows := fc()
 		contextLogger.InfoContextKV(
 			ctx,
 			"SQL",
