@@ -136,7 +136,7 @@ func (s *Server) injectMetricsCollectors() {
 			if hub == nil {
 				return nil
 			}
-			stats := hub.GetStats()
+			stats := hub.Stats().GetStats()
 			if stats == nil {
 				return nil
 			}
