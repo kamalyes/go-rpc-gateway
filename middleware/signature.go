@@ -17,7 +17,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"strings"
 
 	validator "github.com/kamalyes/go-argus"
 	"github.com/kamalyes/go-config/pkg/signature"
@@ -39,8 +38,33 @@ type SignatureValidator interface {
 // HMAC 签名验证器
 // ===============================================================================
 
+// hmacSignerCache 按算法缓存的 HMAC 签名器（进程内构建一次全局复用）
+// 签名器无状态，Sign 每次调用内部新建密钥哈希，可安全并发复用
+var hmacSignerCache = buildHMACSignerCache()
+
+// buildHMACSignerCache 为所有支持的哈希算法预构建签名器
+func buildHMACSignerCache() map[sign.HashCryptoFunc]sign.Signer {
+	cache := make(map[sign.HashCryptoFunc]sign.Signer, len(sign.SupportHMACCryptoFunc))
+	for algorithm := range sign.SupportHMACCryptoFunc {
+		if signer, err := sign.NewHMACSigner(algorithm); err == nil {
+			cache[algorithm] = signer
+		}
+	}
+	return cache
+}
+
 // HMACValidator HMAC 签名验证器
-type HMACValidator struct{}
+type HMACValidator struct {
+	signer sign.Signer // 构建时从缓存获取，避免每请求重复创建
+}
+
+// NewHMACValidator 创建 HMAC 签名验证器（复用全局缓存的签名器实例）
+func NewHMACValidator(algorithm sign.HashCryptoFunc) (*HMACValidator, error) {
+	if signer, ok := hmacSignerCache[algorithm]; ok {
+		return &HMACValidator{signer: signer}, nil
+	}
+	return nil, fmt.Errorf("unsupported HMAC algorithm: %s", algorithm)
+}
 
 // Validate 验证 HMAC 签名
 func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) error {
@@ -68,7 +92,7 @@ func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) e
 	dataToSign := buildSigningData(requestCommonMeta, queryString, body)
 
 	// 生成期望的签名
-	expectedSign, err := v.generateSignature(dataToSign, config.SecretKey, config.Algorithm)
+	expectedSign, err := v.generateSignature(dataToSign, config.SecretKey)
 	if err != nil {
 		return fmt.Errorf("failed to generate signature: %w", err)
 	}
@@ -89,15 +113,9 @@ func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) e
 	return nil
 }
 
-// generateSignature 生成 HMAC 签名
-func (v *HMACValidator) generateSignature(dataToSign, secretKey string, algorithm sign.HashCryptoFunc) (string, error) {
-	signer, err := sign.NewHMACSigner(algorithm)
-	if err != nil {
-		return "", fmt.Errorf("failed to create HMAC signer: %w", err)
-	}
-
-	// 生成签名
-	signatureBytes, err := signer.Sign([]byte(dataToSign), []byte(secretKey))
+// generateSignature 生成 HMAC 签名（复用构建期缓存的签名器，仅密钥哈希每次新建）
+func (v *HMACValidator) generateSignature(dataToSign []byte, secretKey string) (string, error) {
+	signatureBytes, err := v.signer.Sign(dataToSign, []byte(secretKey))
 	if err != nil {
 		return "", fmt.Errorf("failed to sign data: %w", err)
 	}
@@ -165,7 +183,7 @@ func (v *RSAValidator) Validate(r *http.Request, config *signature.Signature) er
 }
 
 // verifySignature 验证 RSA-SHA256 签名
-func (v *RSAValidator) verifySignature(dataToSign, signatureBase64 string) error {
+func (v *RSAValidator) verifySignature(dataToSign []byte, signatureBase64 string) error {
 	// Base64 解码签名
 	signatureBytes, err := base64.StdEncoding.DecodeString(signatureBase64)
 	if err != nil {
@@ -173,7 +191,7 @@ func (v *RSAValidator) verifySignature(dataToSign, signatureBase64 string) error
 	}
 
 	// 计算签名数据的 SHA256 哈希
-	hashed := sha256.Sum256([]byte(dataToSign))
+	hashed := sha256.Sum256(dataToSign)
 
 	// 使用公钥验证签名（PKCS1v15）
 	err = rsa.VerifyPKCS1v15(v.publicKey, crypto.SHA256, hashed[:], signatureBytes)
@@ -190,22 +208,13 @@ func (v *RSAValidator) verifySignature(dataToSign, signatureBase64 string) error
 
 // buildSigningData 构建签名数据（HMAC 和 RSA 使用相同的逻辑）
 // 签名数据格式：timestamp + queryString + body
-func buildSigningData(req *RequestCommonMeta, queryString string, body []byte) string {
-	// 预估容量：timestamp + queryString + body
-	var sb strings.Builder
-	sb.Grow(len(req.Timestamp) + len(queryString) + len(body))
-
-	sb.WriteString(req.Timestamp)
-
-	if queryString != "" {
-		sb.WriteString(queryString)
-	}
-
-	if len(body) > 0 {
-		sb.Write(body)
-	}
-
-	return sb.String()
+// 返回 []byte 直接供哈希计算使用，避免 string→[]byte 的整份 body 二次拷贝
+func buildSigningData(req *RequestCommonMeta, queryString string, body []byte) []byte {
+	// 预估容量：timestamp + queryString + body（append 空 slice 本身是 no-op，无需分支）
+	buf := make([]byte, 0, len(req.Timestamp)+len(queryString)+len(body))
+	buf = append(buf, req.Timestamp...)
+	buf = append(buf, queryString...)
+	return append(buf, body...)
 }
 
 // readRequestBody 读取请求体
@@ -240,7 +249,11 @@ func buildSignatureValidator(config *signature.Signature) (SignatureValidator, *
 	case signature.SignatureTypeHMAC:
 		fallthrough
 	default:
-		return &HMACValidator{}, nil
+		validator, err := NewHMACValidator(config.Algorithm)
+		if err != nil {
+			return nil, gwerrors.NewError(gwerrors.ErrCodeInternalServerError, fmt.Sprintf("failed to create HMAC validator: %v", err))
+		}
+		return validator, nil
 	}
 }
 
@@ -266,48 +279,46 @@ func SignatureMiddleware(config *signature.Signature) HTTPMiddleware {
 }
 
 // SignatureMiddlewareWithProvider 签名验证中间件（按请求动态解析配置/验证器）
+// 静态配置在构建期解析一次验证器并缓存，动态配置仍按请求解析
 func SignatureMiddlewareWithProvider(config *signature.Signature, provider DynamicSignatureProvider) HTTPMiddleware {
 	if !config.Enabled {
 		return noopMiddleware
 	}
 
+	// 构建期完成静态验证器解析（HMAC 签名器缓存 / RSA 公钥解析只做一次）
+	staticValidator, staticErr := buildSignatureValidator(config)
+
+	// resolveValidator 解析请求对应的签名验证器
+	// 静态配置直接复用构建期结果，动态配置按请求构建
+	resolveValidator := func(resolvedConfig *signature.Signature) (SignatureValidator, *gwerrors.AppError) {
+		if resolvedConfig == config {
+			return staticValidator, staticErr
+		}
+		return buildSignatureValidator(resolvedConfig)
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			resolvedConfig := config
-			var validator SignatureValidator
-
-			if provider != nil {
-				resolved, appErr := provider.ResolveSignature(r)
-				if appErr != nil {
-					response.WriteAppError(w, appErr)
-					return
-				}
-				if resolved != nil {
-					if resolved.Skip {
-						next.ServeHTTP(w, r)
-						return
-					}
-					if resolved.Config != nil {
-						resolvedConfig = resolved.Config
-					}
-					validator = resolved.Validator
-				}
+			resolvedConfig, validator, skip, appErr := resolveDynamic(provider, config, staticValidator, r)
+			if appErr != nil {
+				response.WriteAppError(w, appErr)
+				return
 			}
-
+			if skip {
+				next.ServeHTTP(w, r)
+				return
+			}
 			if resolvedConfig == nil || !resolvedConfig.Enabled {
 				next.ServeHTTP(w, r)
 				return
 			}
-
 			if validator == nil {
-				var appErr *gwerrors.AppError
-				validator, appErr = buildSignatureValidator(resolvedConfig)
-				if appErr != nil {
+				if validator, appErr = resolveValidator(resolvedConfig); appErr != nil {
 					response.WriteAppError(w, appErr)
 					return
 				}
 				if validator == nil {
-					next.ServeHTTP(w, r)
+					next.ServeHTTP(w, r) // 无需验证（如 RSA 未配置公钥）
 					return
 				}
 			}
@@ -319,6 +330,29 @@ func SignatureMiddlewareWithProvider(config *signature.Signature, provider Dynam
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// resolveDynamic 解析动态签名结果
+// 无 provider 或 provider 返回空结果时，沿用构建期的静态配置与验证器
+func resolveDynamic(provider DynamicSignatureProvider, config *signature.Signature, staticValidator SignatureValidator, r *http.Request) (resolvedConfig *signature.Signature, validator SignatureValidator, skip bool, appErr *gwerrors.AppError) {
+	resolvedConfig, validator = config, staticValidator
+	if provider == nil {
+		return
+	}
+
+	resolved, appErr := provider.ResolveSignature(r)
+	if appErr != nil || resolved == nil {
+		return
+	}
+
+	skip = resolved.Skip
+	if resolved.Config != nil {
+		resolvedConfig = resolved.Config
+	}
+	if resolved.Validator != nil {
+		validator = resolved.Validator
+	}
+	return
 }
 
 // SignatureMiddlewareWithValidator 签名验证中间件（使用自定义验证器）
