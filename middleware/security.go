@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	validator "github.com/kamalyes/go-argus"
 	"github.com/kamalyes/go-config/pkg/cors"
 	"github.com/kamalyes/go-config/pkg/security"
 	"github.com/kamalyes/go-rpc-gateway/constants"
@@ -27,15 +28,44 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
-	"github.com/kamalyes/go-argus"
 )
 
 // CORSMiddleware CORS 中间件
+// methods/headers 的逗号拼接与 origin 集合在构建期预计算，热路径零拼接零分配
 func CORSMiddleware(corsConfig *cors.Cors) HTTPMiddleware {
 	mergedHeaders := mathx.SliceUnion(cors.Default().AllowedHeaders, corsConfig.AllowedHeaders)
+
+	// 预计算允许方法/头部的逗号分隔字符串（避免每请求 strings.Join）
+	allowMethodsValue := strings.Join(corsConfig.AllowedMethods, ", ")
+	allowHeadersValue := strings.Join(mergedHeaders, ", ")
+
+	// 预构建 origin 集合：通配符单独标记，其余 O(1) map 查找
+	allowAllOrigins := false
+	originSet := make(map[string]struct{}, len(corsConfig.AllowedOrigins))
+	for _, origin := range corsConfig.AllowedOrigins {
+		if origin == "*" {
+			allowAllOrigins = true
+			continue
+		}
+		originSet[origin] = struct{}{}
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			setCORSHeaders(w, r, corsConfig, mergedHeaders)
+			header := w.Header()
+			setAllowOrigin(header, r.Header.Get(constants.HeaderOrigin), allowAllOrigins, originSet)
+			if allowMethodsValue != "" {
+				header.Set(constants.HeaderAccessControlAllowMethods, allowMethodsValue)
+			}
+			if allowHeadersValue != "" {
+				header.Set(constants.HeaderAccessControlAllowHeaders, allowHeadersValue)
+			}
+			if corsConfig.AllowCredentials {
+				header.Set(constants.HeaderAccessControlAllowCredentials, constants.CORSCredentialsTrue)
+			}
+			if corsConfig.MaxAge != "" {
+				header.Set(constants.HeaderAccessControlMaxAge, corsConfig.MaxAge)
+			}
 
 			// 处理预检请求
 			if r.Method == constants.HTTPMethodOptions {
@@ -48,59 +78,17 @@ func CORSMiddleware(corsConfig *cors.Cors) HTTPMiddleware {
 	}
 }
 
-// setCORSHeaders 设置CORS相关头部
-func setCORSHeaders(w http.ResponseWriter, r *http.Request, config *cors.Cors, mergedHeaders []string) {
-	setAllowOrigin(w, r.Header.Get(constants.HeaderOrigin), config.AllowedOrigins)
-	setAllowMethods(w, config.AllowedMethods)
-	setAllowHeaders(w, mergedHeaders)
-	setAllowCredentials(w, config.AllowCredentials)
-	setMaxAge(w, config.MaxAge)
-}
-
-// setAllowOrigin 设置允许的源
-func setAllowOrigin(w http.ResponseWriter, origin string, allowOrigins []string) {
-	if len(allowOrigins) == 0 {
+// setAllowOrigin 设置允许的源（构建期已解析 origin 集合，热路径仅做 O(1) 查找）
+func setAllowOrigin(header http.Header, origin string, allowAllOrigins bool, originSet map[string]struct{}) {
+	if origin == "" {
 		return
 	}
-
-	// 检查是否允许所有源或包含当前源
-	for _, allowedOrigin := range allowOrigins {
-		if allowedOrigin == "*" || allowedOrigin == origin {
-			w.Header().Set(constants.HeaderAccessControlAllowOrigin, origin)
-			return
-		}
-	}
-}
-
-// setAllowMethods 设置允许的方法
-func setAllowMethods(w http.ResponseWriter, methods []string) {
-	if len(methods) == 0 {
+	if allowAllOrigins {
+		header.Set(constants.HeaderAccessControlAllowOrigin, origin)
 		return
 	}
-
-	w.Header().Set(constants.HeaderAccessControlAllowMethods, strings.Join(methods, ", "))
-}
-
-// setAllowHeaders 设置允许的头部
-func setAllowHeaders(w http.ResponseWriter, headers []string) {
-	if len(headers) == 0 {
-		return
-	}
-
-	w.Header().Set(constants.HeaderAccessControlAllowHeaders, strings.Join(headers, ", "))
-}
-
-// setAllowCredentials 设置是否允许凭证
-func setAllowCredentials(w http.ResponseWriter, allowCredentials bool) {
-	if allowCredentials {
-		w.Header().Set(constants.HeaderAccessControlAllowCredentials, constants.CORSCredentialsTrue)
-	}
-}
-
-// setMaxAge 设置预检请求缓存时间
-func setMaxAge(w http.ResponseWriter, maxAge string) {
-	if maxAge != "" {
-		w.Header().Set(constants.HeaderAccessControlMaxAge, maxAge)
+	if _, ok := originSet[origin]; ok {
+		header.Set(constants.HeaderAccessControlAllowOrigin, origin)
 	}
 }
 
