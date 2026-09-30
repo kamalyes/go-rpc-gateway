@@ -13,6 +13,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
@@ -249,11 +250,9 @@ func HTTPMetricsMiddleware(m *MetricsManager) MiddlewareFunc {
 			m.httpMetrics.activeRequests.Inc()
 			defer m.httpMetrics.activeRequests.Dec()
 
-			// 包装 ResponseWriter
-			wrapped := &metricsResponseWriter{
-				ResponseWriter: w,
-				statusCode:     http.StatusOK,
-			}
+			// 包装 ResponseWriter（对象池复用）
+			wrapped := acquireMetricsResponseWriter(w)
+			defer releaseMetricsResponseWriter(wrapped)
 
 			start := time.Now()
 			next.ServeHTTP(wrapped, r)
@@ -377,11 +376,9 @@ func (mm *MetricsManager) HTTPMiddleware() func(http.Handler) http.Handler {
 				mm.httpMetrics.requestSize.WithLabelValues(r.Method, normalizedPath).Observe(float64(r.ContentLength))
 			}
 
-			// 包装 ResponseWriter 以捕获状态码和响应大小
-			wrapped := &metricsResponseWriter{
-				ResponseWriter: w,
-				statusCode:     http.StatusOK,
-			}
+			// 包装 ResponseWriter 以捕获状态码和响应大小（对象池复用）
+			wrapped := acquireMetricsResponseWriter(w)
+			defer releaseMetricsResponseWriter(wrapped)
 
 			// 记录请求开始时间
 			start := time.Now()
@@ -413,6 +410,28 @@ type metricsResponseWriter struct {
 	http.ResponseWriter
 	statusCode   int
 	bytesWritten int
+}
+
+// metricsResponseWriterPool 响应包装器对象池（热路径每请求一次分配 → 复用）
+var metricsResponseWriterPool = sync.Pool{
+	New: func() any {
+		return &metricsResponseWriter{}
+	},
+}
+
+// acquireMetricsResponseWriter 从池中获取包装器并绑定底层 writer
+func acquireMetricsResponseWriter(w http.ResponseWriter) *metricsResponseWriter {
+	rw := metricsResponseWriterPool.Get().(*metricsResponseWriter)
+	rw.ResponseWriter = w
+	rw.statusCode = http.StatusOK
+	rw.bytesWritten = 0
+	return rw
+}
+
+// releaseMetricsResponseWriter 归还包装器到池（解除底层 writer 引用，防止泄漏）
+func releaseMetricsResponseWriter(rw *metricsResponseWriter) {
+	rw.ResponseWriter = nil
+	metricsResponseWriterPool.Put(rw)
 }
 
 func (rw *metricsResponseWriter) WriteHeader(code int) {
