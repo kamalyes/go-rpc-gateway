@@ -152,9 +152,18 @@ func (p *MySignatureProvider) ResolveSignature(r *http.Request) (*middleware.Res
 
     return &middleware.ResolvedSignature{
         Config:    cfg,
-        Validator: &middleware.HMACValidator{},
+        Validator: mustHMACValidator(cfg.Algorithm),
         Skip:      false,
     }, nil
+}
+
+// mustHMACValidator 按算法从缓存取 HMAC 验证器（签名器全局复用）
+func mustHMACValidator(algorithm sign.HashCryptoFunc) *middleware.HMACValidator {
+    validator, err := middleware.NewHMACValidator(algorithm)
+    if err != nil {
+        panic(err) // 算法非法属于启动期配置错误
+    }
+    return validator
 }
 
 gateway.SetDynamicSignatureProvider(&MySignatureProvider{})
@@ -395,7 +404,7 @@ func SignatureMiddlewareWithValidator(config *signature.Signature, validator Sig
 
 // 验证器构造
 func NewRSAValidator(publicKeyPEM []byte) (*RSAValidator, error)
-// HMACValidator 为空结构体，直接 &HMACValidator{} 使用（generateSignature 为私有方法）
+func NewHMACValidator(algorithm sign.HashCryptoFunc) (*HMACValidator, error) // 复用全局签名器缓存
 ```
 
 ```yaml
@@ -419,7 +428,7 @@ middleware:
 
 > 源码：[middleware/nonce.go](../middleware/nonce.go)
 
-使用 Redis INCR 原子操作记录 Nonce 使用次数，检测重放攻击。Nonces 从 `RequestCommonMeta.Nonce` 读取，受 `require-nonce` 开关控制：
+使用 Redis INCR 原子操作记录 Nonce 使用次数，检测重放攻击。Nonces 从 `RequestCommonMeta.Nonce` 读取，受 `require-nonce` 开关控制。旧客户端未携带 Nonce 时，基于请求指纹（Authorization + AccessKey + Timestamp + Query + Body 的 MD5）自动派生，原样重放会被拦截；Timestamp 同时缺失则跳过防重放检查：
 
 ```go
 func NonceMiddleware(config *signature.Signature) HTTPMiddleware
