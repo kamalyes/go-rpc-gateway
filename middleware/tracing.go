@@ -299,8 +299,10 @@ func Tracing(manager *TracingManager) MiddlewareFunc {
 			ctx, span := manager.tracer.Start(ctx, r.Method+" "+r.URL.Path)
 			defer span.End()
 
-			// 设置span属性（请求阶段）
-			setSpanAttributes(span, r)
+			// 设置span属性（请求阶段，非采样 span 跳过属性构造）
+			if span.IsRecording() {
+				setSpanAttributes(span, r)
+			}
 
 			// 注入trace信息到响应头
 			otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(w.Header()))
@@ -323,8 +325,10 @@ func Tracing(manager *TracingManager) MiddlewareFunc {
 			// 将上下文传递给下一个处理器
 			next.ServeHTTP(rw, r.WithContext(ctx))
 
-			// 设置响应阶段属性
-			setResponseAttributes(span, rw)
+			// 设置响应阶段属性（非采样 span 跳过属性构造）
+			if span.IsRecording() {
+				setResponseAttributes(span, rw)
+			}
 			if rw.IsError() {
 				span.RecordError(nil) // 记录错误状态
 			}

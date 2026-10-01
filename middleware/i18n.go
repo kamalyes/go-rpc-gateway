@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 
 	gci18n "github.com/kamalyes/go-config/pkg/i18n"
 	goi18n "github.com/kamalyes/go-i18n"
@@ -125,8 +127,27 @@ func detectFromHeader(r *http.Request, config *gci18n.I18N) string {
 	return config.ParseAcceptLanguage(acceptLanguage)
 }
 
+// queryValue 轻量提取单个查询参数值（避免 r.URL.Query() 解析全部参数并分配 map/slice）
+func queryValue(rawQuery, key string) string {
+	for len(rawQuery) > 0 {
+		pair := rawQuery
+		if idx := strings.IndexByte(rawQuery, '&'); idx >= 0 {
+			pair, rawQuery = rawQuery[:idx], rawQuery[idx+1:]
+		} else {
+			rawQuery = ""
+		}
+		if strings.HasPrefix(pair, key) && len(pair) > len(key) && pair[len(key)] == '=' {
+			if value, err := url.QueryUnescape(pair[len(key)+1:]); err == nil {
+				return value
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
 func detectFromQuery(r *http.Request, config *gci18n.I18N) string {
-	if lang := r.URL.Query().Get(config.LanguageParam); lang != "" {
+	if lang := queryValue(r.URL.RawQuery, config.LanguageParam); lang != "" {
 		return config.ResolveLanguage(lang)
 	}
 	return ""

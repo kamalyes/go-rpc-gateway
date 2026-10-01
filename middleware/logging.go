@@ -26,7 +26,6 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/matcher"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
-	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
@@ -233,6 +232,11 @@ func getLoggingConfig() *logging.Logging {
 	return logging.Default()
 }
 
+// hasPrefixFold 前缀大小写不敏感匹配（零分配，替代 strings.ToLower+HasPrefix）
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
+}
+
 // isLoggableContentType 检查 Content-Type 是否可记录
 func isLoggableContentType(config *logging.Logging, contentType string) bool {
 	if contentType == "" {
@@ -240,7 +244,7 @@ func isLoggableContentType(config *logging.Logging, contentType string) bool {
 	}
 
 	for _, prefix := range config.LoggableContentTypes {
-		if strings.EqualFold(contentType, prefix) || strings.HasPrefix(strings.ToLower(contentType), prefix) {
+		if hasPrefixFold(contentType, prefix) {
 			return true
 		}
 	}
@@ -333,7 +337,7 @@ func logHTTPRequest(ctx context.Context, r *http.Request, rw *ResponseWriter, st
 		AddValue(constants.LogFieldStatus, rw.StatusCode()).
 		AddValue(constants.LogFieldBytes, rw.BytesWritten()).
 		AddValue(constants.LogFieldDuration, duration.Milliseconds()).
-		Add(constants.LogFieldIP, netx.GetClientIP(r)).
+		Add(constants.LogFieldIP, GetRequestCommonMeta(ctx).IPAddress).
 		Add(constants.LogFieldUserAgent, r.Header.Get(constants.HeaderUserAgent)).
 		AddSlow(duration, time.Duration(config.SlowHTTPThreshold)*time.Millisecond).
 		AddRequestContext(ctx)
