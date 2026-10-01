@@ -15,11 +15,11 @@ import (
 	"strconv"
 	"time"
 
+	validator "github.com/kamalyes/go-argus"
 	"github.com/kamalyes/go-config/pkg/signature"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/response"
-	"github.com/kamalyes/go-argus"
 )
 
 // TimestampMiddleware 时间戳验证中间件
@@ -35,6 +35,9 @@ func TimestampMiddleware(config *signature.Signature) HTTPMiddleware {
 	if !config.Enabled {
 		return noopMiddleware
 	}
+
+	// 构建期预计算时间窗口秒数（避免每请求 Duration→float→int 两次转换）
+	timeoutWindow := int64(config.TimeoutWindow / time.Second)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -75,8 +78,8 @@ func TimestampMiddleware(config *signature.Signature) HTTPMiddleware {
 			}
 
 			// 检查是否超出时间窗口
-			if diff > int64(config.TimeoutWindow.Seconds()) {
-				global.LOGGER.DebugContext(r.Context(), "Timestamp expired: %d seconds ago, timeout window is %d seconds", diff, config.TimeoutWindow.Seconds())
+			if diff > timeoutWindow {
+				global.LOGGER.DebugContext(r.Context(), "Timestamp expired: %d seconds ago, timeout window is %d seconds", diff, timeoutWindow)
 				response.WriteErrorResponseWithCode(w, http.StatusForbidden, constants.SignatureErrorCodeTimestampExpired, constants.SignatureErrorTimestampExpired)
 				return
 			}

@@ -43,7 +43,6 @@ const (
 
 	// Key格式模板
 	keyFormatSlidingWindow = "%s:%s:win_%v:rps_%d" // 滑动窗口key格式
-	keyFormatFixedWindow   = "%s:win_%v:rps_%d"    // 固定窗口key格式
 	keyFormatResetPattern  = "%s:%s:*"             // 重置key模式
 	// 特殊key值
 	keyGlobal     = "global"    // 全局限流key
@@ -98,7 +97,8 @@ func (t *TokenBucketLimiter) Allow(ctx context.Context, key string, rule *rateli
 	}
 
 	// 生成包含规则参数的唯一key，确保不同规则使用不同的桶
-	bucketKey := key + ":rps_" + strconv.FormatInt(int64(rule.RequestsPerSecond), 10) + ":burst_" + strconv.FormatInt(int64(rule.BurstSize), 10)
+	// 编译器将多次 + 拼接优化为单次分配的 concatstrings，strconv.Itoa 避免 fmt 反射开销
+	bucketKey := key + ":rps_" + strconv.Itoa(rule.RequestsPerSecond) + ":burst_" + strconv.Itoa(rule.BurstSize)
 
 	bucketInterface, _ := t.limiters.LoadOrStore(bucketKey, &atomicTokenBucket{
 		tokensInt64:    int64(rule.BurstSize) * billion,
@@ -347,8 +347,8 @@ func NewFixedWindowLimiter(config *ratelimit.RateLimit) *FixedWindowLimiter {
 
 // Allow 检查是否允许请求（使用atomic）
 func (f *FixedWindowLimiter) Allow(ctx context.Context, key string, rule *ratelimit.LimitRule) (bool, error) {
-	// 生成包含规则参数的唯一key
-	counterKey := fmt.Sprintf(keyFormatFixedWindow, key, rule.WindowSize, rule.RequestsPerSecond)
+	// 生成包含规则参数的唯一key（直拼避免 fmt.Sprintf 反射开销）
+	counterKey := key + ":win_" + rule.WindowSize.String() + ":rps_" + strconv.Itoa(rule.RequestsPerSecond)
 
 	now := time.Now()
 	resetTime := now.Add(rule.WindowSize)
