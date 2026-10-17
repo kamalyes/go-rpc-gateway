@@ -9,15 +9,15 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-argus v0.3.1
-	github.com/kamalyes/go-config v0.22.0
+	github.com/kamalyes/go-argus v0.4.0
+	github.com/kamalyes/go-config v0.23.0
 	github.com/kamalyes/go-i18n v0.2.8
 	github.com/kamalyes/go-logger v0.7.1
 	github.com/kamalyes/go-natsx v0.4.0
 	github.com/kamalyes/go-sqlbuilder v0.7.0
 	github.com/kamalyes/go-swagger v0.4.1
 	github.com/kamalyes/go-toolbox v0.16.3
-	github.com/kamalyes/go-wsc v0.11.18
+	github.com/kamalyes/go-wsc v0.11.19
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.22.0
@@ -54,7 +54,7 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
-	github.com/kamalyes/go-pbmo v0.2.0 // indirect
+	github.com/kamalyes/go-pbmo v0.2.1 // indirect
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/nats-io/nkeys v0.4.15 // indirect
