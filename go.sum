@@ -109,6 +109,8 @@ github.com/kamalyes/go-config v0.23.0 h1:nuedHt8wLvXUCfquEPT12B2HomIaS1RnSXbGu+q
 github.com/kamalyes/go-config v0.23.0/go.mod h1:uNxzC7ZjmBHg2DoS126moaVO6dK79qLzfrjMwri+bss=
 github.com/kamalyes/go-i18n v0.2.8 h1:vKJWgA5W2WuJf0ke/ulTJYRQxQo63my6NRsbT6cstnc=
 github.com/kamalyes/go-i18n v0.2.8/go.mod h1:p9iwiu+cb6t3cwIt8B7u5Pw/qkFEh/SaWtkXHWGIBPQ=
+github.com/kamalyes/go-i18n v0.3.0 h1:4dQS+nM9IgaS/rULQcF8DUWyY3oHafRk9ezPgYeOfRU=
+github.com/kamalyes/go-i18n v0.3.0/go.mod h1:c9m7bq5RFycbLhrevdzNbIflhqgvQ8+9ypBs/uUp+3U=
 github.com/kamalyes/go-logger v0.7.1 h1:tZwBrXhwW3emvrhY06uLoZtBx3QOkEuPPjhmW7HSE8A=
 github.com/kamalyes/go-logger v0.7.1/go.mod h1:Wj/t7u+/lRDlSwznpMyr33kEGcd9J7H4pkgZ+jF+dNc=
 github.com/kamalyes/go-natsx v0.4.0 h1:cqMt6OEJDZTT9swA9vEWdtZZ//VutlTBzoL7q04f08Q=

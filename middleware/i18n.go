@@ -29,8 +29,42 @@ import (
 
 type I18nManager = goi18n.Manager
 
+// toI18nConfig 把 go-config 的 i18n 配置转为 go-i18n 自有的 Config
+//
+// go-i18n 自 v0.3.0 起不再依赖 go-config（零依赖重构），并且刻意只保留翻译引擎
+// 真正会读的字段：detection-order / language-param / language-header / cookie-name
+// 这几项是「从请求的哪里取语言」，属于 HTTP 中间件的职责，也就是本包
+// 因此这次转换只在边界上做一次：翻译相关字段交给 go-i18n，检测相关字段留在本包
+//
+// [EN] go-i18n dropped its go-config dependency in v0.3.0 and deliberately keeps
+// only the fields its translation engine reads; the detection fields describe
+// where a request's language comes from, which is this middleware's job, so the
+// conversion happens once at the boundary
+func toI18nConfig(c *gci18n.I18N) *goi18n.Config {
+	if c == nil {
+		return nil
+	}
+
+	order := make([]goi18n.MappingType, 0, len(c.ResolutionOrder))
+	for _, m := range c.ResolutionOrder {
+		order = append(order, goi18n.MappingType(m))
+	}
+
+	return &goi18n.Config{
+		Enabled:               c.Enabled,
+		DefaultLanguage:       c.DefaultLanguage,
+		SupportedLanguages:    c.SupportedLanguages,
+		LanguageMapping:       c.LanguageMapping,
+		LegacyLanguageMapping: c.LegacyLanguageMapping,
+		ResolutionOrder:       order,
+		MessagesPath:          c.MessagesPath,
+		EnableFallback:        c.EnableFallback,
+		MessageLoader:         c.MessageLoader,
+	}
+}
+
 func NewI18nManager(config *gci18n.I18N) (*goi18n.Manager, error) {
-	return goi18n.NewManager(config)
+	return goi18n.NewManager(toI18nConfig(config))
 }
 
 func NewJSONMessageLoader(messagesJSON string) (*goi18n.JSONLoader, error) {
@@ -70,18 +104,32 @@ func SetLanguage(ctx context.Context, language string) context.Context {
 }
 
 func I18n() MiddlewareFunc {
-	manager, err := goi18n.NewManager(gci18n.Default())
+	config := gci18n.Default()
+	manager, err := goi18n.NewManager(toI18nConfig(config))
 	if err != nil {
 		panic(fmt.Sprintf("failed to create i18n manager: %v", err))
 	}
 
-	return I18nWithManager(manager)
+	return I18nWithManager(manager, config)
 }
 
-func I18nWithManager(manager *goi18n.Manager) MiddlewareFunc {
+// I18nWithManager 返回国际化中间件
+//
+// detect 为可变参数，用于指定「从请求的哪里取语言」的检测配置（Header / Query /
+// Cookie 顺序与键名）；不传则用 gci18n.Default()
+// 之所以不再从 manager.GetConfig() 取：go-i18n v0.3.0 的 Config 已不含检测字段，
+// 那些字段属于本中间件而非翻译引擎
+// [EN] detect carries the request-language detection settings; it is no longer
+// read from manager.GetConfig() because go-i18n's Config no longer holds them
+func I18nWithManager(manager *goi18n.Manager, detect ...*gci18n.I18N) MiddlewareFunc {
+	detectConfig := gci18n.Default()
+	if len(detect) > 0 && detect[0] != nil {
+		detectConfig = detect[0]
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			language := detectLanguage(r, manager.GetConfig())
+			language := detectLanguage(r, detectConfig, manager.GetConfig())
 
 			if !manager.IsLanguageSupported(language) {
 				language = manager.GetDefaultLanguage()
@@ -96,35 +144,48 @@ func I18nWithManager(manager *goi18n.Manager) MiddlewareFunc {
 	}
 }
 
-func detectLanguage(r *http.Request, config *gci18n.I18N) string {
-	for _, method := range config.DetectionOrder {
+// detectLanguage 按配置顺序从请求中探测语言
+//
+// 两个配置参数按字段归属拆开：
+//   - detect 提供「从请求的哪里取」（DetectionOrder / LanguageHeader /
+//     LanguageParam / CookieName），这些字段只存在于 go-config 的 i18n 配置里
+//   - resolve 提供「取到之后怎么映射」（标准映射、遗留映射、解析顺序、默认语言），
+//     来自 manager.GetConfig()，也就是调用方实际传入的那份配置
+//
+// 之所以不能两者都用 detect：go-i18n v0.3.0 的 Config 不再含检测字段，而映射配置
+// 必须用调用方的那份，否则自定义的遗留映射会被默认配置悄悄吞掉
+// [EN] The two configs are split by ownership: detect says where to read the
+// language from, resolve says how to map it. Using detect for both would silently
+// drop a caller's custom legacy mappings
+func detectLanguage(r *http.Request, detect *gci18n.I18N, resolve *goi18n.Config) string {
+	for _, method := range detect.DetectionOrder {
 		switch method {
 		case gci18n.DetectionHeader:
-			if lang := detectFromHeader(r, config); lang != "" {
+			if lang := detectFromHeader(r, detect, resolve); lang != "" {
 				return lang
 			}
 		case gci18n.DetectionQuery:
-			if lang := detectFromQuery(r, config); lang != "" {
+			if lang := detectFromQuery(r, detect, resolve); lang != "" {
 				return lang
 			}
 		case gci18n.DetectionCookie:
-			if lang := detectFromCookie(r, config); lang != "" {
+			if lang := detectFromCookie(r, detect, resolve); lang != "" {
 				return lang
 			}
 		case gci18n.DetectionDefault:
-			return config.DefaultLanguage
+			return resolve.DefaultLanguage
 		}
 	}
-	return config.DefaultLanguage
+	return resolve.DefaultLanguage
 }
 
-func detectFromHeader(r *http.Request, config *gci18n.I18N) string {
-	acceptLanguage := r.Header.Get(config.LanguageHeader)
+func detectFromHeader(r *http.Request, detect *gci18n.I18N, resolve *goi18n.Config) string {
+	acceptLanguage := r.Header.Get(detect.LanguageHeader)
 	if acceptLanguage == "" {
 		return ""
 	}
 
-	return config.ParseAcceptLanguage(acceptLanguage)
+	return resolve.ParseAcceptLanguage(acceptLanguage)
 }
 
 // queryValue 轻量提取单个查询参数值（避免 r.URL.Query() 解析全部参数并分配 map/slice）
@@ -146,21 +207,21 @@ func queryValue(rawQuery, key string) string {
 	return ""
 }
 
-func detectFromQuery(r *http.Request, config *gci18n.I18N) string {
-	if lang := queryValue(r.URL.RawQuery, config.LanguageParam); lang != "" {
-		return config.ResolveLanguage(lang)
+func detectFromQuery(r *http.Request, detect *gci18n.I18N, resolve *goi18n.Config) string {
+	if lang := queryValue(r.URL.RawQuery, detect.LanguageParam); lang != "" {
+		return resolve.ResolveLanguage(lang)
 	}
 	return ""
 }
 
-func detectFromCookie(r *http.Request, config *gci18n.I18N) string {
-	cookieName := mathx.IfEmpty(config.CookieName, config.LanguageParam)
+func detectFromCookie(r *http.Request, detect *gci18n.I18N, resolve *goi18n.Config) string {
+	cookieName := mathx.IfEmpty(detect.CookieName, detect.LanguageParam)
 
 	cookie, err := r.Cookie(cookieName)
 	if err != nil {
 		return ""
 	}
-	return config.ResolveLanguage(cookie.Value)
+	return resolve.ResolveLanguage(cookie.Value)
 }
 
 type LocalizedError struct {
