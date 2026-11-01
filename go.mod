@@ -12,11 +12,11 @@ require (
 	github.com/kamalyes/go-argus v0.5.1
 	github.com/kamalyes/go-config v0.25.1
 	github.com/kamalyes/go-i18n v0.3.0
-	github.com/kamalyes/go-logger v0.8.0
+	github.com/kamalyes/go-logger v0.9.0
 	github.com/kamalyes/go-natsx v0.6.0
 	github.com/kamalyes/go-sqlbuilder v0.8.0
 	github.com/kamalyes/go-swagger v0.11.0
-	github.com/kamalyes/go-toolbox v0.18.1
+	github.com/kamalyes/go-toolbox v0.19.0
 	github.com/kamalyes/go-wsc v0.11.19
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
