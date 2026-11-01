@@ -1,0 +1,43 @@
+name: Test
+
+# 实际流程全在 kamalyes/deploy-pipeline 的 go-library-test.yml 里，所有 Go 库共用一份
+# 改那一份就等于改所有库
+#
+# 这里**不配矩阵**：共用流水线从本仓库 go.mod 的 go 指令算出地板，上限取 Go 官方当前
+# 发布的最新两个小版本，于是 Go 发新版之后矩阵自己跟上
+# 低于地板的版本会被工具链切换静默顶上去，流水线的 Verify Toolchain Honesty 闸门会判红
+#
+# [EN] The pipeline lives in go-library-test.yml in kamalyes/deploy-pipeline, shared by every
+# Go library here. The matrix is not configured: its floor comes from this module's go
+# directive and its ceiling from the two most recent Go releases
+
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+
+jobs:
+  test:
+    uses: kamalyes/deploy-pipeline/.github/workflows/go-library-test.yml@master
+    with:
+      # 只跑 ubuntu：middleware 的可观测性测试断言输出里必须有
+      # process_resident_memory_bytes，而 Prometheus 的 process collector 只在 Linux 下可用
+      # （读 /proc），在 macOS 与 Windows 上 Gather 直接报
+      # process metrics not supported on this platform
+      #
+      # 这里显式写出来而不是依赖默认值：ubuntu-only 是刻意的约束，不是碰巧与默认相同
+      # [EN] Linux only: those tests assert on process_resident_memory_bytes, and Prometheus's
+      # process collector reads /proc, so Gather fails outright elsewhere. Stated explicitly
+      # rather than left to the default, because it is a deliberate constraint
+      platforms: '["ubuntu-latest"]'
+    secrets:
+      # 显式映射而非 secrets: inherit —— inherit 跨账号调用时拿不到值
+      # [EN] Mapped explicitly rather than with secrets: inherit, which yields nothing across accounts
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

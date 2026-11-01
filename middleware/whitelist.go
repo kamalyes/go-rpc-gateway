@@ -16,8 +16,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kamalyes/go-toolbox/pkg/matcher"
 	"github.com/kamalyes/go-argus"
+	"github.com/kamalyes/go-toolbox/pkg/matcher"
 )
 
 // ============================================================================

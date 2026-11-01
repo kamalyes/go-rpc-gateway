@@ -9,14 +9,14 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/kamalyes/go-argus v0.4.0
-	github.com/kamalyes/go-config v0.23.0
+	github.com/kamalyes/go-argus v0.5.0
+	github.com/kamalyes/go-config v0.24.0
 	github.com/kamalyes/go-i18n v0.3.0
-	github.com/kamalyes/go-logger v0.7.1
-	github.com/kamalyes/go-natsx v0.4.0
-	github.com/kamalyes/go-sqlbuilder v0.7.0
-	github.com/kamalyes/go-swagger v0.4.1
-	github.com/kamalyes/go-toolbox v0.16.3
+	github.com/kamalyes/go-logger v0.8.0
+	github.com/kamalyes/go-natsx v0.6.0
+	github.com/kamalyes/go-sqlbuilder v0.8.0
+	github.com/kamalyes/go-swagger v0.11.0
+	github.com/kamalyes/go-toolbox v0.18.1
 	github.com/kamalyes/go-wsc v0.11.19
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
@@ -54,7 +54,7 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
-	github.com/kamalyes/go-pbmo v0.2.1 // indirect
+	github.com/kamalyes/go-pbmo v0.3.0 // indirect
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/nats-io/nkeys v0.4.15 // indirect
@@ -89,7 +89,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kamalyes/go-cachex v0.4.0
+	github.com/kamalyes/go-cachex v0.5.0
 	github.com/klauspost/compress v1.18.6
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect

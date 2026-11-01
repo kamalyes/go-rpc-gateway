@@ -43,7 +43,7 @@ func (s *Server) EnableSwagger() error {
 
 	// 从 middleware manager 获取 Swagger 处理器
 	swaggerHandler := s.middlewareManager.SwaggerHandler()
-	
+
 	// 注册 Swagger 路由
 	for _, path := range s.middlewareManager.GetSwaggerPaths() {
 		s.RegisterHTTPRoute(path, swaggerHandler)

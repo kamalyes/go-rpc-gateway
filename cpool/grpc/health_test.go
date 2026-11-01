@@ -354,7 +354,7 @@ func TestCheckConnReady_NotReady(t *testing.T) {
 	defer conn.Close()
 
 	conn.Connect()
-	assert.False(t, checkConnReady(conn, connReadyTimeout), "不可达端口的 ClientConn 应返回 false")
+	assert.False(t, checkConnReady(conn, defaultConnReadyTimeout), "不可达端口的 ClientConn 应返回 false")
 }
 
 // =============================================================================
@@ -439,6 +439,7 @@ func TestStartPeriodicCheck_ConnTransientFailure_MarksUnhealthy(t *testing.T) {
 
 	hc.StartPeriodicCheck(100*time.Millisecond, map[string]string{})
 	t.Cleanup(func() {
+		hc.StopPeriodicCheck()
 		hc.SetOnRecover(nil)
 		hc.mu.Lock()
 		delete(hc.clients, "svc")
@@ -478,8 +479,14 @@ func TestStartPeriodicCheck_StaysUnhealthy_NoCallback(t *testing.T) {
 	callbackFired := make(chan string, 1)
 	hc.SetOnRecover(func(name string) { callbackFired <- name })
 
-	hc.StartPeriodicCheck(100*time.Millisecond, map[string]string{"svc": "localhost:59999"})
+	// 端口向系统申请：写死 59999 的话，runner 上真有进程占着就会探测成功、
+	// healthy 由 false 翻 true、恢复回调被触发，而本测试断言的正是「回调不被触发」
+	// 这与 TestStartPeriodicCheck_Recovery_WithNotReadyConn_SkipsCallback 是同一失效模式
+	// [EN] Same failure mode as the recovery test: a hard-coded ephemeral port that a runner may
+	// actually have in use would make the probe succeed and fire the callback this test forbids
+	hc.StartPeriodicCheck(100*time.Millisecond, map[string]string{"svc": findFreePort(t)})
 	t.Cleanup(func() {
+		hc.StopPeriodicCheck()
 		hc.SetOnRecover(nil)
 		hc.mu.Lock()
 		delete(hc.clients, "svc")
@@ -507,6 +514,7 @@ func TestStartPeriodicCheck_AlreadyHealthy_NoCallback(t *testing.T) {
 
 	hc.StartPeriodicCheck(100*time.Millisecond, map[string]string{"svc": lis.Addr().String()})
 	t.Cleanup(func() {
+		hc.StopPeriodicCheck()
 		hc.SetOnRecover(nil)
 		hc.mu.Lock()
 		delete(hc.clients, "svc")
@@ -547,6 +555,7 @@ func TestStartPeriodicCheck_Recovery_WithReadyConn_TriggersCallback(t *testing.T
 
 	hc.StartPeriodicCheck(100*time.Millisecond, map[string]string{"svc": addr})
 	t.Cleanup(func() {
+		hc.StopPeriodicCheck()
 		hc.SetOnRecover(nil)
 		hc.mu.Lock()
 		delete(hc.clients, "svc")
@@ -572,17 +581,29 @@ func TestStartPeriodicCheck_Recovery_WithNotReadyConn_SkipsCallback(t *testing.T
 	defer tcpLis.Close()
 	tcpAddr := tcpLis.Addr().String()
 
-	// ClientConn 指向不可达端口（永远不会 Ready）
-	conn, err := grpc.NewClient("localhost:59999", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// ClientConn 指向一个确定没人监听的端口（永远不会 Ready）
+	//
+	// 端口向系统要而不是写死：原先写的是 59999，而那落在 Linux 的临时端口区间内
+	// （/proc/sys/net/ipv4/ip_local_port_range 默认 32768–60999），macOS 是 49152–65535。
+	// CI runner 上真有进程占着那个端口时，ClientConn 会进入 Ready、恢复回调被触发，
+	// 测试于是判红 —— 失败的是端口假设，不是被测的健康检查逻辑
+	//
+	// [EN] The port is requested from the OS rather than hard-coded: 59999 sits inside the
+	// ephemeral range on both Linux and macOS, so a runner may genuinely have something there
+	deadAddr := findFreePort(t)
+
+	conn, err := grpc.NewClient(deadAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	defer conn.Close()
 
-	// 缩短超时，避免测试等待过久
-	origTimeout := connReadyTimeout
-	connReadyTimeout = 300 * time.Millisecond
-	defer func() { connReadyTimeout = origTimeout }()
-
 	hc := NewHealthChecker()
+
+	// 缩短超时：设在实例上而不是改写包级变量
+	// 原先写的是 connReadyTimeout = 300ms，那与周期检查 goroutine 的读形成 data race，
+	// CI 日志里的 WARNING: DATA RACE 就是它
+	// [EN] Set on the instance rather than mutating the package-level variable, which raced with
+	// the reads in the periodic-check goroutine
+	hc.SetConnReadyTimeout(300 * time.Millisecond)
 	hc.mu.Lock()
 	hc.clients["svc"] = &ClientHealth{
 		conn:      conn,
@@ -596,6 +617,9 @@ func TestStartPeriodicCheck_Recovery_WithNotReadyConn_SkipsCallback(t *testing.T
 
 	hc.StartPeriodicCheck(100*time.Millisecond, map[string]string{"svc": tcpAddr})
 	t.Cleanup(func() {
+		// 停掉周期检查：不停的话这个 goroutine 会活到进程结束，并跨测试边界继续探测
+		// [EN] Stop the periodic check; otherwise its goroutine outlives the test
+		hc.StopPeriodicCheck()
 		hc.SetOnRecover(nil)
 		hc.mu.Lock()
 		delete(hc.clients, "svc")
@@ -633,6 +657,7 @@ func TestStartPeriodicCheck_Recovery_NilConn_TriggersCallback(t *testing.T) {
 
 	hc.StartPeriodicCheck(100*time.Millisecond, map[string]string{"svc": lis.Addr().String()})
 	t.Cleanup(func() {
+		hc.StopPeriodicCheck()
 		hc.SetOnRecover(nil)
 		hc.mu.Lock()
 		delete(hc.clients, "svc")

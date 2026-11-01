@@ -2055,26 +2055,47 @@ func TestTokenBucket_RefillEndToEnd(t *testing.T) {
 
 	ctx := context.Background()
 
-	// 第1阶段：消耗全部 burst 令牌
+	// 第1阶段：把桶抽到被拒为止
+	//
+	// 不断言「正好取到 burst 个、下一个必被拒」：抽取本身要花时间，这期间桶按 rps
+	// 一直在补充，带 -race 时抽完 1000 个要两毫秒上下，按 500rps 就已经补回一个多，
+	// 于是第 1001 次请求被放行是**正确行为**，原先那条 assert.False 会随机失败
+	// 抽到被拒为止才是代码真正保证的语义，同时也让第 3 阶段从一个确实空的桶开始量
+	//
+	// [EN] Drains until rejected rather than asserting exactly burst tokens followed by a
+	// rejection. Draining takes time during which the bucket keeps refilling, so under -race the
+	// 1001st request being allowed is correct behaviour and the original assertion failed at
+	// random. Draining to rejection is what the code actually guarantees
 	consumed := 0
-	for i := 0; i < int(burst); i++ {
+	for {
 		ok, err := limiter.Allow(ctx, "refill-test", rule)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		if !ok {
 			break
 		}
 		consumed++
+		require.LessOrEqual(t, consumed, int(burst)*2, "桶一直抽不干，补充速率可能失控")
 	}
-	t.Logf("第1阶段：成功消耗 %d 个令牌（burst=%d）", consumed, burst)
-	assert.Equal(t, int(burst), consumed, "应能消耗全部 burst 令牌")
+	t.Logf("第1阶段：抽到被拒为止，共消耗 %d 个令牌（burst=%d，抽取期间仍在按 rps 补充）",
+		consumed, burst)
+	assert.GreaterOrEqual(t, consumed, int(burst), "至少应能消耗 burst 个令牌")
 
-	// 第2阶段：令牌应已耗尽
-	ok, err := limiter.Allow(ctx, "refill-test", rule)
-	assert.NoError(t, err)
-	assert.False(t, ok, "burst 耗尽后应拒绝请求")
-
-	// 第3阶段：等待 0.5 秒，应补充约 250 令牌
+	// 第3阶段：等待约 0.5 秒，补充量应与**实测**等待时长匹配
+	//
+	// 不拿 500ms 当常量去算期望值：原先断言补充量落在 240~260，等价于假定 time.Sleep
+	// 精确返回。共享 runner 上 sleep 超调到 550ms 很常见，那就补了 275 个，直接越界 ——
+	// 失败的是 sleep 的精度，不是令牌桶的逻辑
+	// 现在按 time.Since 实测的时长算期望值，上下各留 8% 容差，这样被测的仍然是
+	// 「补充速率是否等于 rps」，而不是「sleep 准不准」
+	//
+	// [EN] The expected count is derived from the measured elapsed time rather than treating
+	// 500ms as exact. The original bounds assumed time.Sleep returns precisely; an overshoot to
+	// 550ms on a shared runner refills 275 tokens and breaks the upper bound, so what failed was
+	// the sleep's precision rather than the bucket's refill logic
+	start := time.Now()
 	time.Sleep(500 * time.Millisecond)
+	elapsed := time.Since(start)
+
 	allowed := 0
 	for i := 0; i < int(burst); i++ {
 		ok, err := limiter.Allow(ctx, "refill-test", rule)
@@ -2084,11 +2105,15 @@ func TestTokenBucket_RefillEndToEnd(t *testing.T) {
 		}
 		allowed++
 	}
-	t.Logf("第3阶段：等待0.5秒后可消费 %d 个令牌", allowed)
 
-	// 0.5秒 * 500rps = 250 令牌（消耗过程耗时极短，补充量应接近 250）
-	assert.GreaterOrEqual(t, allowed, 240, "0.5秒后应补充约250个令牌")
-	assert.LessOrEqual(t, allowed, 260, "补充量不应超过250太多")
+	expected := float64(rps) * elapsed.Seconds()
+	lower := int(expected * 0.92)
+	upper := int(expected*1.08) + 1
+	t.Logf("第3阶段：实测等待 %v，可消费 %d 个令牌（期望 %d~%d，按 %.0f rps 推算 %.1f）",
+		elapsed, allowed, lower, upper, float64(rps), expected)
+
+	assert.GreaterOrEqual(t, allowed, lower, "补充量应与实测等待时长匹配")
+	assert.LessOrEqual(t, allowed, upper, "补充量不应超过实测时长对应的量")
 }
 
 // TestTokenBucket_RefillNoNegative 验证补充后令牌数不会变为负数

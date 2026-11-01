@@ -37,15 +37,72 @@ type HealthChecker struct {
 	clients   map[string]*ClientHealth
 	onRecover func(serviceName string) // 服务从不可用恢复为可用时的回调
 	mu        sync.RWMutex
+
+	// connReadyTimeout 连接就绪判断与 TCP 探测的超时
+	//
+	// 做成字段而不是包级变量：测试需要缩短它，而改写包级变量会与周期检查 goroutine 里的
+	// 读形成 data race —— CI 日志里的 WARNING: DATA RACE 就是这么来的
+	// [EN] A field rather than a package-level variable: tests need to shorten it, and mutating
+	// a package-level one races with the reads inside the periodic-check goroutine
+	connReadyTimeout time.Duration
+
+	// stop 关闭以终止周期检查
+	//
+	// 原先 StartPeriodicCheck 起的是 for range ticker.C，没有任何退出路径，
+	// 连 defer ticker.Stop() 都永远跑不到 —— 每个调用过它的测试都留下一个永久 goroutine，
+	// 这些 goroutine 跨测试地持续读 connReadyTimeout，正是上面那条竞态的另一半
+	// [EN] The periodic check used to loop over the ticker with no exit path, so every caller
+	// leaked a goroutine that kept reading the timeout across test boundaries
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
-var connReadyTimeout = time.Second * 2
+// defaultConnReadyTimeout 连接就绪判断与 TCP 探测的默认超时
+// 实例化后存进 HealthChecker.connReadyTimeout，不再有可写的包级状态
+// [EN] The default, copied into the struct at construction so no writable package state remains
+const defaultConnReadyTimeout = time.Second * 2
 
 // NewHealthChecker 创建健康检查管理器
 func NewHealthChecker() *HealthChecker {
 	return &HealthChecker{
-		clients: make(map[string]*ClientHealth),
+		clients:          make(map[string]*ClientHealth),
+		connReadyTimeout: defaultConnReadyTimeout,
+		stop:             make(chan struct{}),
 	}
+}
+
+// timeout 读取当前超时，走读锁以免与测试侧的设置形成竞态
+// [EN] Reads the timeout under the read lock so it cannot race with a test setting it
+func (hc *HealthChecker) timeout() time.Duration {
+	hc.mu.RLock()
+	defer hc.mu.RUnlock()
+	if hc.connReadyTimeout <= 0 {
+		return defaultConnReadyTimeout
+	}
+	return hc.connReadyTimeout
+}
+
+// SetConnReadyTimeout 设置连接就绪判断与 TCP 探测的超时
+// 主要给测试用：缩短它以免等满默认的 2 秒
+// [EN] Mainly for tests, which shorten it to avoid waiting out the default
+func (hc *HealthChecker) SetConnReadyTimeout(d time.Duration) {
+	hc.mu.Lock()
+	hc.connReadyTimeout = d
+	hc.mu.Unlock()
+}
+
+// StopPeriodicCheck 停止周期检查，可重复调用
+//
+// 没有它的话 StartPeriodicCheck 起的 goroutine 永不退出：测试里每调一次就泄漏一个，
+// 而这些 goroutine 会跨测试边界继续探测，既浪费也制造竞态
+// [EN] Without this the periodic-check goroutine never exits, leaking one per call and keeping
+// probes running across test boundaries
+func (hc *HealthChecker) StopPeriodicCheck() {
+	hc.stopOnce.Do(func() {
+		if hc.stop != nil {
+			close(hc.stop)
+		}
+	})
 }
 
 // SetOnRecover 设置服务恢复回调
@@ -132,7 +189,7 @@ func (hc *HealthChecker) checkEndpointHealth(serviceName, endpoint string) {
 		// ResetConnectBackoff 重置退避，触发立即重连，避免因历史失败状态导致健康检查误判
 		health.conn.ResetConnectBackoff()
 		health.conn.Connect()
-		healthy = checkConnReady(health.conn, connReadyTimeout)
+		healthy = checkConnReady(health.conn, hc.timeout())
 		if healthy {
 			gwglobal.LOGGER.Info("✅ %s 服务健康 (ClientConn Ready)", serviceName)
 		} else {
@@ -140,7 +197,7 @@ func (hc *HealthChecker) checkEndpointHealth(serviceName, endpoint string) {
 		}
 	} else {
 		// 无 ClientConn 时降级为 TCP 端口探测（仅用于测试场景）
-		conn, err := net.DialTimeout("tcp", endpoint, connReadyTimeout)
+		conn, err := net.DialTimeout("tcp", endpoint, hc.timeout())
 		if err == nil {
 			healthy = true
 			conn.Close()
@@ -175,38 +232,45 @@ func (hc *HealthChecker) StartPeriodicCheck(interval time.Duration, endpoints ma
 	ticker := time.NewTicker(interval)
 	go func() {
 		defer ticker.Stop()
-		for range ticker.C {
+		for {
+			select {
+			case <-hc.stop:
+				return
+			case <-ticker.C:
+			}
+
 			hc.mu.RLock()
 			services := make(map[string]*ClientHealth, len(hc.clients))
 			for k, v := range hc.clients {
 				services[k] = v
 			}
+			timeout := hc.connReadyTimeout
 			hc.mu.RUnlock()
 
 			for serviceName, health := range services {
 				endpoint := endpoints[serviceName]
-				go func(name, ep string, h *ClientHealth) {
+				go func(name, ep string, h *ClientHealth, timeout time.Duration) {
 					var healthy bool
-				if h.conn != nil {
-					// 通过 ClientConn 连接状态判断（支持多 Pod 负载均衡）
-					h.conn.Connect()
-					state := h.conn.GetState()
-					switch state {
-					case connectivity.Ready:
-						healthy = true
-					case connectivity.TransientFailure:
-						// 重置退避定时器，使下次检查周期触发立即重连，避免 Pod 恢复后因退避延迟探测
-						h.conn.ResetConnectBackoff()
-						healthy = false
-					default:
-						// Connecting/Idle: 保持上一次状态，避免瞬态重连导致误判
-						h.mu.RLock()
-						healthy = h.healthy
-						h.mu.RUnlock()
-					}
-				} else if ep != "" {
+					if h.conn != nil {
+						// 通过 ClientConn 连接状态判断（支持多 Pod 负载均衡）
+						h.conn.Connect()
+						state := h.conn.GetState()
+						switch state {
+						case connectivity.Ready:
+							healthy = true
+						case connectivity.TransientFailure:
+							// 重置退避定时器，使下次检查周期触发立即重连，避免 Pod 恢复后因退避延迟探测
+							h.conn.ResetConnectBackoff()
+							healthy = false
+						default:
+							// Connecting/Idle: 保持上一次状态，避免瞬态重连导致误判
+							h.mu.RLock()
+							healthy = h.healthy
+							h.mu.RUnlock()
+						}
+					} else if ep != "" {
 						// 无 ClientConn 时降级为 TCP 端口探测（仅测试场景）
-						conn, err := net.DialTimeout("tcp", ep, connReadyTimeout)
+						conn, err := net.DialTimeout("tcp", ep, timeout)
 						if err == nil {
 							healthy = true
 							conn.Close()
@@ -233,7 +297,7 @@ func (hc *HealthChecker) StartPeriodicCheck(interval time.Duration, endpoints ma
 					if !healthy && h.conn != nil {
 						gwglobal.LOGGER.Error("⚠️  %s 服务不健康 (ClientConn state: %s)", name, h.conn.GetState())
 					}
-				}(serviceName, endpoint, health)
+				}(serviceName, endpoint, health, timeout)
 			}
 		}
 	}()

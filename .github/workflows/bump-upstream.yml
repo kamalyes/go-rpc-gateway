@@ -1,0 +1,39 @@
+name: Bump Upstream
+
+# 实际流程全在 kamalyes/deploy-pipeline 的 go-bump-upstream.yml 里，三十来个 Go 库共用一份
+#
+# 相比原先各仓库手写的版本，关键差别是多了一组闸门：升完依赖先 build + vet + test，
+# 过了才允许推默认分支；没过就开分支提 PR 并把 job 判红
+# 原先的流程是 go get 到 go mod tidy 到 commit 到 push，中间一次 go build 都没有，
+# 所以不兼容的升级会直接落到主干
+#
+# [EN] The pipeline lives in go-bump-upstream.yml in kamalyes/deploy-pipeline. The difference
+# that matters: a bump must build, vet and test before it may touch the default branch, and
+# otherwise becomes a branch and a pull request
+
+on:
+  repository_dispatch:
+    types: [upstream-updated]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: bump-upstream
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    uses: kamalyes/deploy-pipeline/.github/workflows/go-bump-upstream.yml@master
+    secrets:
+      # 凭证按 App 到 PAT 到 GITHUB_TOKEN 取。优先 App 是因为 PAT 得逐仓库配，
+      # 而漏配时会悄悄回落到 GITHUB_TOKEN，用它推的提交不触发任何 workflow，
+      # bump 落了地 CI 根本不跑
+      # [EN] Credentials are taken App first, then PAT. A PAT must be set per repository, and
+      # where it is missing the old flow fell back to GITHUB_TOKEN, whose pushes trigger no
+      # workflow at all
+      APP_ID: ${{ secrets.APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+      GH_GPA_TOKEN: ${{ secrets.GH_GPA_TOKEN }}
+      PIPELINE_SECRETS: ${{ secrets.PIPELINE_SECRETS }}
