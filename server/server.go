@@ -67,10 +67,22 @@ type Server struct {
 	// Gzip writer 对象池（用于 HTTP 压缩优化）
 	gzipWriterPool *sync.Pool
 
-	// Gzip 跳过路径和扩展名的快速查找表（预处理，避免每次请求遍历切片）
-	gzipSkipPathsMap      map[string]bool
-	gzipSkipExtensionsMap map[string]bool
-	httpRoutePatterns     map[string]struct{}
+	// Gzip 跳过规则（预处理，避免每次请求读配置切片）
+	//
+	// 前缀用切片而不是 map：前缀匹配必须逐个 HasPrefix，map 给不了 O(1)，
+	// 反而每次 range 都要付 map 迭代的随机化起点与指针跳转
+	// 扩展名在「每项都是单个点开头」时另建一张 map，配合取一次扩展名做单次查找；
+	// 否则退回逐个 HasSuffix，保证 .min.js 这类多点配置的语义不变
+	//
+	// [EN] Prefixes live in a slice rather than a map: prefix matching has to run HasPrefix
+	// item by item, so a map buys no O(1) lookup and instead charges map-iteration overhead
+	// on every request. Extensions additionally get a map when every entry is a single
+	// dot-prefixed suffix, which makes one extraction plus one lookup exactly equivalent;
+	// otherwise the suffix loop stays, so a multi-dot entry keeps its meaning
+	gzipSkipPrefixes  []string
+	gzipSkipSuffixes  []string
+	gzipSkipExtMap    map[string]struct{}
+	httpRoutePatterns map[string]struct{}
 
 	// 数据脱敏器（用于日志敏感数据脱敏）
 	dataMasker *desensitize.DataMasker

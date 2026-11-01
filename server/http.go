@@ -148,12 +148,20 @@ func (e *protobufEncoder) Encode(v any) error {
 	return err
 }
 
-// initGzipWriterPool 初始化 Gzip writer 对象池（从配置读取压缩级别）
+// initGzipWriterPool 初始化 Gzip writer 对象池与跳过规则（从配置读取）
 func (s *Server) initGzipWriterPool() {
 	compressionLevel := gwconfig.DefaultHTTPServer().GzipCompressionLevel
 
-	// 从配置读取压缩级别
-	if s.config.HTTPServer != nil && s.config.HTTPServer.TLS != nil {
+	// 原先这里套了一层 TLS != nil 才读压缩级别，但 GzipCompressionLevel 是 HTTPServer
+	// 下与 TLS 平级的字段，跟 TLS 没有任何关系
+	// 于是没配 TLS 的部署里，用户写的 gzip-compression-level 被静默忽略、一律回落默认 5，
+	// 而且不报错不告警，只能靠对比压缩后的字节数才看得出来
+	//
+	// [EN] This used to read the compression level only when TLS was configured, but
+	// GzipCompressionLevel sits beside TLS under HTTPServer and has nothing to do with it.
+	// In a deployment without TLS the configured level was therefore ignored in silence and
+	// always fell back to the default, with nothing in the logs to show it
+	if s.config.HTTPServer != nil {
 		if level := s.config.HTTPServer.GzipCompressionLevel; level > 0 && level <= 9 {
 			compressionLevel = level
 		}
@@ -167,16 +175,37 @@ func (s *Server) initGzipWriterPool() {
 		},
 	}
 
-	// 预处理跳过路径和扩展名为 map，提升查找性能（O(1) vs O(n)）
-	s.gzipSkipPathsMap = make(map[string]bool, len(s.config.HTTPServer.GzipSkipPaths))
-	for _, path := range s.config.HTTPServer.GzipSkipPaths {
-		s.gzipSkipPathsMap[path] = true
+	// 上面刚判过 HTTPServer 可能为 nil，这里就不能再无条件解引用：
+	// 原来的实现判完 nil 之后紧接着就读 s.config.HTTPServer.GzipSkipPaths，
+	// HTTPServer 真是 nil 时直接 panic 在启动路径上
+	// [EN] HTTPServer was just tested for nil, so it cannot be dereferenced unconditionally
+	// here: the previous code did exactly that one line later and panicked during startup
+	if s.config.HTTPServer == nil {
+		return
 	}
 
-	s.gzipSkipExtensionsMap = make(map[string]bool, len(s.config.HTTPServer.GzipSkipExtensions))
-	for _, ext := range s.config.HTTPServer.GzipSkipExtensions {
-		s.gzipSkipExtensionsMap[ext] = true
+	s.gzipSkipPrefixes = append([]string(nil), s.config.HTTPServer.GzipSkipPaths...)
+	s.gzipSkipSuffixes = append([]string(nil), s.config.HTTPServer.GzipSkipExtensions...)
+
+	// 每一项都是「单个点开头」时才建扩展名表：这种形状下「取最后一段扩展名再查一次表」
+	// 与「逐个 HasSuffix」结果完全一致
+	// 一旦出现 .min.js 这类带两个点的配置，取扩展名只会得到 .js，两者就不等价了，
+	// 那时宁可慢也要保语义，整张表不建，走下面的后缀循环
+	//
+	// [EN] The extension table is built only when every entry is a single dot-prefixed
+	// suffix, the shape in which extracting the final extension and looking it up once is
+	// exactly equivalent to testing each suffix. An entry such as .min.js breaks that
+	// equivalence, because extraction yields only .js, so the table is skipped and the
+	// suffix loop keeps the original meaning
+	extMap := make(map[string]struct{}, len(s.gzipSkipSuffixes))
+	for _, ext := range s.gzipSkipSuffixes {
+		if len(ext) < 2 || ext[0] != '.' || strings.Count(ext, ".") != 1 {
+			extMap = nil
+			break
+		}
+		extMap[ext] = struct{}{}
 	}
+	s.gzipSkipExtMap = extMap
 }
 
 // gzipResponseWriter 包装ResponseWriter以支持gzip压缩
@@ -195,30 +224,52 @@ func (w *gzipResponseWriter) Close() error {
 	return w.gzipWriter.Close()
 }
 
-// shouldSkipGzip 判断是否跳过 gzip 压缩（使用预处理的 map，O(1) 查找）
+// shouldSkipGzip 判断是否跳过 gzip 压缩
+//
+// 不命中才是所有 API 请求的常态，所以这条路径要按「全部比完」来算成本，
+// 而不是按命中时提前返回来算
+// [EN] A miss is the normal outcome for every API request, so this path has to be costed as
+// the full set of comparisons rather than as an early return on a hit
 func (s *Server) shouldSkipGzip(r *http.Request) bool {
-	path := r.URL.Path
+	reqPath := r.URL.Path
 
-	// 检查完整路径是否在跳过列表中
-	if s.gzipSkipPathsMap[path] {
-		return true
-	}
-
-	// 检查路径前缀（遍历 map 的 key）
-	for skipPath := range s.gzipSkipPathsMap {
-		if strings.HasPrefix(path, skipPath) {
+	for _, prefix := range s.gzipSkipPrefixes {
+		if strings.HasPrefix(reqPath, prefix) {
 			return true
 		}
 	}
 
-	// 检查文件扩展名（直接 map 查找）
-	for ext := range s.gzipSkipExtensionsMap {
-		if strings.HasSuffix(path, ext) {
+	if s.gzipSkipExtMap != nil {
+		if ext := pathExt(reqPath); ext != "" {
+			_, skip := s.gzipSkipExtMap[ext]
+			return skip
+		}
+		return false
+	}
+
+	for _, suffix := range s.gzipSkipSuffixes {
+		if strings.HasSuffix(reqPath, suffix) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// pathExt 取路径最后一段的扩展名，没有则返回空串
+//
+// 自己写而不用 path.Ext：行为相同，但省掉一次包级函数调用，且不必为这一处引入 path 包
+// 只看最后一个 / 之后的部分，所以 /a.b/c 这种目录名带点的路径不会被误判
+// [EN] Written out rather than taken from path.Ext: same behaviour, one fewer package-level
+// call, and no import for a single use. Only the segment after the final slash is examined,
+// so a path such as /a.b/c with a dot in a directory name is not misread
+func pathExt(p string) string {
+	for i := len(p) - 1; i >= 0 && p[i] != '/'; i-- {
+		if p[i] == '.' {
+			return p[i:]
+		}
+	}
+	return ""
 }
 
 // gzipMiddleware HTTP Gzip压缩中间件
