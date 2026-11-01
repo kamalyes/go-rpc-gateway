@@ -16,7 +16,7 @@ require (
 	github.com/kamalyes/go-natsx v0.6.0
 	github.com/kamalyes/go-sqlbuilder v0.8.0
 	github.com/kamalyes/go-swagger v0.11.0
-	github.com/kamalyes/go-toolbox v0.19.1
+	github.com/kamalyes/go-toolbox v0.19.2
 	github.com/kamalyes/go-wsc v0.11.19
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.19.1
