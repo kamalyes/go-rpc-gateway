@@ -12,7 +12,9 @@
 package server
 
 import (
+	"bytes"
 	"compress/gzip"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -152,7 +154,62 @@ func TestInitGzipWriterPool_NilHTTPServerDoesNotPanic(t *testing.T) {
 }
 
 // 压缩级别不该再被 TLS 判断挡住
-func TestInitGzipWriterPool_CompressionLevelIndependentOfTLS(t *testing.T) {
+//
+// 直接断言级别解析的结果，不去压数据比字节数 —— 后者跨 Go 版本与平台不稳：
+// 实测同一段高重复载荷在 macOS 上 1 档与 9 档有差，在 Linux / Go 1.27 上两档都是 91 字节，
+// 于是测试在 CI 上判红而被测代码其实是对的
+// [EN] The resolved level is asserted directly rather than by compressing and comparing byte
+// counts, which is not stable across Go versions or platforms: the same repetitive payload
+// differed between levels on macOS and was identical at 91 bytes on Linux with Go 1.27,
+// failing in CI while the code under test was correct
+func TestResolveGzipLevel(t *testing.T) {
+	defaultLevel := gwconfig.DefaultHTTPServer().GzipCompressionLevel
+
+	cases := []struct {
+		name string
+		cfg  func() *gwconfig.HTTPServer
+		want int
+	}{
+		{"配置为空时回落默认", func() *gwconfig.HTTPServer { return nil }, defaultLevel},
+		{"没配 TLS 也要读到配置值", func() *gwconfig.HTTPServer {
+			c := gwconfig.DefaultHTTPServer()
+			c.GzipCompressionLevel = 9
+			c.TLS = nil
+			return c
+		}, 9},
+		{"配了 TLS 同样读到配置值", func() *gwconfig.HTTPServer {
+			c := gwconfig.DefaultHTTPServer()
+			c.GzipCompressionLevel = 1
+			return c
+		}, 1},
+		{"级别为 0 视为没配，回落默认", func() *gwconfig.HTTPServer {
+			c := gwconfig.DefaultHTTPServer()
+			c.GzipCompressionLevel = 0
+			return c
+		}, defaultLevel},
+		{"级别超出 1-9 回落默认", func() *gwconfig.HTTPServer {
+			c := gwconfig.DefaultHTTPServer()
+			c.GzipCompressionLevel = 10
+			return c
+		}, defaultLevel},
+		{"级别为负回落默认", func() *gwconfig.HTTPServer {
+			c := gwconfig.DefaultHTTPServer()
+			c.GzipCompressionLevel = -1
+			return c
+		}, defaultLevel},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveGzipLevel(tc.cfg()); got != tc.want {
+				t.Errorf("期望级别 %d，实际 %d", tc.want, got)
+			}
+		})
+	}
+}
+
+// 池里取出的 writer 要能正常压缩并解压回原文，不断言压缩率
+func TestGzipWriterPoolProducesValidOutput(t *testing.T) {
 	httpCfg := gwconfig.DefaultHTTPServer()
 	httpCfg.GzipCompressionLevel = 9
 	httpCfg.TLS = nil
@@ -160,19 +217,29 @@ func TestInitGzipWriterPool_CompressionLevelIndependentOfTLS(t *testing.T) {
 	s := &Server{config: &gwconfig.Gateway{HTTPServer: httpCfg}}
 	s.initGzipWriterPool()
 
-	// 池里的 writer 用配置级别建出来，压同一份高重复载荷时应明显小于默认级别的产物
 	payload := []byte(strings.Repeat("kamalyes-go-rpc-gateway-", 512))
-	got := gzipSizeFromPool(t, s, payload)
 
-	httpCfg5 := gwconfig.DefaultHTTPServer()
-	httpCfg5.GzipCompressionLevel = 1
-	httpCfg5.TLS = nil
-	s1 := &Server{config: &gwconfig.Gateway{HTTPServer: httpCfg5}}
-	s1.initGzipWriterPool()
-	fast := gzipSizeFromPool(t, s1, payload)
+	var buf bytes.Buffer
+	w := s.gzipWriterPool.Get().(*gzip.Writer)
+	w.Reset(&buf)
+	if _, err := w.Write(payload); err != nil {
+		t.Fatalf("写入失败：%v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("关闭失败：%v", err)
+	}
+	s.gzipWriterPool.Put(w)
 
-	if got >= fast {
-		t.Errorf("级别 9 应该压得比级别 1 更小，实际 9 档 %d 字节、1 档 %d 字节；说明配置没被读进去", got, fast)
+	r, err := gzip.NewReader(&buf)
+	if err != nil {
+		t.Fatalf("建解压器失败：%v", err)
+	}
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("解压失败：%v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("解压回来的内容与原文不一致：%d 字节 vs %d 字节", len(got), len(payload))
 	}
 }
 
@@ -227,28 +294,4 @@ func BenchmarkShouldSkipGzip_ExtensionMatch(b *testing.B) {
 			b.Fatal("这条路径该命中")
 		}
 	}
-}
-
-// gzipSizeFromPool 用池里的 writer 压一遍，返回产物字节数
-func gzipSizeFromPool(t testing.TB, s *Server, payload []byte) int {
-	t.Helper()
-
-	var buf countingWriter
-	w := s.gzipWriterPool.Get().(*gzip.Writer)
-	w.Reset(&buf)
-	if _, err := w.Write(payload); err != nil {
-		t.Fatalf("写入失败：%v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("关闭失败：%v", err)
-	}
-	s.gzipWriterPool.Put(w)
-	return buf.n
-}
-
-type countingWriter struct{ n int }
-
-func (c *countingWriter) Write(p []byte) (int, error) {
-	c.n += len(p)
-	return len(p), nil
 }

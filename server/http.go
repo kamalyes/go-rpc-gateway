@@ -149,23 +149,41 @@ func (e *protobufEncoder) Encode(v any) error {
 }
 
 // initGzipWriterPool 初始化 Gzip writer 对象池与跳过规则（从配置读取）
-func (s *Server) initGzipWriterPool() {
-	compressionLevel := gwconfig.DefaultHTTPServer().GzipCompressionLevel
+// resolveGzipLevel 定出 gzip 压缩级别：配置里给了合法值就用它，否则回落默认
+//
+// 单独成函数是为了能直接断言「级别被正确读出来」这件事
+// 原先这段逻辑埋在 initGzipWriterPool 里，想验证只能去压一段数据再比字节数，
+// 而那种断言跨 Go 版本与平台都不稳：实测同一段高重复载荷在 macOS 上 1 档与 9 档有差，
+// 在 Linux / Go 1.27 上两档都是 91 字节，于是测试在 CI 上判红而代码其实是对的
+// flate 各级别对某些输入收敛成同一结果是允许的，不该被当成配置没生效
+//
+// [EN] Extracted so that "the level is read correctly" can be asserted directly. While this
+// logic sat inside the pool constructor the only way to check it was to compress something and
+// compare byte counts, and such an assertion is not stable across Go versions or platforms:
+// the same highly repetitive payload differed between levels on macOS and came out identical
+// at 91 bytes on Linux with Go 1.27, failing in CI while the code was correct. flate is
+// allowed to converge on the same output for some inputs, which is no sign of a lost setting
+func resolveGzipLevel(cfg *gwconfig.HTTPServer) int {
+	level := gwconfig.DefaultHTTPServer().GzipCompressionLevel
 
 	// 原先这里套了一层 TLS != nil 才读压缩级别，但 GzipCompressionLevel 是 HTTPServer
 	// 下与 TLS 平级的字段，跟 TLS 没有任何关系
-	// 于是没配 TLS 的部署里，用户写的 gzip-compression-level 被静默忽略、一律回落默认 5，
-	// 而且不报错不告警，只能靠对比压缩后的字节数才看得出来
+	// 于是没配 TLS 的部署里，用户写的 gzip-compression-level 被静默忽略、一律回落默认，
+	// 而且不报错不告警
 	//
-	// [EN] This used to read the compression level only when TLS was configured, but
-	// GzipCompressionLevel sits beside TLS under HTTPServer and has nothing to do with it.
-	// In a deployment without TLS the configured level was therefore ignored in silence and
-	// always fell back to the default, with nothing in the logs to show it
-	if s.config.HTTPServer != nil {
-		if level := s.config.HTTPServer.GzipCompressionLevel; level > 0 && level <= 9 {
-			compressionLevel = level
+	// [EN] The level used to be read only when TLS was configured, but GzipCompressionLevel
+	// sits beside TLS under HTTPServer and has nothing to do with it. Without TLS the
+	// configured level was therefore ignored in silence
+	if cfg != nil {
+		if configured := cfg.GzipCompressionLevel; configured > 0 && configured <= 9 {
+			level = configured
 		}
 	}
+	return level
+}
+
+func (s *Server) initGzipWriterPool() {
+	compressionLevel := resolveGzipLevel(s.config.HTTPServer)
 
 	// 创建对象池（在 Server 初始化时创建一次，供所有请求复用）
 	s.gzipWriterPool = &sync.Pool{
