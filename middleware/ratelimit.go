@@ -63,6 +63,26 @@ type RateLimiter interface {
 type TokenBucketLimiter struct {
 	limiters   sync.Map // key: string, value: *atomicTokenBucket
 	globalRule *ratelimit.LimitRule
+
+	// ruleSuffix 缓存每条规则的 key 后缀，键是规则指针
+	//
+	// 桶的 key 必须带上规则参数，否则同一个调用方换了限额会复用旧桶
+	// 但那段后缀只取决于规则本身，规则在一次进程生命周期里是稳定的，
+	// 没有理由在每个请求上重新 Itoa 两次再拼一次
+	// [EN] The bucket key has to carry the rule's parameters, or a caller whose limit changed
+	// would keep its old bucket, but that suffix depends only on the rule, which is stable for
+	// the life of the process, so there is no reason to format and concatenate it per request
+	ruleSuffix sync.Map // key: *ratelimit.LimitRule, value: string
+}
+
+// bucketKeySuffix 取规则对应的 key 后缀，首次计算后缓存
+func (t *TokenBucketLimiter) bucketKeySuffix(rule *ratelimit.LimitRule) string {
+	if v, ok := t.ruleSuffix.Load(rule); ok {
+		return v.(string)
+	}
+	suffix := ":rps_" + strconv.Itoa(rule.RequestsPerSecond) + ":burst_" + strconv.Itoa(rule.BurstSize)
+	t.ruleSuffix.Store(rule, suffix)
+	return suffix
 }
 
 // atomicTokenBucket 原子令牌桶（无锁实现）
@@ -97,15 +117,29 @@ func (t *TokenBucketLimiter) Allow(ctx context.Context, key string, rule *rateli
 	}
 
 	// 生成包含规则参数的唯一key，确保不同规则使用不同的桶
-	// 编译器将多次 + 拼接优化为单次分配的 concatstrings，strconv.Itoa 避免 fmt 反射开销
-	bucketKey := key + ":rps_" + strconv.Itoa(rule.RequestsPerSecond) + ":burst_" + strconv.Itoa(rule.BurstSize)
+	// 后缀按规则缓存，每个请求只付一次 key 与后缀的拼接
+	bucketKey := key + t.bucketKeySuffix(rule)
 
-	bucketInterface, _ := t.limiters.LoadOrStore(bucketKey, &atomicTokenBucket{
-		tokensInt64:    int64(rule.BurstSize) * billion,
-		maxTokens:      int64(rule.BurstSize),
-		refillRate:     int64(rule.RequestsPerSecond) * billion,
-		lastRefillNano: time.Now().UnixNano(),
-	})
+	// 先 Load 再 LoadOrStore
+	//
+	// LoadOrStore 的第二个参数是**求值后**才传进去的，所以原先那种写法在每次调用上
+	// 都要先把 &atomicTokenBucket{...} 分配出来，命中时再整个丢掉
+	// 而桶在某个 key 的第一个请求之后就一直存在，命中才是绝对常态
+	// 另外 key 装箱成 any 也只在真要写入时才需要
+	//
+	// [EN] The second argument to LoadOrStore is evaluated before the call, so the previous
+	// form allocated a bucket on every request and discarded it on a hit. A bucket exists from
+	// the first request for a given key onwards, which makes a hit the overwhelmingly common
+	// case, and boxing the key is likewise only needed when something is actually stored
+	bucketInterface, ok := t.limiters.Load(bucketKey)
+	if !ok {
+		bucketInterface, _ = t.limiters.LoadOrStore(bucketKey, &atomicTokenBucket{
+			tokensInt64:    int64(rule.BurstSize) * billion,
+			maxTokens:      int64(rule.BurstSize),
+			refillRate:     int64(rule.RequestsPerSecond) * billion,
+			lastRefillNano: time.Now().UnixNano(),
+		})
+	}
 
 	bucket := bucketInterface.(*atomicTokenBucket)
 
@@ -324,6 +358,22 @@ type FixedWindowLimiter struct {
 	counters sync.Map // key: string, value: *atomicCounter
 	stopChan chan struct{}
 	once     sync.Once
+
+	// ruleSuffix 缓存每条规则的 key 后缀，理由同 TokenBucketLimiter
+	// 这里还多省一次 Duration.String()，它每次都要分配
+	// [EN] Same reasoning as in TokenBucketLimiter, and it additionally avoids
+	// Duration.String(), which allocates on every call
+	ruleSuffix sync.Map // key: *ratelimit.LimitRule, value: string
+}
+
+// counterKeySuffix 取规则对应的 key 后缀，首次计算后缓存
+func (f *FixedWindowLimiter) counterKeySuffix(rule *ratelimit.LimitRule) string {
+	if v, ok := f.ruleSuffix.Load(rule); ok {
+		return v.(string)
+	}
+	suffix := ":win_" + rule.WindowSize.String() + ":rps_" + strconv.Itoa(rule.RequestsPerSecond)
+	f.ruleSuffix.Store(rule, suffix)
+	return suffix
 }
 
 // atomicCounter 原子计数器
@@ -347,16 +397,20 @@ func NewFixedWindowLimiter(config *ratelimit.RateLimit) *FixedWindowLimiter {
 
 // Allow 检查是否允许请求（使用atomic）
 func (f *FixedWindowLimiter) Allow(ctx context.Context, key string, rule *ratelimit.LimitRule) (bool, error) {
-	// 生成包含规则参数的唯一key（直拼避免 fmt.Sprintf 反射开销）
-	counterKey := key + ":win_" + rule.WindowSize.String() + ":rps_" + strconv.Itoa(rule.RequestsPerSecond)
+	// 生成包含规则参数的唯一key；后缀按规则缓存，每个请求只付一次拼接
+	counterKey := key + f.counterKeySuffix(rule)
 
 	now := time.Now()
-	resetTime := now.Add(rule.WindowSize)
 
-	counterInterface, _ := f.counters.LoadOrStore(counterKey, &atomicCounter{
-		count:         0,
-		resetTimeNano: resetTime.UnixNano(),
-	})
+	// 同 TokenBucketLimiter：先 Load，只在没有计数器时才构造并写入
+	// [EN] As in TokenBucketLimiter: load first and construct only when nothing is there
+	counterInterface, ok := f.counters.Load(counterKey)
+	if !ok {
+		counterInterface, _ = f.counters.LoadOrStore(counterKey, &atomicCounter{
+			count:         0,
+			resetTimeNano: now.Add(rule.WindowSize).UnixNano(),
+		})
+	}
 
 	counter := counterInterface.(*atomicCounter)
 
