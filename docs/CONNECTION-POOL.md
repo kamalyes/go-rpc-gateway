@@ -304,6 +304,51 @@ type MailHandler interface {
 
 `SmtpClient` 是 `MailHandler` 的实现，由 `NewSmtpClient(cfg *smtpconfig.Smtp, log logger.ILogger) (*SmtpClient, error)` 创建。
 
+## gRPC 客户端连接池
+
+> 源码：[cpool/grpc/client.go](../cpool/grpc/client.go)
+
+gRPC 客户端连接**不走 `cpool.Manager`**，而是由 `cpool/grpc` 包自己维护一个按服务名缓存 `*grpc.ClientConn` 的包级连接池：
+
+```go
+var (
+    connPool   = make(map[string]*grpc.ClientConn)
+    connPoolMu sync.RWMutex
+)
+```
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `GetConn` | `func(serviceName string) (*grpc.ClientConn, bool)` | 读取缓存的连接 |
+| `PutConn` | `func(serviceName string, conn *grpc.ClientConn)` | 写入连接 |
+| `InitClient[T]` | 见 [gRPC 客户端](./GRPC-CLIENT.md) | 命中缓存则复用，否则 `grpc.NewClient` 建连后入池 |
+
+一个服务名对应一条 `ClientConn`，`InitClient` / `InitClientAny` 重复初始化同一服务会复用已有连接（日志 `♻️ xxx 复用连接池中的已有连接`）；`grpc.NewClient` 不会立即拨号，连接是懒建立的，真正的多路复用由 HTTP/2 在这条 `ClientConn` 内部完成——所以这里不需要「池大小」这类参数，`clientCfg.Endpoints[0]` 背后有多少后端由解析器（DNS / 服务发现）决定
+
+### 三层韧性能力的分工
+
+`ClientConn` 建立时注入的治理能力分三层，职责不重叠，不要互相替代：
+
+| 层 | 组件 | 粒度 | 回答的问题 | 失败时的动作 |
+|------|------|------|------|------|
+| 连接级 | `HealthChecker`（`cpool/grpc/health.go`） | 服务名 | 这个下游的连接还能用吗 | 周期性检查 `ClientConn` 连通性状态（`ResetConnectBackoff` + `Connect` + `WaitForStateChange`，无 conn 时降级为 TCP 端口探测），不健康时拦截器短路返回 `Unavailable` |
+| 调用级 | `ClientBreaker`（`cpool/grpc/breaker.go`） | `target + method`（默认） | 这个逻辑下游的这个方法还值不值得调用 | 打开后就地快速失败，不发请求、不等超时 |
+| 后端级 | `p2c_ewma` 负载均衡（`cpool/grpc/balancer.go`） | 单个后端实例（SubConn） | 同一个下游的多个后端里，这次该发给谁 | 把流量拉向延迟更低、在途更少的后端 |
+
+常见的混淆：熔断器的 `target` 是**拨号目标**（`cc.Target()`，即配置里的 endpoint），不是负载均衡后面的某个后端实例；「单个后端变慢」由 p2c 处理，「整个逻辑下游不值得调用」由熔断器处理
+
+### 默认行为
+
+| 能力 | 默认 | 开启方式 |
+|------|------|------|
+| 健康检查 | 传入 `healthChecker` 时启用 | `InitClient(healthChecker, ...)` + `StartPeriodicCheck` |
+| 客户端熔断 | **关闭** | 按服务配 `enable-breaker: true`（可选 `breaker-key-mode`）；需要自定义阈值或与服务端共享 `BreakerManager` 时改用 `grpcpool.EnableClientBreaker(cfg, keyMode)`，必须在初始化客户端之前调用，且优先于配置 |
+| 负载均衡 | `round_robin`（`enable-load-balance: true` 时） | `load-balance-policy: "p2c"` 或 `"p2c_ewma"` |
+
+熔断未启用时拦截器根本不加入链；p2c 未选用时只是注册在 gRPC 的 balancer 注册表里不被使用；两者都不改变既有部署的行为
+
+各项的算法细节、配置字段与导出符号见 [gRPC 客户端](./GRPC-CLIENT.md) 的「负载均衡」与「客户端熔断」两节
+
 ## 健康检查
 
 ```go

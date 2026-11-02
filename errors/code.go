@@ -47,6 +47,13 @@ const (
 	ErrCodeRateLimitExceeded  ErrorCode = 4002
 	ErrCodeCircuitBreakerOpen ErrorCode = 4003
 	ErrCodeServiceDegraded    ErrorCode = 4004
+	// ErrCodeServiceOverloaded 自适应降载拒绝：服务端 CPU/并发已过载，主动丢弃请求
+	// 与 ErrCodeServiceDegraded(4004) 区分开：后者表示「功能降级后仍在服务」，
+	// 前者表示「这一次请求根本没有被处理」，调用方应带退避重试而不是降级消费结果
+	// [EN] Rejected by adaptive load shedding. Kept distinct from ErrCodeServiceDegraded,
+	// which means "still serving, with reduced functionality", whereas this means the
+	// request was not processed at all and the caller should retry with backoff
+	ErrCodeServiceOverloaded ErrorCode = 4005
 
 	// 中间件错误 (5000-5999)
 	ErrCodeMiddlewareError  ErrorCode = 5001

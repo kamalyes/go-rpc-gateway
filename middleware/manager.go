@@ -33,6 +33,7 @@ type Manager struct {
 	i18nManager             *I18nManager
 	swaggerMiddleware       *swaggerMiddleware.Middleware
 	breakerManager          *BreakerManager  // 熔断器管理器（用于指标采集）
+	shedderManager          *ShedderManager  // 自适应降载管理器（用于指标采集）
 	preRateLimitMiddlewares []HTTPMiddleware // 在限流之前执行的自定义中间件（如认证）
 }
 
@@ -109,6 +110,16 @@ func NewManager(cfg *gwconfig.Gateway) (*Manager, error) {
 		manager.breakerManager = NewBreakerManager(cfg.Middleware.CircuitBreaker)
 		global.LOGGER.Info("熔断器管理器已初始化 [failure_threshold=%d, timeout=%d, enabled=%v]",
 			cfg.Middleware.CircuitBreaker.FailureThreshold, cfg.Middleware.CircuitBreaker.Timeout, true)
+	}
+
+	// 初始化自适应降载管理器（直接传入 go-config 的 Shedder 配置，与熔断同一套写法）
+	// 配置缺省（没有 middleware.shedder 子树且使用方自建了 Middleware 配置）时视为未启用
+	if shedderCfg := cfg.Middleware.Shedder; shedderCfg != nil && shedderCfg.Enabled {
+		manager.shedderManager = NewShedderManager(shedderCfg)
+		effective := manager.shedderManager.Config()
+		global.LOGGER.Info("自适应降载管理器已初始化 [cpu_threshold=%d, max_concurrency=%d, window_ms=%d, buckets=%d, cooldown_ms=%d, cpu_source=%s, enabled=%v]",
+			effective.CPUThreshold, effective.MaxConcurrency, effective.WindowMS,
+			effective.WindowBuckets, effective.CooldownMS, CPUUsageSource(), true)
 	}
 
 	return manager, nil
@@ -301,9 +312,76 @@ func (m *Manager) BreakerMiddleware() MiddlewareFunc {
 	return MiddlewareFunc(BreakerHTTPMiddleware(m.breakerManager))
 }
 
+// GRPCBreakerUnaryInterceptor gRPC 一元熔断拦截器（未启用熔断时返回 nil）
+// 与 HTTP 熔断中间件共用 NewManager 中创建的同一个 breakerManager，
+// 因此同一方法在 HTTP 与 gRPC 两侧共享状态与统计，指标采集也只有一份数据源
+//
+// [EN] Unary breaker interceptor, nil when the breaker is disabled. It shares the single
+// breakerManager created in NewManager with the HTTP middleware, so state, statistics and
+// metrics collection all come from one source
+func (m *Manager) GRPCBreakerUnaryInterceptor() grpc.UnaryServerInterceptor {
+	if !m.cfg.Middleware.CircuitBreaker.Enabled || m.breakerManager == nil {
+		return nil
+	}
+	return UnaryServerBreakerInterceptor(m.breakerManager)
+}
+
+// GRPCBreakerStreamInterceptor gRPC 流式熔断拦截器（未启用熔断时返回 nil）
+//
+// [EN] Stream breaker interceptor, nil when the breaker is disabled
+func (m *Manager) GRPCBreakerStreamInterceptor() grpc.StreamServerInterceptor {
+	if !m.cfg.Middleware.CircuitBreaker.Enabled || m.breakerManager == nil {
+		return nil
+	}
+	return StreamServerBreakerInterceptor(m.breakerManager)
+}
+
 // GetBreakerManager 获取熔断器管理器（供 server 包注入指标采集函数）
 func (m *Manager) GetBreakerManager() *BreakerManager {
 	return m.breakerManager
+}
+
+// ShedderMiddleware 自适应降载中间件
+// 由配置驱动：启用时使用 NewManager 中创建的共享 shedderManager（便于指标采集），未启用时直通
+//
+// [EN] Adaptive load-shedding middleware, sharing the shedderManager created in NewManager
+// so that metrics come from one source; a pass-through when shedding is disabled
+func (m *Manager) ShedderMiddleware() MiddlewareFunc {
+	if m.shedderManager == nil {
+		return MiddlewareFunc(noopMiddleware)
+	}
+	return MiddlewareFunc(ShedderHTTPMiddleware(m.shedderManager))
+}
+
+// GRPCShedderUnaryInterceptor gRPC 一元降载拦截器（未启用降载时返回 nil）
+// 与 HTTP 降载中间件共用 NewManager 中创建的同一个 shedderManager，
+// 因此 HTTP 与 gRPC 两侧的飞行请求数、响应时间滑窗合并统计——降载判定的是整个进程的负载
+//
+// [EN] Unary shedding interceptor, nil when shedding is disabled. It shares the single
+// shedderManager created in NewManager with the HTTP middleware, so in-flight counts and the
+// response-time window are pooled across both transports: shedding judges whole-process load
+func (m *Manager) GRPCShedderUnaryInterceptor() grpc.UnaryServerInterceptor {
+	if m.shedderManager == nil {
+		return nil
+	}
+	return UnaryServerShedderInterceptor(m.shedderManager)
+}
+
+// GRPCShedderStreamInterceptor gRPC 流式降载拦截器（未启用降载时返回 nil）
+//
+// [EN] Stream shedding interceptor, nil when shedding is disabled
+func (m *Manager) GRPCShedderStreamInterceptor() grpc.StreamServerInterceptor {
+	if m.shedderManager == nil {
+		return nil
+	}
+	return StreamServerShedderInterceptor(m.shedderManager)
+}
+
+// GetShedderManager 获取降载管理器（供 server 包注册指标采集器）
+//
+// [EN] Returns the shedding manager, for the server package to register its collector
+func (m *Manager) GetShedderManager() *ShedderManager {
+	return m.shedderManager
 }
 
 // MetricsHandler 返回监控指标处理器（使用 MetricsManager 的独立 registry）
@@ -377,6 +455,21 @@ func (m *Manager) GetMiddlewares() []MiddlewareFunc {
 	// 7. 限流中间件（根据配置）
 	if m.cfg.RateLimit.Enabled && m.rateLimiter != nil {
 		middlewares = append(middlewares, m.RateLimitMiddleware())
+	}
+
+	// 7.5. 自适应降载中间件（根据配置，夹在限流与熔断之间）
+	// 位置理由（与 server/grpc.go 的 gRPC 链完全一致，详见 docs/SHEDDER.md）：
+	//  1. 必须在限流之后——限流是确定性的配额判定，被限流拒绝的请求根本不会触达 handler，
+	//     放在降载之前可以让它们既不占用飞行计数、也不把「拒绝得极快」的响应时间
+	//     掺进滑窗，否则最小平均 RT 会被压低，承载上限被低估，反过来加剧降载
+	//  2. 必须在熔断之前（即熔断在降载内层）——降载拒绝返回 503/codes.Unavailable，
+	//     而 Unavailable 正是熔断计入失败的码；若降载在熔断内层，熔断器会把降载的
+	//     自我保护拒绝当成下游故障，形成「过载→降载拒绝→熔断打开」的正反馈，
+	//     哪怕负载已经退潮也要等熔断超时才能恢复 顺序反过来后熔断器永远看不到降载拒绝
+	//  3. 两者语义本就不同：降载回答「本进程现在还扛得住吗」，熔断回答「下游还活着吗」，
+	//     前者是全局自保、应当更早拒绝，后者需要贴近 handler 才能观测到真实健康度
+	if m.shedderManager != nil {
+		middlewares = append(middlewares, m.ShedderMiddleware())
 	}
 
 	// 8. 熔断中间件（根据配置）

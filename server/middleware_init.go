@@ -128,6 +128,31 @@ func (s *Server) injectMetricsCollectors() {
 		})
 	}
 
+	// 注册降载指标采集器（启用降载时才注册，未启用时指标名不会出现在注册表里）
+	if sm := s.middlewareManager.GetShedderManager(); sm != nil {
+		shedderMgr := sm
+		if err := mm.RegisterShedderCollector(func() *middleware.ShedderStat {
+			snap := shedderMgr.Snapshot()
+			return &middleware.ShedderStat{
+				Shedding:        snap.Shedding,
+				CPUUsage:        snap.CPUUsage,
+				CPUSupported:    snap.CPUSupported,
+				CPUThreshold:    snap.CPUThreshold,
+				InFlight:        snap.InFlight,
+				AvgFlying:       snap.AvgFlying,
+				MaxFlight:       snap.MaxFlight,
+				MaxPass:         snap.MaxPass,
+				MinRTMicros:     snap.MinRTMicros,
+				MaxConcurrency:  snap.MaxConcurrency,
+				TotalRequests:   snap.TotalRequests,
+				DroppedRequests: snap.DroppedRequests,
+			}
+		}); err != nil {
+			// 重复注册（热加载重入）不影响服务，降级为告警
+			global.LOGGER.WithError(err).WarnMsg("降载指标采集器注册失败")
+		}
+	}
+
 	// 注入 WebSocket 统计采集函数
 	if s.webSocketService != nil {
 		wsSvc := s.webSocketService
@@ -155,5 +180,5 @@ func (s *Server) injectMetricsCollectors() {
 		})
 	}
 
-	global.LOGGER.InfoMsg("✅ 扩展指标采集函数已注入（连接池/熔断器/WebSocket）")
+	global.LOGGER.InfoMsg("✅ 扩展指标采集函数已注入（连接池/熔断器/降载器/WebSocket）")
 }

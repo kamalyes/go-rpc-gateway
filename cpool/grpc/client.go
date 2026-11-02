@@ -27,6 +27,7 @@ import (
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
@@ -287,26 +288,35 @@ func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds 
 	}
 
 	// 负载均衡配置
+	//
+	// 策略名经 ResolveLoadBalancePolicy 归一：空值仍回落 round_robin（默认行为不变），
+	// p2c / p2c_ewma 指向本仓库实现的 P2C + EWMA 策略（见 balancer.go）
+	// 必须校验策略是否已注册：grpc-go 解析 service config 时，loadBalancingPolicy
+	// 写了未注册的名字不会报错，而是静默回落到 pick_first——配置里明明开了负载均衡，
+	// 实际却把全部流量压在第一个端点上，且没有任何提示
+	//
+	// [EN] The policy name goes through ResolveLoadBalancePolicy: empty still falls back to
+	// round_robin (unchanged default), p2c / p2c_ewma select this repository's P2C + EWMA
+	// policy. Validating registration matters because grpc-go does not reject an unknown
+	// loadBalancingPolicy in a service config — it silently falls back to pick_first, which
+	// would quietly send all traffic to the first endpoint while the config says otherwise
 	if clientCfg.EnableLoadBalance {
-		policy := mathx.IF(clientCfg.LoadBalancePolicy != "", clientCfg.LoadBalancePolicy, "round_robin")
+		policy := ResolveLoadBalancePolicy(clientCfg.LoadBalancePolicy)
+		if balancer.Get(policy) == nil {
+			gwglobal.LOGGER.Warn("⚠️  %s 负载均衡策略 %s 未注册（gRPC 会静默回落到 pick_first），已改用 %s",
+				serviceName, policy, RoundRobinBalancerName)
+			policy = RoundRobinBalancerName
+		}
 		// 使用 Service Config 配置负载均衡策略
 		dialOpts = append(dialOpts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingPolicy":"%s"}`, policy)))
 		gwglobal.LOGGER.Info("⚖️ %s 启用负载均衡: %s", serviceName, policy)
 	}
 
-	// 添加客户端拦截器链（顺序：RequestContext 传播 → 日志记录 → 健康检查）
-	// RequestContext 先执行注入 trace，日志拦截器随之记录调用耗时与结果，健康检查拦截器在不健康时短路返回
+	// 添加客户端拦截器链
+	unaryInterceptors, streamInterceptors := buildClientInterceptors(clientCfg, serviceName, healthChecker)
 	dialOpts = append(dialOpts,
-		grpc.WithChainUnaryInterceptor(
-			middleware.UnaryClientRequestContextInterceptor(),        // RequestContext 传播
-			middleware.UnaryClientLoggingInterceptor(serviceName),    // 调用日志记录
-			UnaryClientHealthInterceptor(serviceName, healthChecker), // 健康检查
-		),
-		grpc.WithChainStreamInterceptor(
-			middleware.StreamClientRequestContextInterceptor(),        // Stream RequestContext 传播
-			middleware.StreamClientLoggingInterceptor(serviceName),    // Stream 调用日志记录
-			StreamClientHealthInterceptor(serviceName, healthChecker), // Stream 健康检查
-		),
+		grpc.WithChainUnaryInterceptor(unaryInterceptors...),
+		grpc.WithChainStreamInterceptor(streamInterceptors...),
 	)
 
 	// 如果配置了 Network，添加到拨号选项
@@ -328,4 +338,98 @@ func buildDialOptions(clientCfg *gwconfig.GRPCClient, serviceName string, creds 
 	}
 
 	return dialOpts
+}
+
+// buildClientInterceptors 构建客户端拦截器链
+// 顺序：RequestContext 传播 → 日志记录 → 健康检查 → 熔断（可选）
+// RequestContext 先执行注入 trace，日志拦截器随之记录调用耗时与结果，健康检查拦截器在不健康时短路返回
+//
+// 熔断放在链尾（最靠近 invoker）有两个原因：
+//   - 统计只反映真实的下游调用结果，健康检查拦截器的本地短路不会被记成下游故障
+//   - 被熔断拒绝的调用仍会经过日志拦截器，运维看得见「拒绝了多少」
+//
+// 是否启用熔断、用哪种 key 粒度由 resolveClientBreaker 按 clientCfg 与包级实例决定；
+// 未启用时该拦截器根本不加入链，调用路径上连一次 nil 判断都没有，
+// 这也保证了默认行为（enable-breaker 默认 false）与启用前完全一致
+//
+// [EN] Builds the client interceptor chain. The breaker sits last (closest to the invoker)
+// so its statistics reflect only real downstream outcomes — the health interceptor's local
+// short-circuit is not counted as a downstream failure — while rejected calls still pass
+// through the logging interceptor and stay visible. Whether the breaker is on, and with which
+// key granularity, is decided by resolveClientBreaker from clientCfg and the package-level
+// instance; when it is off the interceptor is not added at all, so the default path (
+// enable-breaker defaults to false) is byte-for-byte what it was before
+func buildClientInterceptors(clientCfg *gwconfig.GRPCClient, serviceName string, healthChecker *HealthChecker) ([]grpc.UnaryClientInterceptor, []grpc.StreamClientInterceptor) {
+	unaryInterceptors := []grpc.UnaryClientInterceptor{
+		middleware.UnaryClientRequestContextInterceptor(),        // RequestContext 传播
+		middleware.UnaryClientLoggingInterceptor(serviceName),    // 调用日志记录
+		UnaryClientHealthInterceptor(serviceName, healthChecker), // 健康检查
+	}
+	streamInterceptors := []grpc.StreamClientInterceptor{
+		middleware.StreamClientRequestContextInterceptor(),        // Stream RequestContext 传播
+		middleware.StreamClientLoggingInterceptor(serviceName),    // Stream 调用日志记录
+		StreamClientHealthInterceptor(serviceName, healthChecker), // Stream 健康检查
+	}
+
+	if clientBreaker := resolveClientBreaker(clientCfg, serviceName); clientBreaker != nil {
+		unaryInterceptors = append(unaryInterceptors, UnaryClientBreakerInterceptor(clientBreaker))
+		streamInterceptors = append(streamInterceptors, StreamClientBreakerInterceptor(clientBreaker))
+		gwglobal.LOGGER.Info("🔌 %s 启用客户端熔断: key 粒度 %s", serviceName, clientBreaker.KeyMode())
+	}
+
+	return unaryInterceptors, streamInterceptors
+}
+
+// resolveClientBreaker 解析本服务该用哪个客户端熔断器，返回 nil 表示熔断拦截器不入链
+//
+// 两个来源，优先级是「包级实例 > 每服务配置」：
+//
+//   - 包级实例（SetDefaultClientBreaker / EnableClientBreaker）：代码里显式注册的那一个，
+//     可以带自定义阈值，也可以与服务端熔断共享一个 BreakerManager——这两件事 YAML 都写不出来，
+//     配置永远不可能是它的超集，所以只能让它优先
+//   - 每服务配置（grpc.clients.<name>.enable-breaker / breaker-key-mode）：常规用法，
+//     阈值取 DefaultClientBreakerConfig()
+//
+// 两者同时存在时打一条 Warn：配置里明明写了 enable-breaker 却按另一份阈值跑，
+// 无声无息的话排查起来要很久
+// 每个服务各自构造一个 ClientBreaker（各有自己的 BreakerManager），而不是共用一个：
+// 下游 A 的失败不该计入下游 B 的断路器，key 里虽然带了 target，但共用 manager 也会
+// 让一个服务的 exclude-paths / prevention-paths 影响到另一个
+// 配置项 breaker-key-mode 写错时回落默认粒度并告警，不让网关因为一个拼写错误起不来
+//
+// [EN] Picks the breaker for this service, or nil to leave the interceptor out of the chain.
+// A registered package-level instance wins over per-service configuration, because it can
+// carry custom thresholds and a BreakerManager shared with the server side, neither of which
+// YAML can express — config can never be a superset of it. When both are present a warning is
+// logged: an enable-breaker that silently runs with different thresholds costs hours to track
+// down. Each service gets its own ClientBreaker and manager rather than one shared instance,
+// so that one dependency's failures and path rules cannot leak into another's. An unknown
+// breaker-key-mode falls back to the default granularity with a warning instead of keeping
+// the gateway from starting over a typo
+func resolveClientBreaker(clientCfg *gwconfig.GRPCClient, serviceName string) *ClientBreaker {
+	registered := GetDefaultClientBreaker()
+	enabledByConfig := clientCfg != nil && clientCfg.EnableBreaker
+
+	if registered != nil {
+		if enabledByConfig {
+			gwglobal.LOGGER.Warn("⚠️  %s 已注册包级客户端熔断器，配置项 enable-breaker / breaker-key-mode 被其覆盖（生效 key 粒度 %s）",
+				serviceName, registered.KeyMode())
+		}
+		return registered
+	}
+
+	if !enabledByConfig {
+		return nil
+	}
+
+	keyMode, known := ParseClientBreakerKeyMode(clientCfg.BreakerKeyMode)
+	if !known {
+		gwglobal.LOGGER.Warn("⚠️  %s 客户端熔断 key 粒度 %q 不是合法取值（可选 %s / %s / %s），已回落 %s",
+			serviceName, clientCfg.BreakerKeyMode,
+			BreakerKeyTargetMethod, BreakerKeyTarget, BreakerKeyMethod, keyMode)
+	}
+
+	// cfg 传 nil 即取 DefaultClientBreakerConfig()：它与 breakerconfig.Default() 的两处差别
+	// （prevention-paths 为空、恢复超时 5s）都是客户端语义决定的，理由见该函数注释
+	return NewClientBreaker(nil, keyMode)
 }

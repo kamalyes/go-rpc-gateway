@@ -44,6 +44,7 @@ var errorMessages = map[ErrorCode]string{
 	ErrCodeRateLimitExceeded:      "Rate limit exceeded",
 	ErrCodeCircuitBreakerOpen:     "Circuit breaker open",
 	ErrCodeServiceDegraded:        "Service degraded",
+	ErrCodeServiceOverloaded:      "Service overloaded",
 	ErrCodeMiddlewareError:        "Middleware error",
 	ErrCodeRecoveryError:          "Recovery error",
 	ErrCodeLoggingError:           "Logging error",
@@ -132,6 +133,7 @@ var httpStatusMapping = map[ErrorCode]int{
 	ErrCodeRateLimitExceeded:      http.StatusTooManyRequests,
 	ErrCodeCircuitBreakerOpen:     http.StatusServiceUnavailable,
 	ErrCodeServiceDegraded:        http.StatusServiceUnavailable,
+	ErrCodeServiceOverloaded:      http.StatusServiceUnavailable,
 	ErrCodeMiddlewareError:        http.StatusInternalServerError,
 	ErrCodeRecoveryError:          http.StatusInternalServerError,
 	ErrCodeLoggingError:           http.StatusInternalServerError,
@@ -220,6 +222,7 @@ var statusCodeMapping = map[ErrorCode]commonapis.StatusCode{
 	ErrCodeRateLimitExceeded:      commonapis.StatusCode_ResourceExhausted,
 	ErrCodeCircuitBreakerOpen:     commonapis.StatusCode_Unavailable,
 	ErrCodeServiceDegraded:        commonapis.StatusCode_Unavailable,
+	ErrCodeServiceOverloaded:      commonapis.StatusCode_Unavailable,
 	ErrCodeMiddlewareError:        commonapis.StatusCode_Internal,
 	ErrCodeRecoveryError:          commonapis.StatusCode_Internal,
 	ErrCodeLoggingError:           commonapis.StatusCode_Internal,
@@ -529,6 +532,7 @@ var (
 	ErrRateLimitExceeded  = NewError(ErrCodeRateLimitExceeded, "")
 	ErrCircuitBreakerOpen = NewError(ErrCodeCircuitBreakerOpen, "")
 	ErrServiceDegraded    = NewError(ErrCodeServiceDegraded, "")
+	ErrServiceOverloaded  = NewError(ErrCodeServiceOverloaded, "")
 )
 
 // 中间件错误

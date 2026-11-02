@@ -4,21 +4,26 @@
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-12-11 15:15:05
  * @FilePath: \go-rpc-gateway\middleware\breaker.go
- * @Description: 熔断器核心 - 断路器状态机与统计
+ * @Description: 熔断器核心 - 断路器状态机与统计，以及 HTTP 中间件与 gRPC 拦截器适配
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
  */
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	breakerconfig "github.com/kamalyes/go-config/pkg/breaker"
+	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // breakerOpenResp 预分配的熔断 503 JSON 响应体（避免每次拒绝请求时 map 分配 + json 反射编码）
@@ -456,5 +461,153 @@ func BreakerHTTPMiddleware(manager *BreakerManager) func(http.Handler) http.Hand
 				breaker.RecordSuccess()
 			}
 		})
+	}
+}
+
+// ============================================================================
+// gRPC 拦截器适配
+// [EN] gRPC interceptor adapters
+// ============================================================================
+
+// breakerOpenGRPCErr 预构建的熔断拒绝错误（与 HTTP 侧 breakerOpenResp 同理，避免每次拒绝都构造对象）
+//
+// 遵循仓库错误规范：熔断属于框架层保护，错误码取 errors.ErrCodeCircuitBreakerOpen(4003)，
+// 经 AppError.ToGRPCError() 得到 codes.Unavailable（三态映射见 docs/ERRORS.md），
+// 与 HTTP 侧返回的 503 语义一致；不用裸 status.Errorf 是为了让错误码体系保持单一来源
+// 这里不走 errors.ToGRPCError(ctx, bizCode) 的 i18n 路径：那条路径是给各微服务注册的
+// 业务错误码用的（biz.go），熔断拒绝不是业务语义，也不该在被熔断时再付一次翻译查表的代价
+//
+// [EN] Pre-built rejection error, mirroring breakerOpenResp on the HTTP side so that a
+// rejected call allocates nothing. It goes through the repository's error system rather
+// than a bare status.Errorf: ErrCodeCircuitBreakerOpen(4003) maps to codes.Unavailable,
+// matching the 503 the HTTP middleware returns. The i18n path (errors.ToGRPCError with a
+// biz code) is deliberately not used — that one is for per-service business codes, while
+// a breaker rejection is a framework-level decision and must not pay a lookup per reject
+var breakerOpenGRPCErr = errors.NewError(errors.ErrCodeCircuitBreakerOpen, "").ToGRPCError()
+
+// IsBreakerFailureCode 判定一个 gRPC status code 是否算作「下游故障」
+//
+// 只有下游真的坏了才应该计入失败，否则客户端自己的错误会把健康的下游熔断掉
+// 判定为故障（等价于 HTTP 5xx，与 BreakerHTTPMiddleware 的 IsServerError 对齐）：
+//   - Unknown            handler panic 或返回了非 status 错误，客户端看到的就是 500
+//   - DeadlineExceeded   下游超时，熔断器存在的首要信号
+//   - Internal           下游内部错误
+//   - Unavailable        下游不可用，最典型的熔断场景
+//   - DataLoss           不可恢复的数据损坏
+//
+// 不计入故障（客户端自身问题或业务语义，等价于 HTTP 4xx）：
+//   - Canceled           调用方主动取消，下游还活着
+//   - InvalidArgument / FailedPrecondition / OutOfRange  参数与业务前置条件不满足
+//   - NotFound / AlreadyExists / Aborted                 资源状态问题
+//   - PermissionDenied / Unauthenticated                 鉴权问题
+//   - ResourceExhausted  限流/配额背压；计入会形成「流量高峰→限流拒绝→熔断打开」的正反馈
+//   - Unimplemented      方法不存在是确定性的契约错误，重试永远失败，熔断只会把
+//     Unimplemented 换成信息量更少的 Unavailable，掩盖版本/部署不一致
+//     （这是对「5xx 即故障」的一处有意偏离：grpc-gateway 把它映射成 HTTP 501）
+//
+// 注意：判定只看客户端最终收到的 status code，即 status.Code(err)
+// 若 service 直接返回 *errors.AppError 而没有调用 .ToGRPCError()，gRPC 对外给出的是
+// Unknown，这里也就按 Unknown 记为故障——与客户端视角保持一致，同时暴露这种用法问题
+//
+// [EN] Decides whether a gRPC status code counts as a downstream failure. Only codes that
+// mean "the dependency is broken" are counted (Unknown, DeadlineExceeded, Internal,
+// Unavailable, DataLoss) — the same set that maps to HTTP 5xx, keeping this consistent with
+// the HTTP middleware's IsServerError check. Client-caused codes are not counted, otherwise
+// a stream of bad requests would trip a breaker in front of a perfectly healthy service.
+// ResourceExhausted is excluded on purpose: counting it would create a traffic-spike →
+// rate-limit-reject → breaker-open feedback loop. Unimplemented is excluded even though it
+// maps to HTTP 501, because a missing method is a deterministic contract error that retrying
+// never fixes, and tripping the breaker would only replace it with a vaguer Unavailable.
+// Classification uses status.Code(err), i.e. exactly what the client receives
+func IsBreakerFailureCode(code codes.Code) bool {
+	switch code {
+	case codes.Unknown, codes.DeadlineExceeded, codes.Internal, codes.Unavailable, codes.DataLoss:
+		return true
+	default:
+		return false
+	}
+}
+
+// recordBreakerResult 按 handler 返回的 error 记录成功/失败（Unary 与 Stream 共用）
+// err 为 nil 时 status.Code 返回 codes.OK，直接计入成功
+//
+// [EN] Records the outcome of a call on the breaker; shared by the unary and stream
+// interceptors. status.Code returns codes.OK for a nil error, which counts as a success
+func recordBreakerResult(b *Breaker, err error) {
+	if IsBreakerFailureCode(status.Code(err)) {
+		b.RecordFailure()
+		return
+	}
+	b.RecordSuccess()
+}
+
+// UnaryServerBreakerInterceptor 创建熔断 gRPC 一元拦截器（复用共享的 BreakerManager）
+//
+// 与 HTTP 中间件共用同一套 Breaker 状态机和 BreakerManager 实例，差别只在熔断 key：
+// HTTP 用 r.URL.Path，gRPC 用 info.FullMethod（形如 /user.v1.UserService/GetUser）
+// 因此 prevention-paths / exclude-paths 需要按 gRPC 全限定方法名配置，
+// 前缀匹配对 /user.v1.UserService/ 这样的前缀同样生效，可一次保护某个服务的所有方法
+// 熔断打开时返回预构建的 codes.Unavailable 错误，不执行 handler，也不打日志
+// （状态转换本身已在 transitionToLocked 中记日志，避免打开期间日志刷屏）
+// manager 为 nil 时直通，便于未启用熔断的场景安全调用
+//
+// [EN] Unary breaker interceptor, reusing the very same Breaker state machine and
+// BreakerManager instance as the HTTP middleware; only the key differs — the HTTP side keys
+// on r.URL.Path, this one on info.FullMethod such as /user.v1.UserService/GetUser, so
+// prevention-paths and exclude-paths must be configured with fully qualified gRPC method
+// names (prefix matching still works, e.g. /user.v1.UserService/ protects every method of
+// that service). An open breaker returns the pre-built codes.Unavailable error without
+// invoking the handler and without logging — state transitions are already logged in
+// transitionToLocked, so logging each reject would only flood the log while the breaker is
+// open. A nil manager passes through, so callers that disabled the breaker stay safe
+func UnaryServerBreakerInterceptor(manager *BreakerManager) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		// 未启用或方法不需要保护：直通，不创建断路器
+		if manager == nil || !manager.IsPathProtected(info.FullMethod) {
+			return handler(ctx, req)
+		}
+
+		// 获取该方法对应的断路器
+		breaker := manager.GetBreaker(info.FullMethod)
+
+		// 断路器打开：尽早拒绝，不触达 handler
+		if !breaker.Allow() {
+			return nil, breakerOpenGRPCErr
+		}
+
+		resp, err := handler(ctx, req)
+		recordBreakerResult(breaker, err)
+		return resp, err
+	}
+}
+
+// StreamServerBreakerInterceptor 创建熔断 gRPC 流式拦截器（复用共享的 BreakerManager）
+//
+// 判定逻辑与 Unary 完全一致，但计数粒度是「一条流」而不是「一条消息」：
+// 建流时检查一次 Allow()，流结束（handler 返回）时按返回的 status code 记一次结果
+// 这与限流 Stream 拦截器「建流时限流一次」的粒度保持一致；长连接流在结束前不贡献统计，
+// 这是刻意的取舍——流内每条消息都记一次会让单条异常长流主导整个方法的熔断统计
+//
+// [EN] Stream breaker interceptor. The classification is identical to the unary one, but
+// the unit of accounting is a stream rather than a message: Allow() is checked once when the
+// stream is established and the outcome is recorded once when the handler returns, matching
+// the granularity of the stream rate-limit interceptor. A long-lived stream therefore
+// contributes no statistics until it ends — a deliberate trade-off, since recording every
+// message would let one unusually long stream dominate the method's breaker statistics
+func StreamServerBreakerInterceptor(manager *BreakerManager) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if manager == nil || !manager.IsPathProtected(info.FullMethod) {
+			return handler(srv, ss)
+		}
+
+		breaker := manager.GetBreaker(info.FullMethod)
+
+		if !breaker.Allow() {
+			return breakerOpenGRPCErr
+		}
+
+		err := handler(srv, ss)
+		recordBreakerResult(breaker, err)
+		return err
 	}
 }

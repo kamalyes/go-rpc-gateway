@@ -134,6 +134,41 @@ func (s *Server) initGRPCServer() error {
 			unaryInterceptors = append(unaryInterceptors, rlInterceptor)
 		}
 
+		// 添加自适应降载拦截器（如果启用，夹在限流与熔断之间）
+		// 位置理由：
+		//  1. 必须在限流之后——限流是确定性的配额判定，被它拒绝的请求根本不会触达 handler；
+		//     放在降载之前，这些请求既不占用降载的飞行计数，也不会把「拒绝得极快」的
+		//     响应时间掺进降载的 RT 滑窗，否则最小平均 RT 被压低、承载上限被低估，
+		//     降载会在系统其实还有余量时就开始丢请求
+		//  2. 必须在熔断之前（熔断在降载内层）——降载拒绝返回 codes.Unavailable，
+		//     而 Unavailable 恰好在 IsBreakerFailureCode 的失败集合里；若降载挂在熔断内层，
+		//     熔断器就会把降载的自我保护拒绝当成下游故障，形成
+		//     「过载→降载拒绝→熔断打开」的正反馈：负载退潮后仍要等熔断超时才恢复，
+		//     而且熔断是按路径的，一次全局过载会把所有路径的断路器一起打开
+		//     放在外层后，本进程的熔断器永远观测不到降载拒绝
+		//     （这与熔断自己放在限流之后、避免把 ResourceExhausted 当成下游故障，是同一类考虑）
+		//  3. 语义上降载比熔断更该早拒绝：降载回答「本进程还扛不扛得住」，是全局自保；
+		//     熔断回答「下游还活着吗」，需要尽量贴近 handler 才能观测到真实健康度
+		//  4. 降载拒绝的 codes.Unavailable 仍会传给调用方，被调用方的熔断器观测到——
+		//     那是期望的负反馈（上游退避 → 本进程过载缓解），与第 2 点要避免的
+		//     「自己的拒绝被自己的熔断器计为下游故障」不是一回事
+		if shedderInterceptor := s.middlewareManager.GRPCShedderUnaryInterceptor(); shedderInterceptor != nil {
+			unaryInterceptors = append(unaryInterceptors, shedderInterceptor)
+		}
+
+		// 添加熔断拦截器（如果启用，紧跟限流之后、校验之前）
+		// 位置理由：
+		//  1. 必须在限流之后——限流拒绝返回 ResourceExhausted，若熔断在外层就会把
+		//     这类自我保护的拒绝当成下游响应观测到；放在内层后熔断器永远看不到限流拒绝，
+		//     不会出现「流量高峰→限流拒绝→熔断打开」的正反馈
+		//  2. 必须在校验之前——熔断打开时的全部价值就是 fail fast，不该再为注定被拒绝的
+		//     请求付反射校验的代价
+		//  3. 必须尽量贴近 handler——熔断统计要反映 handler 的真实健康度，中间夹的层越少越好；
+		//     这里唯一夹在中间的 struct tag 校验返回 InvalidArgument，已被判为客户端问题不计入失败
+		if breakerInterceptor := s.middlewareManager.GRPCBreakerUnaryInterceptor(); breakerInterceptor != nil {
+			unaryInterceptors = append(unaryInterceptors, breakerInterceptor)
+		}
+
 		// 添加 struct tag 参数校验拦截器（配合 protoc-go-inject-tag 生效）
 		unaryInterceptors = append(unaryInterceptors, s.middlewareManager.GRPCStructTagValidatorInterceptor())
 
@@ -161,6 +196,17 @@ func (s *Server) initGRPCServer() error {
 		// 添加限流拦截器（如果启用，放在校验之前以尽早丢弃过载请求）
 		if rlStreamInterceptor := s.middlewareManager.GRPCRateLimitStreamInterceptor(); rlStreamInterceptor != nil {
 			streamInterceptors = append(streamInterceptors, rlStreamInterceptor)
+		}
+
+		// 添加自适应降载拦截器（位置与理由同 Unary 链：限流之后、熔断之前）
+		// 流只在建流时判定一次，且不占用飞行计数（见 middleware.Shedder.AllowStream）
+		if shedderStreamInterceptor := s.middlewareManager.GRPCShedderStreamInterceptor(); shedderStreamInterceptor != nil {
+			streamInterceptors = append(streamInterceptors, shedderStreamInterceptor)
+		}
+
+		// 添加熔断拦截器（位置与理由同 Unary 链：限流之后、校验之前、尽量贴近 handler）
+		if breakerStreamInterceptor := s.middlewareManager.GRPCBreakerStreamInterceptor(); breakerStreamInterceptor != nil {
+			streamInterceptors = append(streamInterceptors, breakerStreamInterceptor)
 		}
 
 		streamInterceptors = append(streamInterceptors, s.middlewareManager.GRPCStructTagValidatorStreamInterceptor())

@@ -36,7 +36,7 @@ flowchart LR
 | 2100–2199 | JWT 扩展 | `ErrCodeTokenMalformed(2101)`、`ErrCodeAccountLoginElsewhere(2103)` |
 | 3000–3999 | 请求处理 | `ErrCodeBadRequest(3001)`、`ErrCodeNotFound(3002)` |
 | 3100–3199 | 数据转换与验证 | `ErrCodePBMessageNil(3101)`、`ErrCodeMustBePointer(3108)` |
-| 4000–4999 | 限流与熔断 | `ErrCodeTooManyRequests(4001)`、`ErrCodeCircuitBreakerOpen(4003)` |
+| 4000–4999 | 限流、降载与熔断 | `ErrCodeTooManyRequests(4001)`、`ErrCodeCircuitBreakerOpen(4003)`、`ErrCodeServiceOverloaded(4005)` |
 | 5000–5999 | 中间件 | `ErrCodeMiddlewareError(5001)`、`ErrCodeSignatureInvalid(5007)` |
 | 5100–5199 | 国际化 | `ErrCodeLanguageLoadFailed(5101)` |
 | 6000–6999 | gRPC | `ErrCodeGRPCConnectionFailed(6001)`、`ErrCodeGRPCTimeout(6004)` |
@@ -116,6 +116,7 @@ flowchart LR
         E3["ErrCodeNotFound, 3002"]
         E4["ErrCodeTooManyRequests, 4001"]
         E5["ErrCodeCircuitBreakerOpen, 4003"]
+        E6["ErrCodeServiceOverloaded, 4005"]
     end
 
     subgraph HTTP["HTTP Status"]
@@ -147,18 +148,21 @@ flowchart LR
     E3 --> H3
     E4 --> H4
     E5 --> H5
+    E6 --> H5
 
     E1 --> P1
     E2 --> P2
     E3 --> P3
     E4 --> P4
     E5 --> P5
+    E6 --> P5
 
     E1 --> G1
     E2 --> G2
     E3 --> G3
     E4 --> G4
     E5 --> G5
+    E6 --> G5
 ```
 
 | 映射 | 方法 | 源码 |
@@ -176,6 +180,7 @@ flowchart LR
 | `ErrCodeNotFound(3002)` | 404 | `NotFound` | `NotFound` |
 | `ErrCodeTooManyRequests(4001)` | 429 | `ResourceExhausted` | `ResourceExhausted` |
 | `ErrCodeCircuitBreakerOpen(4003)` | 503 | `Unavailable` | `Unavailable` |
+| `ErrCodeServiceOverloaded(4005)` | 503 | `Unavailable` | `Unavailable` |
 
 ### 转换为 Result
 

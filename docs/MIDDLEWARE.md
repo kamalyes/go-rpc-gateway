@@ -21,27 +21,32 @@ flowchart TD
         M6["⑥ Tracing, 链路追踪（配置驱动）"]
         M6b["⑥.5 PreRateLimit, 自定义前置（如认证）"]
         M7["⑦ RateLimit, 多策略限流（配置驱动）"]
+        M7b["⑦.5 Shedder, 自适应降载（配置驱动）"]
         M8["⑧ Breaker, 熔断保护（配置驱动）"]
         M9["⑨ SCP/CSP, 安全头（配置驱动）"]
         M10["⑩ CORS, 跨域（配置驱动）"]
         M11["⑪ Timestamp → Nonce → Signature, 签名链（配置驱动）"]
 
-        M1 --> M2 --> M3 --> M4 --> M5 --> M6 --> M6b --> M7 --> M8 --> M9 --> M10 --> M11
+        M1 --> M2 --> M3 --> M4 --> M5 --> M6 --> M6b --> M7 --> M7b --> M8 --> M9 --> M10 --> M11
     end
 
     MW_CHAIN --> GW_MUX["gRPC-Gateway Mux"]
 
     GW_MUX --> GRPC_CHAIN["gRPC 拦截器链"]
 
-    subgraph GRPC_CHAIN["gRPC 拦截器链（按执行顺序）"]
-        G1["① RequestContext, Metadata → Context"]
-        G2["② Recovery, Panic 恢复"]
+    subgraph GRPC_CHAIN["gRPC 拦截器链（按执行顺序,见 server/grpc.go）"]
+        G1["① Tracing, OpenTelemetry（配置驱动）"]
+        G2["② RequestContext, Metadata → Context"]
         G3["③ Logging, 请求日志"]
-        G4["④ Metrics, Prometheus 指标"]
-        G5["⑤ Tracing, OpenTelemetry"]
-        G6["⑥ StructTagValidator, 参数校验"]
+        G4["④ i18n, 语言注入（配置驱动,Stream 链在校验之后）"]
+        G5["⑤ Metrics, Prometheus 指标（配置驱动,仅 Unary）"]
+        G6["⑥ RateLimit, 限流（配置驱动）"]
+        G6b["⑥.5 Shedder, 自适应降载（配置驱动）"]
+        G7["⑦ Breaker, 熔断保护（配置驱动）"]
+        G8["⑧ StructTagValidator, 参数校验"]
+        G9["⑨ Compression, 响应压缩（配置驱动）"]
 
-        G1 --> G2 --> G3 --> G4 --> G5 --> G6
+        G1 --> G2 --> G3 --> G4 --> G5 --> G6 --> G6b --> G7 --> G8 --> G9
     end
 
     GRPC_CHAIN --> HANDLER["业务 Handler"]
@@ -354,11 +359,58 @@ func RateLimitMiddlewareWithProvider(config *ratelimit.RateLimit, provider Dynam
 | IP | `ip:{ip}` | 每 IP 限流 |
 | 用户 | `user:{uid}` | 每用户限流 |
 
+### ShedderMiddleware — 自适应降载
+
+> 源码：[middleware/shedder.go](../middleware/shedder.go)
+
+进程唯一的降载器，在服务端自身过载时主动丢请求。判定只用三个本地信号（不走 Redis）：CPU 使用率、飞行请求数、响应时间滑窗；两个条件必须同时成立才丢弃——`CPU 超阈值（或仍在冷却期）` 且 `飞行请求数超过滑窗估出的承载上限`：
+
+```go
+func NewShedderManager(cfg *shedderconfig.Shedder) *ShedderManager
+func (m *ShedderManager) Shedder() *Shedder
+func (m *ShedderManager) IsPathProtected(path string) bool
+func (m *ShedderManager) Snapshot() ShedderSnapshot
+
+func ShedderHTTPMiddleware(manager *ShedderManager) func(http.Handler) http.Handler
+func UnaryServerShedderInterceptor(manager *ShedderManager) grpc.UnaryServerInterceptor
+func StreamServerShedderInterceptor(manager *ShedderManager) grpc.StreamServerInterceptor
+
+func CPUUsage() (int64, bool)   // 千分比 + 当前平台是否支持采样
+func CPUUsageSource() string    // cgroup2 / cgroup1 / procstat / rusage / unsupported
+```
+
+- 承载上限按 Little 定律估算：`单桶最大通过量 × 每秒桶数 × 最小平均 RT`，下界取 1；滑窗是固定内存环形桶（默认 50 桶 × 100ms），读写全原子无锁
+- 冷却机制（默认 1s）防抖：丢弃后即使 CPU 回落也继续视作 CPU 超阈值，但承载上限条件仍需单独满足，负载真的退潮会立刻恢复放行
+- CPU 采样 Linux 走 cgroup v2 → cgroup v1 → `/proc/stat`，darwin/BSD 退化为 `getrusage(RUSAGE_SELF)`，其余平台报告不支持；不支持时自适应判定整体静默，只保留 `max-concurrency` 硬上限（既不 panic，也不把缺失当成 0%）
+- HTTP 被降载返回 503 + `Retry-After: 1` + 预分配响应体；gRPC 返回 `errors.ErrCodeServiceOverloaded(4005)` 对应的 `codes.Unavailable`，两侧同码
+- 失败分类直接复用熔断的 `IsBreakerFailureCode`：下游故障码只归还飞行计数，不进 RT 滑窗，避免算出系统达不到的承载上限
+- Stream 只在建流时判定一次且不占用飞行计数（长连接会让 `maxFlight` 估计失效），纯流式服务应改用 `max-concurrency`
+- 路径策略与熔断相反：默认保护全部流量，只按 `exclude-paths` 前缀排除（默认排除 `/health` `/healthz` `/readyz` `/livez` `/metrics` `/debug`）
+- 完整的三信号实现、链路位置理由、与限流/熔断的相互作用分析见 [自适应降载](./SHEDDER.md)
+
+配置类型是 go-config 的 `shedderconfig.Shedder`（`github.com/kamalyes/go-config/pkg/shedder`），`Manager` 直接读 `cfg.Middleware.Shedder`：
+
+```yaml
+middleware:
+  shedder:
+    enabled: true        # 默认 false，必须显式开启
+    cpu-threshold: 900
+    max-concurrency: 0
+    window-ms: 5000
+    window-buckets: 50
+    cooldown-ms: 1000
+    min-rt-ms: 1000
+    flying-beta: 0.9
+    exclude-paths:
+      - "/health"
+      - "/metrics"
+```
+
 ### BreakerMiddleware — 熔断器
 
 > 源码：[middleware/breaker.go](../middleware/breaker.go)
 
-三态断路器（`BreakerClosed` / `BreakerOpen` / `BreakerHalfOpen`），按路径维护独立断路器实例。HTTP 中间件由 `BreakerHTTPMiddleware(manager *BreakerManager) func(http.Handler) http.Handler` 提供，打开时返回 503 JSON：
+三态断路器（`BreakerClosed` / `BreakerOpen` / `BreakerHalfOpen`），按 key 维护独立断路器实例。HTTP 中间件由 `BreakerHTTPMiddleware(manager *BreakerManager) func(http.Handler) http.Handler` 提供，打开时返回 503 JSON：
 
 ```go
 func NewBreakerManager(cfg *breakerconfig.CircuitBreaker) *BreakerManager
@@ -367,6 +419,19 @@ func (m *BreakerManager) IsPathProtected(path string) bool
 func (m *BreakerManager) GetHealthStatus() BreakerHealthStatus
 func (m *BreakerManager) GetAllBreakerSnapshots() map[string]BreakerSnapshot
 ```
+
+gRPC 侧由两个拦截器提供，复用同一个 `BreakerManager` 实例与同一套状态机，熔断 key 取 `info.FullMethod`（HTTP 取 `r.URL.Path`）：
+
+```go
+func UnaryServerBreakerInterceptor(manager *BreakerManager) grpc.UnaryServerInterceptor
+func StreamServerBreakerInterceptor(manager *BreakerManager) grpc.StreamServerInterceptor
+func IsBreakerFailureCode(code codes.Code) bool
+```
+
+- 熔断打开时返回 `errors.NewError(errors.ErrCodeCircuitBreakerOpen, "").ToGRPCError()` 预构建的错误，即 `codes.Unavailable` + 消息 `Circuit breaker open`，与 HTTP 侧 503 对应同一个错误码
+- 计入失败的 code 只有 `Unknown` / `DeadlineExceeded` / `Internal` / `Unavailable` / `DataLoss`（对应 HTTP 5xx）；`InvalidArgument`、`NotFound`、`PermissionDenied`、`ResourceExhausted`、`Unimplemented` 等客户端侧问题不计入
+- `prevention-paths` / `exclude-paths` 对 gRPC 需按 `/包名.服务名/方法名` 配置，HTTP 路径前缀不会命中 gRPC 方法
+- 完整的失败判定表、链路位置理由与 Stream 计数粒度见 [熔断器](./BREAKER.md#grpc-拦截器)
 
 ```yaml
 middleware:
@@ -637,6 +702,8 @@ gRPC 拦截器以独立函数形式提供，并由 `Manager` 暴露为便捷方�
 | Prometheus 指标 | `GRPCMetricsInterceptor()` | `GRPCMetricsInterceptor(m *MetricsManager)` |
 | OpenTelemetry 追踪 | `GRPCTracingInterceptor()` | `GRPCTracingInterceptor(m *TracingManager)` |
 | 限流 | `GRPCRateLimitUnaryInterceptor()` / `GRPCRateLimitStreamInterceptor()` | `GRPCRateLimitUnaryInterceptor(cfg, limiter)`、`GRPCRateLimitStreamInterceptor(cfg, limiter)` |
+| 自适应降载 | `GRPCShedderUnaryInterceptor()` / `GRPCShedderStreamInterceptor()` | `UnaryServerShedderInterceptor(manager)`、`StreamServerShedderInterceptor(manager)` |
+| 熔断 | `GRPCBreakerUnaryInterceptor()` / `GRPCBreakerStreamInterceptor()` | `UnaryServerBreakerInterceptor(manager)`、`StreamServerBreakerInterceptor(manager)` |
 | i18n | `GRPCUnaryI18nInterceptor()` / `GRPCStreamI18nInterceptor()` | `UnaryServerI18nInterceptor(manager)`、`StreamServerI18nInterceptor(manager)` |
 | struct tag 参数校验 | `GRPCStructTagValidatorInterceptor()` / `GRPCStructTagValidatorStreamInterceptor()` | `StructTagValidatorUnaryInterceptor()`、`StructTagValidatorStreamInterceptor()` |
 
@@ -694,5 +761,7 @@ func (rw *ResponseWriter) IsSuccess() / IsClientError() / IsServerError() / IsEr
 
 ## 下一步
 
+- [自适应降载](./SHEDDER.md) — 了解过载自保的三信号判定与冷却机制
+- [熔断器](./BREAKER.md) — 了解下游故障隔离与状态机
 - [请求上下文](./REQUEST-CONTEXT.md) — 了解全链路上下文传递
 - [Server 内部机制](./SERVER.md) — 了解中间件如何被初始化和挂载
