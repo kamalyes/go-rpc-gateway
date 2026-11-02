@@ -1,18 +1,21 @@
-# Protocol Buffers 生成工具使用指南
+# Protocol Buffers 公共定义
 
-本目录包含自动生成 Protocol Buffers 代码的完整工具链。
+本目录只有一个 `common.proto`,定义跨服务复用的公共消息与枚举
 
 ## 目录结构
 
 ```bash
 proto/
-├── buf.gen.yaml        # buf 生成配置文件
 ├── common.proto        # 公共消息与枚举定义
 ├── common.pb.go        # 生成的 Go 代码（包名 commonapis）
 └── README.md           # 本说明文件
 ```
 
-> 注：`common.proto` 中声明了 `option go_package = "github.com/kamalyes/go-rpc-gateway/pbuf/commonapis"`，生成的 Go 代码包名为 `commonapis`；同时声明了 `option java_package = "com.github.kamalyes.commonapis.api"`。
+> **包名与导入路径**:生成的 Go 包名是 `commonapis`,但文件就落在 `proto/` 目录下,所以代码里按目录路径导入、用别名指向包名:
+> ```go
+> commonapis "github.com/kamalyes/go-rpc-gateway/proto"
+> ```
+> `common.proto` 里的 `option go_package` 写的是 `.../pbuf/commonapis`,那是早期的历史值且**已经对不上实际布局**——因为生成时用了 `paths=source_relative`,go_package 的目录部分会被忽略,只有最后一段的包名 `commonapis` 生效,所以一直没暴露出来 改它会连带改所有导入,没有必要
 
 ## 公共消息定义 (common.proto)
 
@@ -91,127 +94,38 @@ message TimeRange {
 
 > `TimeRange` 依赖 `import "google/protobuf/timestamp.proto";`。
 
-## 使用方法
+## 生成代码
 
-使用 buf 工具链生成代码：
+一条命令,在**仓库根目录**执行:
 
 ```bash
-buf generate
+protoc -I. --go_out=. --go_opt=paths=source_relative proto/common.proto
 ```
 
-或者使用项目提供的脚本（Windows，基于 `protoc` 直接调用，功能与 `buf.gen.yaml` 相当）：
-```bash
-scripts\generate.bat
-```
+就这一条,不需要 buf、不需要脚本、不需要 Makefile
 
-每个 `.proto` 文件根据 `buf.gen.yaml` 配置可能生成以下文件：
+四点说明:
 
-1. **`*.pb.go`** - Protocol Buffers 消息定义（`go` 插件）
-2. **`*_grpc.pb.go`** - gRPC 服务接口（`go-grpc` 插件，仅当 `.proto` 定义了 `service` 时生成）
-3. **`*.gw.go`** - grpc-gateway HTTP/JSON 代理（`grpc-gateway` 插件，仅当 `.proto` 定义了 `service` 时生成）
-4. **`api.swagger.json`** - OpenAPI/Swagger 文档（`openapiv2` 插件，输出到 `docs` 目录）
+| 点 | 说明 |
+|---|---|
+| `-I.` 是必须的 | 从仓库根执行,`proto/common.proto` 这个相对路径才解析得到 |
+| `paths=source_relative` 是必须的 | 它让产物落在 `.proto` 旁边(即 `proto/common.pb.go`),而不是按 `go_package` 建一层 `pbuf/commonapis/` 目录 |
+| **只需要 `protoc-gen-go` 一个插件** | `common.proto` 里**没有 `service`**,所以不生成 `*_grpc.pb.go`;没有 `google.api.http` 注解,所以不生成 `*.gw.go` 与 swagger;没有 `@inject_tag` 注释,所以不需要 `protoc-go-inject-tag` |
+| 重新生成会改动版本注释 | 产物头部记录的是**本机**的 protoc 与插件版本,与提交时的版本不同就会产生 4 行 diff,这是正常的,不是生成出错 |
 
-> 注：当前 `common.proto` 仅定义消息与枚举，未定义 `service`，因此实际只生成 `common.pb.go`，不会生成 `*_grpc.pb.go`、`*.gw.go` 与 swagger 文档。
-
-## 配置说明
-
-### buf.gen.yaml 配置
-
-`version: v1`，包含以下插件：
-
-- **go**: 生成 Go 语言的 protobuf 消息，输出到当前目录（`.`）
-- **go-grpc**: 生成 Go 语言的 gRPC 服务接口，输出到当前目录（`.`）
-- **grpc-gateway**: 生成 HTTP/JSON 到 gRPC 的网关代码，输出到当前目录（`.`）
-- **openapiv2**: 生成 OpenAPI/Swagger 文档，输出到 `docs` 目录
-
-### 输出选项
-
-- `paths=source_relative`: 生成的文件与源文件保持相同的目录结构（go、go-grpc、grpc-gateway）
-- `generate_unbound_methods=true`: 为未绑定方法生成代理（grpc-gateway）
-- `logtostderr=true`: 错误日志输出到 stderr（openapiv2）
-- `json_names_for_fields=false`: 使用原始字段名而非 JSON 名称（openapiv2）
-- `allow_merge=true`: 允许合并多个 API 文档（openapiv2）
-- `merge_file_name=api`: 合并后的文档文件名为 `api.swagger.json`（openapiv2）
-- `use_go_templates=true`: 启用 Go 模板（openapiv2）
-- `repeated_path_param_separator=ssv`: 重复路径参数使用空格分隔（openapiv2）
-- `openapi_naming_strategy=fqn`: 使用完全限定名作为命名策略（openapiv2）
-- `simple_operation_ids=true`: 使用简单的 operation ID（openapiv2）
-
-## 依赖工具
-
-运行前请确保安装以下工具：
+安装插件:
 
 ```bash
-# 安装 buf
-go install github.com/bufbuild/buf/cmd/buf@latest
-
-# 安装 protoc-gen-go
 go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-
-# 安装 protoc-gen-go-grpc
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-
-# 安装 protoc-gen-grpc-gateway
-go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
-
-# 安装 protoc-gen-openapiv2
-go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest
-
-# 安装 protoc-go-inject-tag（用于注入结构体标签）
-go install github.com/ kamalyes/protoc-go-inject-tag@latest
 ```
 
-> 使用 `scripts/generate.bat` 时还会用到 `protoc` 本体；该脚本会自动检查并安装上述缺失的插件，并按需调用 `scripts/setup-protobuf-includes.bat` 与 `scripts/setup-dependencies.bat` 准备依赖文件。
+`protoc` 本体按平台装(macOS `brew install protobuf`,或从 protobuf releases 下载),并确保 `$GOPATH/bin` 在 `PATH` 里,否则 `protoc` 找不到 `protoc-gen-go`
 
-## 常见问题
+## 改动 common.proto 之后
 
-### 1. 权限错误
+1. 跑上面那条命令
+2. `go build ./...` 确认编译通过
+3. `git diff proto/common.pb.go` 检查产物变化与 proto 改动一致
 
-**Windows**: 以管理员身份运行 PowerShell
-**Linux/Mac**: 确保脚本有执行权限 `chmod +x scripts/*.sh`
+> 字段编号一旦发布就不要改动或复用——这是跨服务共享的契约,改编号会让旧客户端静默解析错位
 
-### 2. 找不到 protoc-gen-* 插件
-
-确保 `$GOPATH/bin` 或 `$GOBIN` 在系统 PATH 中。`scripts/generate.bat` 会自动检测并通过 `go install` 安装缺失的插件。
-
-### 3. buf 版本兼容性
-
-建议使用最新版本的 buf 工具，部分旧版本可能存在兼容性问题。
-
-### 4. 导入路径问题
-
-确保 `.proto` 文件中的 `import` 语句使用正确的相对路径。`common.proto` 依赖 `google/protobuf/timestamp.proto`，若本地 protoc include 目录缺失该文件，可运行 `scripts/setup-protobuf-includes.bat`（Windows）下载标准 protobuf 文件。
-
-## 开发工作流
-
-1. **修改 proto 文件**：在 `proto/` 目录下编辑 `.proto` 文件
-2. **生成代码**：运行 `buf generate` 或 `scripts/generate.bat`
-3. **注入标签**（可选）：运行 `scripts/inject-tags.sh` 或 `scripts/inject-tags.bat`
-4. **验证生成**：检查生成的 Go 文件是否正确
-5. **提交代码**：将 proto 文件和生成的代码一起提交
-
-## 性能优化
-
-- 大型项目可考虑分目录并行生成
-- CI/CD 中可运行 `buf generate` 或 `scripts/generate.bat` 后，通过 `git diff` 校验生成代码是否与 proto 定义同步
-
-## 扩展配置
-
-如需添加新的生成插件，编辑 `buf.gen.yaml` 文件：
-
-```yaml
-version: v1
-plugins:
-  - name: your-custom-plugin
-    out: .
-    opt:
-      - your-option=value
-```
-
-## 支持与维护
-
-如有问题请查阅：
-
-- [buf 官方文档](https://docs.buf.build/)
-- [gRPC-Gateway 文档](https://grpc-ecosystem.github.io/grpc-gateway/)
-- [Protocol Buffers 官方文档](https://developers.google.com/protocol-buffers/)
