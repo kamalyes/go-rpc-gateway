@@ -11,6 +11,7 @@
 | [快速入门](./QUICKSTART.md) | 5 分钟上手，创建你的第一个 Gateway 服务 |
 | [Gateway 构建器](./GATEWAY-BUILDER.md) | 链式构建 API、配置发现、热更新 |
 | [服务注册](./SERVICE-REGISTRATION.md) | gRPC 服务注册与 HTTP Handler 注册 |
+| [与 go-zero 对比](./COMPARISON.md) | 选型参考：设计哲学分歧、功能矩阵、各自更合适的场景、迁移前要实测什么 |
 
 ### 核心模块
 
@@ -30,6 +31,7 @@
 | [错误体系](./ERRORS.md) | ErrorCode 定义、AppError 结构、三态映射、gRPC 转换 |
 | [HTTP 响应工具](./RESPONSE.md) | 统一 JSON 响应写入、成功/错误/健康检查响应 |
 | [熔断器](./BREAKER.md) | 断路器状态机、管理器、HTTP 中间件 |
+| [自适应降载](./SHEDDER.md) | 三信号判定、承载上限估算、跨平台 CPU 采样、链序与冷却 |
 
 ## 学习路径
 
