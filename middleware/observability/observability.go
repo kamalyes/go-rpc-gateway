@@ -84,6 +84,45 @@ type HTTPMetrics struct {
 	pathNormalizer  core.PathNormalizer // 路径规范化器，减少标签基数
 }
 
+// registerProcessCollector 注册 process 采集器，并在该平台不支持时撤回
+//
+// process 采集器读 /proc，只在 Linux 上可用 配 ReportErrors: true 时，
+// 不支持的平台会让它发出一条 invalid metric，于是整个 registry 的 Gather 失败，
+// promhttp 把 /metrics 答成 500 —— runtime 指标和业务指标也一起拿不到
+// macOS 上开发时这个端点是坏的，而 CI 只跑 ubuntu，所以一直没暴露
+//
+// 这里的做法是注册后试探一次 Gather：成功就保留（支持的平台上 ReportErrors 继续生效，
+// 权限之类的真问题照样报出来），失败就撤回这个采集器并记一条警告，
+// 让 /metrics 退化为「没有 process 指标」而不是「整个端点 500」
+// 不按 GOOS 硬编码，是因为同一个系统上也可能因权限或容器限制读不到
+//
+// [EN] registerProcessCollector registers the process collector and withdraws it where
+// the platform does not support it
+// The collector reads /proc and only works on Linux; with ReportErrors: true an
+// unsupported platform makes it emit an invalid metric, which fails Gather for the whole
+// registry and turns /metrics into a 500, taking runtime and business metrics down with it
+// This was invisible because CI runs only on ubuntu while development happens on macOS
+// A trial Gather decides: on success the collector stays, so genuine problems such as
+// permissions are still reported; on failure it is withdrawn with a warning, degrading
+// /metrics to "no process metrics" rather than a dead endpoint
+// GOOS is deliberately not hardcoded, since permissions or container limits can block
+// /proc on a supported system too
+func registerProcessCollector(registry *prometheus.Registry) {
+	collector := prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{
+		Namespace:    "",
+		ReportErrors: true,
+	})
+	registry.MustRegister(collector)
+
+	if _, err := registry.Gather(); err != nil {
+		registry.Unregister(collector)
+		if global.LOGGER != nil {
+			global.LOGGER.WarnKV("process 指标在本平台不可用，已跳过该采集器",
+				"error", err.Error())
+		}
+	}
+}
+
 // NewMetricsManager 创建可观测性管理器（支持 gRPC + HTTP 完整指标）
 // go-config 的 Default() 已经设置了所有默认值（包括 Buckets），无需再次设置
 func NewMetricsManager(cfg *monitoring.Monitoring) *MetricsManager {
@@ -95,10 +134,7 @@ func NewMetricsManager(cfg *monitoring.Monitoring) *MetricsManager {
 
 	// 注册 Go runtime 和 process 默认采集器，保留 runtime/process 指标
 	registry.MustRegister(prometheus.NewGoCollector())
-	registry.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{
-		Namespace:    "",
-		ReportErrors: true,
-	}))
+	registerProcessCollector(registry)
 
 	// 安全获取直方图桶（如果无法安全访问则使用默认值）
 	var buckets []float64

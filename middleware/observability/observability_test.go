@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/kamalyes/go-config/pkg/monitoring"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
@@ -55,9 +56,15 @@ func TestNewMetricsManager_RegistryContainsRuntime(t *testing.T) {
 	for _, f := range families {
 		names[f.GetName()] = true
 	}
-	for _, expected := range []string{"go_goroutines", "process_resident_memory_bytes"} {
-		if !names[expected] {
-			t.Errorf("registry 应包含 runtime 指标 %s", expected)
+	// runtime 指标在所有平台都该有；process 指标只在支持 /proc 的平台上有
+	// [EN] Runtime metrics must exist everywhere; process metrics only where /proc works
+	expected := []string{"go_goroutines"}
+	if processMetricsSupported() {
+		expected = append(expected, "process_resident_memory_bytes")
+	}
+	for _, name := range expected {
+		if !names[name] {
+			t.Errorf("registry 应包含指标 %s", name)
 		}
 	}
 }
@@ -79,9 +86,16 @@ func TestMetricsHandler_ExposesAllMetrics(t *testing.T) {
 	if !strings.Contains(body, "go_goroutines") {
 		t.Error("指标输出应包含 go_goroutines（runtime 指标）")
 	}
-	// 验证 process 指标存在（修复 bug 后应保留）
-	if !strings.Contains(body, "process_resident_memory_bytes") {
-		t.Error("指标输出应包含 process_resident_memory_bytes（process 指标）")
+	// process 指标只在支持 /proc 的平台上存在
+	// 不支持时 registerProcessCollector 会撤回采集器，断言它存在会在 macOS 上必红，
+	// 而那不是缺陷 —— 缺陷是整个端点 500，那一点由本测试的其余断言覆盖
+	//
+	// [EN] Process metrics exist only where /proc is available
+	// Where it is not, registerProcessCollector withdraws the collector, so asserting
+	// their presence would always fail on macOS, and that is not the defect; the defect
+	// was the endpoint returning 500, which the remaining assertions cover
+	if processMetricsSupported() && !strings.Contains(body, "process_resident_memory_bytes") {
+		t.Error("本平台支持 process 指标，输出里却没有 process_resident_memory_bytes")
 	}
 	// 验证业务指标存在（修复 bug 后应暴露，自定义 Collector 按需输出）
 	if !strings.Contains(body, "gateway_pool_health") {
@@ -275,4 +289,16 @@ func TestSetters_NilManager(t *testing.T) {
 	mm.SetPoolHealthFn(func() map[string]bool { return nil })
 	mm.SetBreakerStatsFn(func() []BreakerStat { return nil })
 	mm.SetWSCStatsFn(func() *WSCStats { return nil })
+}
+
+// processMetricsSupported 探测本平台能否采集 process 指标
+// 单独建一个 registry 试，不污染被测对象
+//
+// [EN] processMetricsSupported probes whether process metrics work on this platform,
+// using a throwaway registry so the subject under test is untouched
+func processMetricsSupported() bool {
+	r := prometheus.NewRegistry()
+	r.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{ReportErrors: true}))
+	_, err := r.Gather()
+	return err == nil
 }
