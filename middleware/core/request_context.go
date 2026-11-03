@@ -69,9 +69,51 @@ type RequestCommonMeta struct {
 
 type requestCommonMetaKey struct{}
 
+// requestMetaContext 一层 context 同时应答两个键：RequestCommonMeta 本身，
+// 以及 go-logger 用作兜底的 trace_id 键
+//
+// 改造前是两层：WithRequestCommonMeta 存 meta，再 contextx.WithValue 存一次 trace_id
+// 两层意味着每个请求两次分配，而且此后每一次 ctx.Value 查找都要多走一层链
+// 合成一层后 trace_id 直接从 meta 读，值与原来逐字相同
+//
+// 用类型断言而不是 switch key：context 的键可以是不可比较类型，
+// 对不可比较的动态类型做 == 会 panic，而断言不会
+//
+// [EN] One context node answering both keys: the meta itself and the trace id key
+// go-logger falls back to
+// This used to be two layers, which meant two allocations per request and one extra
+// link for every later ctx.Value lookup; merged, the trace id is read straight from
+// the meta and is byte-for-byte what the second layer stored
+// Type assertions rather than a switch on key: context keys may be uncomparable, and
+// == on an uncomparable dynamic type panics while an assertion does not
+type requestMetaContext struct {
+	context.Context
+	meta *RequestCommonMeta
+}
+
+func (c *requestMetaContext) Value(key any) any {
+	if _, ok := key.(requestCommonMetaKey); ok {
+		return c.meta
+	}
+	if s, ok := key.(string); ok && s == logger.ContextKeyTraceID {
+		return c.meta.TraceID
+	}
+	return c.Context.Value(key)
+}
+
 // WithRequestCommonMeta 为上下文添加请求公共元信息
+// 同时让 go-logger 的 trace_id 兜底键可读，调用方不必再单独存一次
+//
+// [EN] WithRequestCommonMeta attaches the request meta and also serves go-logger's
+// trace id fallback key, so callers need not store it separately
 func WithRequestCommonMeta(ctx context.Context, requestCommonMeta *RequestCommonMeta) context.Context {
-	return contextx.WithValue(ctx, requestCommonMetaKey{}, requestCommonMeta)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if requestCommonMeta == nil {
+		return ctx
+	}
+	return &requestMetaContext{Context: ctx, meta: requestCommonMeta}
 }
 
 // RequestContextMiddleware HTTP 层统一的请求上下文中间件
@@ -107,10 +149,9 @@ func RequestContextMiddleware() HTTPMiddleware {
 			requestCommonMeta.IPAddress = netx.GetClientIP(r)
 			requestCommonMeta.UserAgent = r.UserAgent()
 
-			// 单次 WithValue 存入 RequestCommonMeta，避免 30+ 层 context 嵌套
+			// 单层 context 同时带上 meta 与 trace_id，见 requestMetaContext
+			// [EN] A single context node carries both the meta and the trace id
 			ctx = WithRequestCommonMeta(ctx, requestCommonMeta)
-			// 同步写入 context.Value，确保 OTel 未启用时 go-logger 也能通过 fallback 提取 trace_id
-			ctx = contextx.WithValue(ctx, logger.ContextKeyTraceID, requestCommonMeta.TraceID)
 
 			// 5. 设置响应头（便于客户端追踪）
 			w.Header().Set(constants.HeaderXTraceID, requestCommonMeta.TraceID)
@@ -265,10 +306,9 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 		ForwardedHost:  firstMetadataValue(constants.MetadataForwardedHost),
 	}
 
-	// 单次 WithValue，避免 30+ 层 context 嵌套
-	ctx = WithRequestCommonMeta(ctx, meta)
-	// 同步写入 context.Value，确保 OTel 未启用时 go-logger 也能通过 fallback 提取 trace_id
-	return contextx.WithValue(ctx, logger.ContextKeyTraceID, meta.TraceID)
+	// 单层 context 同时带上 meta 与 trace_id，见 requestMetaContext
+	// [EN] A single context node carries both the meta and the trace id
+	return WithRequestCommonMeta(ctx, meta)
 }
 
 // setResponseMetadata 设置 gRPC 响应 metadata（与 HTTP 的 w.Header().Set 对应）
