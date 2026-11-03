@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
+	"github.com/kamalyes/go-toolbox/pkg/desensitize"
 	"github.com/kamalyes/go-toolbox/pkg/matcher"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"google.golang.org/grpc"
@@ -268,6 +270,41 @@ func isSkipPath(config *logging.Logging, path string) bool {
 // HTTP 日志中间件
 // ============================================================================
 
+// fallbackMasker global.DATAMASKER 为 nil 时用的兜底脱敏器
+// 只在第一次用到时建一次
+//
+// [EN] The masker used when global.DATAMASKER is nil, built once on first use
+var (
+	fallbackMaskerOnce sync.Once
+	fallbackMasker     *desensitize.DataMasker
+)
+
+// activeMasker 取可用的脱敏器，全局未初始化时退回默认配置的实例
+//
+// global.DATAMASKER 只由网关的完整初始化链赋值，而 LoggingMiddleware 是导出的、
+// 可以单独使用 改造前这里直接 masker.Mask(...)，拿到 nil 就是空指针崩溃 ——
+// 崩在日志路径上，被最外层 Recovery 兜成 500，于是每个带 body 的请求都变成 500
+// 且一行日志都没有，现场只看得到 500
+//
+// 日志不该把请求打挂，所以这里兜底而不是报错
+//
+// [EN] Returns a usable masker, falling back to a default-configured one when the
+// global is unset
+// global.DATAMASKER is only assigned by the gateway's full init chain while
+// LoggingMiddleware is exported and usable on its own; calling Mask on the nil global
+// panicked inside the logging path, which the outermost Recovery turned into a 500, so
+// every request with a body became a 500 with no log line to explain it
+// Logging must not take a request down, hence a fallback rather than an error
+func activeMasker() *desensitize.DataMasker {
+	if m := global.DATAMASKER; m != nil {
+		return m
+	}
+	fallbackMaskerOnce.Do(func() {
+		fallbackMasker = desensitize.NewMasker()
+	})
+	return fallbackMasker
+}
+
 // LoggingMiddleware HTTP 日志中间件
 func LoggingMiddleware() core.HTTPMiddleware {
 	config := getLoggingConfig()
@@ -330,7 +367,7 @@ func LoggingMiddleware() core.HTTPMiddleware {
 // logHTTPRequest 记录 HTTP 请求
 func logHTTPRequest(ctx context.Context, r *http.Request, rw *core.ResponseWriter, start time.Time, duration time.Duration, config *logging.Logging, reqBody []byte, hasAccessLog bool) {
 	logger := NewRequestLogger(ctx)
-	masker := global.DATAMASKER
+	masker := activeMasker()
 
 	fields := NewLogFields().
 		Add(constants.LogFieldMethod, r.Method).
@@ -425,7 +462,7 @@ func logGRPCUnaryCommon(ctx context.Context, component, fullMethod, serviceName 
 
 	config := getLoggingConfig()
 	logger := NewRequestLogger(ctx)
-	masker := global.DATAMASKER
+	masker := activeMasker()
 	captureReq := config.EnableRequest
 	captureResp := config.EnableResponse
 
