@@ -49,6 +49,7 @@ const (
 	HeaderAccessControlAllowCredentials = "Access-Control-Allow-Credentials"
 	HeaderAccessControlMaxAge           = "Access-Control-Max-Age"
 	HeaderOrigin                        = "Origin"
+	HeaderVary                          = "Vary"
 
 	// CSRF 相关头部
 	HeaderXCSRFToken = "X-CSRF-Token"
