@@ -305,6 +305,24 @@ func activeMasker() *desensitize.DataMasker {
 	return fallbackMasker
 }
 
+// prefixedBody 把「已读进内存的前缀」与「尚未读取的剩余」拼成一个 ReadCloser
+// Close 转交给原始 body，否则连接不会被正确释放
+//
+// 不用 io.NopCloser 包 MultiReader：那样原始 body 永远不会被 Close，
+// 对于 HTTP/1.1 的 keep-alive 连接会泄漏
+//
+// [EN] prefixedBody joins the in-memory prefix with the unread remainder as one ReadCloser
+// Close is delegated to the original body, or the connection is never released
+// Not io.NopCloser around the MultiReader: that would leave the original body unclosed,
+// leaking keep-alive connections on HTTP/1.1
+type prefixedBody struct {
+	reader io.Reader
+	closer io.Closer
+}
+
+func (b *prefixedBody) Read(p []byte) (int, error) { return b.reader.Read(p) }
+func (b *prefixedBody) Close() error               { return b.closer.Close() }
+
 // LoggingMiddleware HTTP 日志中间件
 func LoggingMiddleware() core.HTTPMiddleware {
 	config := getLoggingConfig()
@@ -333,25 +351,53 @@ func LoggingMiddleware() core.HTTPMiddleware {
 			}
 
 			// 捕获请求体：运行时日志开启 或 存在访问日志钩子 时读取，避免访问日志 body 受运行时日志开关影响而丢失
+			//
+			// 只读日志真正用得到的前 MaxBodySize 字节，剩余部分不进内存直通 handler
+			//
+			// 改造前是 io.ReadAll(r.Body) 无界读，再整段塞进 bytes.Buffer 交给 handler，
+			// 而日志侧 masker.Mask 本来就只取前 MaxBodySize 字节（默认 2048）
+			// 也就是说为了记 2 KB，一个 50 MB 的上传要分配 50 MB 捕获加 50 MB 缓冲，
+			// 其中 99.99% 立刻被丢弃 —— 这既是吞吐开销，也是一条很容易触发的内存放大
+			//
+			// io.MultiReader 把已读的前缀与未读的剩余拼回去，handler 看到的仍是完整请求体；
+			// 日志输出与改造前逐字节相同，因为 Mask 在同一个位置截断
+			//
+			// [EN] Only the first MaxBodySize bytes the log can actually use are read, and the
+			// remainder streams to the handler without entering memory
+			// This used to be an unbounded io.ReadAll plus a full bytes.Buffer copy, while
+			// masker.Mask keeps just the first MaxBodySize bytes (2048 by default): logging
+			// 2 KB of a 50 MB upload allocated 50 MB twice and discarded 99.99% of it, which
+			// is both throughput cost and an easily triggered memory amplification
+			// io.MultiReader rejoins the read prefix with the untouched remainder so the
+			// handler still sees the whole body, and the log output is byte-for-byte what it
+			// was, because Mask truncates at the same point
 			hasAccessLog := HasAccessLogHandlers()
 			needCaptureBody := reqConfig.EnableRequest || hasAccessLog
+			captureLimit := reqConfig.MaxBodySize
+			if captureLimit <= 0 {
+				captureLimit = core.DefaultBodyCaptureLimit
+			}
 			var reqBody []byte
 			if needCaptureBody && r.Body != nil {
+				original := r.Body
 				var err error
-				reqBody, err = io.ReadAll(r.Body)
+				reqBody, err = io.ReadAll(io.LimitReader(original, int64(captureLimit)))
 				if err != nil && global.LOGGER != nil {
 					global.LOGGER.ErrorContextKV(ctx, "❌ Failed to read request body",
 						"path", r.URL.Path,
 						"method", r.Method,
 						"error", err)
 				}
-				r.Body = io.NopCloser(bytes.NewBuffer(reqBody))
+				r.Body = &prefixedBody{
+					reader: io.MultiReader(bytes.NewReader(reqBody), original),
+					closer: original,
+				}
 			}
 
 			// 包装响应：运行时日志开启 或 存在访问日志钩子 时启用响应体捕获
 			wrapped := core.NewResponseWriter(w)
 			if reqConfig.EnableResponse || hasAccessLog {
-				wrapped.EnableBodyCapture()
+				wrapped.EnableBodyCaptureLimit(captureLimit)
 			}
 			defer wrapped.Release()
 
