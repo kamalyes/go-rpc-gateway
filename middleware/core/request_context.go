@@ -17,7 +17,6 @@ import (
 	"net/url"
 	"strings"
 
-	gccommon "github.com/kamalyes/go-config/pkg/common"
 	goi18n "github.com/kamalyes/go-i18n"
 	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-rpc-gateway/constants"
@@ -85,38 +84,28 @@ func RequestContextMiddleware() HTTPMiddleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			requestContext := global.GATEWAY.RequestContext
-			requestCommonMeta := &RequestCommonMeta{
-				ID:            gccommon.ExtractAttribute(r, requestContext.IDSources),
-				TraceID:       extractOrGenerateTraceID(ctx, gccommon.ExtractAttribute(r, requestContext.TraceIDSources)),
-				RequestID:     extractOrGenerateRequestID(gccommon.ExtractAttribute(r, requestContext.RequestIDSources)),
-				UserID:        gccommon.ExtractAttribute(r, requestContext.UserIDSources),
-				Domain:        gccommon.ExtractAttribute(r, requestContext.DomainSources),
-				RoleCode:      gccommon.ExtractAttribute(r, requestContext.RoleCodeSources),
-				TenantID:      gccommon.ExtractAttribute(r, requestContext.TenantIDSources),
-				TenantCode:    gccommon.ExtractAttribute(r, requestContext.TenantCodeSources),
-				SessionID:     gccommon.ExtractAttribute(r, requestContext.SessionIDSources),
-				Timezone:      gccommon.ExtractAttribute(r, requestContext.TimezoneSources),
-				Timestamp:     gccommon.ExtractAttribute(r, requestContext.TimestampSources),
-				Signature:     gccommon.ExtractAttribute(r, requestContext.SignatureSources),
-				Authorization: gccommon.ExtractAttribute(r, requestContext.AuthorizationSources),
-				Jti:           gccommon.ExtractAttribute(r, requestContext.JtiSources),
-				FamilyId:      gccommon.ExtractAttribute(r, requestContext.FamilyIdSources),
-				AccessKey:     gccommon.ExtractAttribute(r, requestContext.AccessKeySources),
-				AppID:         gccommon.ExtractAttribute(r, requestContext.AppIDSources),
-				DeviceID:      gccommon.ExtractAttribute(r, requestContext.DeviceIDSources),
-				AppVersion:    gccommon.ExtractAttribute(r, requestContext.AppVersionSources),
-				PlatformID:    gccommon.ExtractAttribute(r, requestContext.PlatformIDSources),
-				PlatformCode:  gccommon.ExtractAttribute(r, requestContext.PlatformCodeSources),
-				RegionID:      gccommon.ExtractAttribute(r, requestContext.RegionIDSources),
-				RegionCode:    gccommon.ExtractAttribute(r, requestContext.RegionCodeSources),
-				AgentLineID:   gccommon.ExtractAttribute(r, requestContext.AgentLineIDSources),
-				IPAddress:     netx.GetClientIP(r),
-				Nonce:         gccommon.ExtractAttribute(r, requestContext.NonceSources),
-				UserAgent:     r.UserAgent(),
-				PushToken:     gccommon.ExtractAttribute(r, requestContext.PushTokenSources),
-				Token:         gccommon.ExtractAttribute(r, requestContext.TokenSources),
-				ForwardedHost: gccommon.ExtractAttribute(r, requestContext.ForwardedHostSources),
-			}
+
+			// 按来源提取的 28 个属性走反转索引：只遍历请求实际带的 header，
+			// 而不是把配置里 80 个来源逐个试一遍
+			// 索引按配置建一次，热重载换了配置会自动重建，见 request_attr_index.go
+			//
+			// [EN] The 28 source-driven attributes go through the inverted index, walking
+			// only the headers the request carries instead of trying all 80 configured
+			// sources; the index is built once per config, see request_attr_index.go
+			requestCommonMeta := &RequestCommonMeta{}
+			fillFromRequest(requestAttrIndex(requestContext), r, requestCommonMeta)
+
+			// 以下几项不是「按来源清单取第一个非空」的形态，单独处理
+			// TraceID 与 RequestID 取不到时要兜底生成；IPAddress 走 netx 自己的多 header
+			// 优先级逻辑；UserAgent 直接取标准库的解析结果
+			//
+			// [EN] These are not "first non-empty from a source list" and are handled apart:
+			// TraceID and RequestID fall back to generation, IPAddress follows netx's own
+			// multi-header precedence, and UserAgent comes from the standard library
+			requestCommonMeta.TraceID = extractOrGenerateTraceID(ctx, requestCommonMeta.TraceID)
+			requestCommonMeta.RequestID = extractOrGenerateRequestID(requestCommonMeta.RequestID)
+			requestCommonMeta.IPAddress = netx.GetClientIP(r)
+			requestCommonMeta.UserAgent = r.UserAgent()
 
 			// 单次 WithValue 存入 RequestCommonMeta，避免 30+ 层 context 嵌套
 			ctx = WithRequestCommonMeta(ctx, requestCommonMeta)
