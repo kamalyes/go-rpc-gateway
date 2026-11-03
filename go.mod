@@ -11,7 +11,7 @@ require (
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/kamalyes/go-argus v0.5.1
 	github.com/kamalyes/go-config v0.25.1
-	github.com/kamalyes/go-i18n v0.3.0
+	github.com/kamalyes/go-i18n v0.3.1
 	github.com/kamalyes/go-logger v0.9.0
 	github.com/kamalyes/go-natsx v0.6.0
 	github.com/kamalyes/go-sqlbuilder v0.8.0
