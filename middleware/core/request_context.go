@@ -89,6 +89,34 @@ type requestCommonMetaKey struct{}
 type requestMetaContext struct {
 	context.Context
 	meta *RequestCommonMeta
+	// traceID 建节点时就把 trace_id 装箱好
+	//
+	// 直接在 Value 里 return c.meta.TraceID 会让每次查找都把 string 装箱进 any，
+	// 也就是每次查找一次分配 合并成一层之前 context.WithValue 是在设值时装箱一次、
+	// 查找免费，所以不预装箱的话这一层合并在 trace_id 被查一次以上时就是回归
+	// alloc profile 里这一项曾占链路前三层分配的 3.12%
+	//
+	// 取舍说清楚：预装箱在建节点时固定付一次分配，查零次时比不装箱多一次，
+	// 查一次打平，查两次及以上才划算 默认链上访问日志中间件会查它，
+	// 实测链路前三层 33 到 30 次分配，而只有前两层（不含访问日志）是 17 到 18
+	// 选预装箱是因为默认配置下访问日志是开的
+	//
+	// 不做「首次查找时装箱并缓存」：context 会跨 goroutine 共享，
+	// 惰性写字段就是数据竞争，加锁或原子的成本高于省下的那一次分配
+	//
+	// [EN] The trace id is boxed once when the node is built
+	// Returning c.meta.TraceID straight from Value boxes the string into an any on every
+	// lookup; before the merge context.WithValue boxed once at set time and lookups were
+	// free, so without pre-boxing the merge is a regression past one lookup
+	// The trade-off stated plainly: pre-boxing always costs one allocation at construction,
+	// so it loses by one at zero lookups, breaks even at one and only wins from two up
+	// The default chain's access-log middleware does read it, measured as 33 to 30
+	// allocations for the first three layers against 17 to 18 for the first two without it,
+	// and pre-boxing is chosen because the access log is on by default
+	// Boxing lazily on first lookup is rejected: a context is shared across goroutines, so
+	// writing the field lazily is a data race, and a lock or atomic costs more than the
+	// single allocation it would save
+	traceID any
 }
 
 func (c *requestMetaContext) Value(key any) any {
@@ -96,7 +124,7 @@ func (c *requestMetaContext) Value(key any) any {
 		return c.meta
 	}
 	if s, ok := key.(string); ok && s == logger.ContextKeyTraceID {
-		return c.meta.TraceID
+		return c.traceID
 	}
 	return c.Context.Value(key)
 }
@@ -113,7 +141,11 @@ func WithRequestCommonMeta(ctx context.Context, requestCommonMeta *RequestCommon
 	if requestCommonMeta == nil {
 		return ctx
 	}
-	return &requestMetaContext{Context: ctx, meta: requestCommonMeta}
+	return &requestMetaContext{
+		Context: ctx,
+		meta:    requestCommonMeta,
+		traceID: requestCommonMeta.TraceID,
+	}
 }
 
 // RequestContextMiddleware HTTP 层统一的请求上下文中间件
