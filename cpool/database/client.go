@@ -75,7 +75,23 @@ func Gorm(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gor
 		if log != nil {
 			log.ErrorContextKV(ctx, fmt.Sprintf("%s database connection failed", c.Type), "err", err)
 		}
-		os.Exit(1)
+		// 同时写一遍 stderr，并且返回 nil 而不是 os.Exit(1)
+		//
+		// 两个问题：其一，库里调 os.Exit 是替应用做决定——调用方连「降级运行」
+		// 还是「换个库重试」都没机会选；其二更要命，上面那行日志经 logger 异步
+		// 写出，os.Exit 不触发 flush，于是错误**一个字都看不到**：
+		// 进程退出码 1、零输出，看起来像编译失败或环境问题，而真实原因（密码错、库不存在、端口不通）就躺在那条没写出去的日志里
+		//
+		// 返回 nil 后由调用链决定：cpool.initDatabase 只 Warn 不报错，
+		// 业务 bootstrap 再以「database not initialized」失败——配上这里的 stderr 一行，就既有结论也有原因
+		//
+		// [EN] Also written straight to stderr, and nil is returned instead of calling
+		// os.Exit(1). Two problems: a library calling os.Exit takes the decision away from the
+		// application, which never gets to choose between degrading and retrying; and worse,
+		// the log line above goes through an async logger that os.Exit does not flush, so the
+		// error is entirely invisible — exit code 1 with no output, looking like a build or
+		// environment failure while the real cause sits in the log that was never written.
+		fmt.Fprintf(os.Stderr, "[go-rpc-gateway] database connection failed (type=%s): %v\n", c.Type, err)
 		return nil
 	}
 
@@ -85,14 +101,47 @@ func Gorm(ctx context.Context, cfg *gwconfig.Gateway, log gologger.ILogger) *gor
 		if log != nil {
 			log.ErrorContextKV(ctx, fmt.Sprintf("%s database handle failed", c.Type), "err", err)
 		}
-		os.Exit(1)
+		// 同时写一遍 stderr，并且返回 nil 而不是 os.Exit(1)
+		//
+		// 两个问题：其一，库里调 os.Exit 是替应用做决定——调用方连「降级运行」
+		// 还是「换个库重试」都没机会选；其二更要命，上面那行日志经 logger 异步
+		// 写出，os.Exit 不触发 flush，于是错误**一个字都看不到**：
+		// 进程退出码 1、零输出，看起来像编译失败或环境问题，而真实原因（密码错、库不存在、端口不通）就躺在那条没写出去的日志里
+		//
+		// 返回 nil 后由调用链决定：cpool.initDatabase 只 Warn 不报错，
+		// 业务 bootstrap 再以「database not initialized」失败——配上这里的
+		// stderr 一行，就既有结论也有原因
+		//
+		// [EN] Also written straight to stderr, and nil is returned instead of calling
+		// os.Exit(1). Two problems: a library calling os.Exit takes the decision away from the
+		// application, which never gets to choose between degrading and retrying; and worse,
+		// the log line above goes through an async logger that os.Exit does not flush, so the
+		// error is entirely invisible — exit code 1 with no output, looking like a build or
+		// environment failure while the real cause sits in the log that was never written
+		fmt.Fprintf(os.Stderr, "[go-rpc-gateway] database handle failed (type=%s): %v\n", c.Type, err)
 		return nil
 	}
 	if err := sqlDB.PingContext(ctx); err != nil {
 		if log != nil {
 			log.ErrorContextKV(ctx, fmt.Sprintf("%s database ping failed", c.Type), "err", err)
 		}
-		os.Exit(1)
+		// 同时写一遍 stderr，并且返回 nil 而不是 os.Exit(1)
+		//
+		// 两个问题：其一，库里调 os.Exit 是替应用做决定——调用方连「降级运行」
+		// 还是「换个库重试」都没机会选；其二更要命，上面那行日志经 logger 异步
+		// 写出，os.Exit 不触发 flush，于是错误**一个字都看不到**：
+		// 进程退出码 1、零输出，看起来像编译失败或环境问题，而真实原因（密码错、库不存在、端口不通）就躺在那条没写出去的日志里
+		//
+		// 返回 nil 后由调用链决定：cpool.initDatabase 只 Warn 不报错，
+		// 业务 bootstrap 再以「database not initialized」失败——配上这里的 stderr 一行，就既有结论也有原因
+		//
+		// [EN] Also written straight to stderr, and nil is returned instead of calling
+		// os.Exit(1). Two problems: a library calling os.Exit takes the decision away from the
+		// application, which never gets to choose between degrading and retrying; and worse,
+		// the log line above goes through an async logger that os.Exit does not flush, so the
+		// error is entirely invisible — exit code 1 with no output, looking like a build or
+		// environment failure while the real cause sits in the log that was never written.
+		fmt.Fprintf(os.Stderr, "[go-rpc-gateway] database ping failed (type=%s): %v\n", c.Type, err)
 		return nil
 	}
 

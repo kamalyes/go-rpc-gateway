@@ -300,6 +300,24 @@ func (i *PoolManagerInitializer) Initialize(ctx context.Context, cfg *gwconfig.G
 	// 创建连接池管理器（按配置初始化 数据库 / Redis / Snowflake 等）
 	POOL_MANAGER = cpool.NewManager(LOGGER)
 
+	// NewManager 只是构造结构体，真正按配置建连接的是 Initialize——漏了这一步，
+	// 下面的 GetDB()/GetRedis() 取到的永远是 nil，而且不会有任何报错：
+	// 启动一路成功，直到业务代码拿 global.DB 时才炸成「database not initialized」，
+	// 看起来像是配置写错了，实际上配置是对的
+	//
+	// initDatabase/initRedis 在拿不到连接时只 Warn 不返回错误，所以对那些
+	// 本来就不连库的服务（纯转发网关、无状态服务），这一步也不会把它们弄崩
+	//
+	// [EN] NewManager only builds the struct; Initialize is what opens the connections from
+	// config. Without it GetDB and GetRedis return nil forever and nothing reports it: startup
+	// succeeds and the failure surfaces later as "database not initialized" where business code
+	// reaches for global.DB, looking like a configuration mistake when the configuration is
+	// correct. initDatabase and initRedis only warn when a connection cannot be made, so this
+	// does not break services that legitimately run without a database.
+	if err := POOL_MANAGER.Initialize(ctx, cfg); err != nil {
+		return fmt.Errorf("连接池初始化失败 | pool manager initialization failed: %w", err)
+	}
+
 	// 将 Manager 的资源绑定到全局便捷引用变量
 	DB = POOL_MANAGER.GetDB()
 	REDIS = POOL_MANAGER.GetRedis()
