@@ -4,7 +4,7 @@
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-12-13 11:33:50
  * @FilePath: \go-rpc-gateway\config\smtp\smtp.go
- * @Description: 邮箱配置模块
+ * @Description: 邮箱配置（单 DSN 方案）
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
  */
@@ -12,23 +12,64 @@
 package smtp
 
 import (
+	"fmt"
+	"net/url"
+
 	"github.com/kamalyes/go-rpc-gateway/config/internal"
 	"github.com/kamalyes/go-toolbox/pkg/syncx"
 )
 
-// Smtp 邮箱配置
+// Smtp 邮箱配置（单 DSN）
+//
+// 服务器地址、端口、认证、传输加密方式全部写在 DSN 一个字段里；
+// 保留的字段只有发件人、收件人、自定义头部——那是邮件内容的事，不属于连接参数
+//
+// ─── DSN 格式 ───────────────────────────────────────────────────────────────
+//
+//	smtp://[用户名:密码@]主机:端口[?参数=值&...]    明文投递，服务端支持时自动升级 STARTTLS
+//	smtps://[用户名:密码@]主机:端口[?参数=值&...]   连上即 TLS（隐式 TLS，端口通常 465）
+//
+// 用户名多数情况下就是邮箱地址，其中的 @ 必须转义成 %40，否则会被当成 userinfo
+// 与 host 的分隔符，解析出来的主机就错了
+//
+// ─── DSN 示例 ───────────────────────────────────────────────────────────────
+//
+//	标准 587 端口，提交邮件并自动 STARTTLS 升级：
+//	  smtp://noreply%40example.com:app_password@smtp.example.com:587
+//
+//	465 端口隐式 TLS：
+//	  smtps://noreply%40example.com:app_password@smtp.example.com:465
+//
+//	强制走 STARTTLS，且跳过自签证书校验（内网自建邮件服务器）：
+//	  smtp://noreply%40corp.lan:pwd@mail.corp.lan:587?starttls=true&skip_verify=true
+//
+//	本地 25 端口中继，无需认证：
+//	  smtp://127.0.0.1:25
+//
+//	Gmail 应用专用密码：
+//	  smtp://someone%40gmail.com:abcd_efgh_ijkl_mnop@smtp.gmail.com:587
+//
+// ─── 查询参数 ───────────────────────────────────────────────────────────────
+//
+//	starttls     强制使用 STARTTLS 并由网关提供 TLS 配置（仅 smtp:// 有意义）。
+//	             不加这项时 smtp:// 走 net/smtp 的默认行为：服务端声明支持 STARTTLS
+//	             就自动升级，不支持就明文投递——但那条路径不接受自定义 TLS 配置，
+//	             也就用不上 skip_verify
+//	skip_verify  跳过 TLS 证书校验，需与 smtps:// 或 starttls=true 同时使用
+//
+// [EN] SMTP config, collapsed to a single DSN: host, port, credentials and transport
+// encryption all live in DSN, and the only remaining fields describe the message rather
+// than the connection. A username is usually an email address, whose @ must be written as
+// %40 or it is read as the userinfo separator and the parsed host comes out wrong. Note
+// that plain smtp:// without starttls=true uses net/smtp's own opportunistic upgrade, which
+// accepts no custom TLS config and therefore ignores skip_verify
 type Smtp struct {
 	ModuleName  string            `mapstructure:"module-name" yaml:"module-name" json:"moduleName"`    // 模块名称
 	Enabled     bool              `mapstructure:"enabled" yaml:"enabled" json:"enabled"`               // 是否启用
-	SMTPHost    string            `mapstructure:"smtp-host" yaml:"smtp-host" json:"smtpHost"`          // SMTP主机
-	SMTPPort    int               `mapstructure:"smtp-port" yaml:"smtp-port" json:"smtpPort"`          // SMTP端口
-	Username    string            `mapstructure:"username" yaml:"username" json:"username"`            // 用户名
-	Password    string            `mapstructure:"password" yaml:"password" json:"password"`            // 密码
-	FromAddress string            `mapstructure:"from-address" yaml:"from-address" json:"fromAddress"` // 发件人地址
-	ToAddresses []string          `mapstructure:"to-addresses" yaml:"to-addresses" json:"toAddresses"` // 收件人地址列表
-	EnableTLS   bool              `mapstructure:"enable-tls" yaml:"enable-tls" json:"enableTls"`       // 是否启用TLS
-	Headers     map[string]string `mapstructure:"headers" yaml:"headers" json:"headers"`               // 自定义头部
-	PoolSize    int               `mapstructure:"pool-size" yaml:"pool-size" json:"poolSize"`          // 连接池大小
+	DSN         string            `mapstructure:"dsn" yaml:"dsn" json:"dsn"`                           // 连接 DSN，格式与示例见类型注释
+	FromAddress string            `mapstructure:"from-address" yaml:"from-address" json:"fromAddress"` // 发件人地址，留空时取 DSN 里的用户名
+	ToAddresses []string          `mapstructure:"to-addresses" yaml:"to-addresses" json:"toAddresses"` // 默认收件人地址列表
+	Headers     map[string]string `mapstructure:"headers" yaml:"headers" json:"headers"`               // 自定义头部，附加到每封邮件上
 }
 
 // Default 创建默认邮箱配置
@@ -36,15 +77,10 @@ func Default() *Smtp {
 	return &Smtp{
 		ModuleName:  "smtp",
 		Enabled:     false,
-		SMTPHost:    "127.0.0.1",
-		SMTPPort:    587,
-		Username:    "smtp_user",
-		Password:    "smtp_password",
+		DSN:         "smtp://smtp_user:smtp_password@127.0.0.1:587",
 		FromAddress: "noreply@example.com",
 		ToAddresses: []string{"admin@example.com"},
-		EnableTLS:   false,
 		Headers:     make(map[string]string),
-		PoolSize:    5,
 	}
 }
 
@@ -71,7 +107,31 @@ func (e *Smtp) Clone() internal.Configurable {
 }
 
 // Validate 验证配置
+//
+// 未启用时不校验 DSN：Enabled=false 的模块允许留空配置
+//
+// [EN] Validate skips the DSN when the module is disabled, since a disabled module is
+// allowed to carry no configuration at all
 func (e *Smtp) Validate() error {
+	if !e.Enabled {
+		return nil
+	}
+
+	if e.DSN == "" {
+		return fmt.Errorf("smtp dsn is empty")
+	}
+
+	u, err := url.Parse(e.DSN)
+	if err != nil {
+		return fmt.Errorf("smtp dsn is invalid: %w", err)
+	}
+	if u.Scheme != "smtp" && u.Scheme != "smtps" {
+		return fmt.Errorf("smtp dsn scheme must be smtp or smtps, got %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("smtp dsn has no host: %s", e.DSN)
+	}
+
 	return internal.ValidateStruct(e)
 }
 
@@ -87,27 +147,9 @@ func (e *Smtp) WithEnabled(enabled bool) *Smtp {
 	return e
 }
 
-// WithSMTPHost 设置SMTP主机
-func (e *Smtp) WithSMTPHost(host string) *Smtp {
-	e.SMTPHost = host
-	return e
-}
-
-// WithSMTPPort 设置SMTP端口
-func (e *Smtp) WithSMTPPort(port int) *Smtp {
-	e.SMTPPort = port
-	return e
-}
-
-// WithUsername 设置用户名
-func (e *Smtp) WithUsername(username string) *Smtp {
-	e.Username = username
-	return e
-}
-
-// WithPassword 设置密码
-func (e *Smtp) WithPassword(password string) *Smtp {
-	e.Password = password
+// WithDSN 设置连接 DSN，格式与示例见 Smtp 类型注释
+func (e *Smtp) WithDSN(dsn string) *Smtp {
+	e.DSN = dsn
 	return e
 }
 
@@ -117,27 +159,9 @@ func (e *Smtp) WithFromAddress(address string) *Smtp {
 	return e
 }
 
-// WithPoolSize 设置连接池大小
-func (e *Smtp) WithPoolSize(size int) *Smtp {
-	e.PoolSize = size
-	return e
-}
-
 // AddToAddress 添加收件人地址
 func (e *Smtp) AddToAddress(address string) *Smtp {
 	e.ToAddresses = append(e.ToAddresses, address)
-	return e
-}
-
-// EnableTLSService 启用TLS
-func (e *Smtp) EnableTLSService() *Smtp {
-	e.EnableTLS = true
-	return e
-}
-
-// DisableTLS 禁用TLS
-func (e *Smtp) DisableTLS() *Smtp {
-	e.EnableTLS = false
 	return e
 }
 
