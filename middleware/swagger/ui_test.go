@@ -77,6 +77,58 @@ func TestGenerateScopedSwaggerUIStylesDescriptionMarkdown(t *testing.T) {
 	}
 }
 
+// TestGenerateScopedSwaggerUIWiresModelJump 类型链接需要配套的样式与跳转脚本
+//
+// 光有 <a href="#model-Xxx"> 不够：Models 区块折叠时 Swagger UI 把子树整段移出 DOM，
+// 原生锚点无处可跳；区块展开了单条定义也还是折叠的，跳过去只看到一行标题
+func TestGenerateScopedSwaggerUIWiresModelJump(t *testing.T) {
+	m := &Middleware{config: goswagger.Default()}
+
+	html := m.generateScopedSwaggerUI("t", "h", "d", "/spec.json", nil)
+
+	for _, want := range []string{
+		// 样式只能挂在 href 前缀上：class 和 style 会被 DOMPurify 摘掉
+		`.swagger-ui .markdown a[href^="#model-"],`,
+		`.swagger-ui .renderedMarkdown a[href^="#model-"]`,
+		// 落点高亮要压过官方的 .swagger-ui .model-container:hover
+		".swagger-ui section.models .model-container.model-jump-target",
+		"#swagger-model-jump-back",
+		// 跳转脚本：展开区块（5.x 的 button + 老版本的 h4）、展开这一条、滚过去
+		"button.models-control",
+		"button.model-box-control",
+		"scrollIntoView",
+		// 目标节点等 React 提交后才挂上，靠盯 DOM 变化而不是数帧
+		"new MutationObserver(",
+		"observer.disconnect()",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("页面缺少 %q", want)
+		}
+	}
+	if strings.Contains(html, "%!") {
+		t.Errorf("页面含 fmt 转换错误标记:\n%s", html)
+	}
+}
+
+// TestModelJumpScriptMatchesAnchorPrefix 脚本按 href 前缀认链接，必须和 Go 侧生成的锚点对得上
+//
+// 两边各写一份字面量，改了一边忘了另一边，链接就会点不动而且没有任何报错
+//
+// [EN] The prefix is spelled out on both sides; changing one and forgetting the other leaves the
+// links silently inert, with nothing to report it.
+func TestModelJumpScriptMatchesAnchorPrefix(t *testing.T) {
+	if !strings.Contains(modelJumpScript, "'#"+modelAnchorPrefix+"'") {
+		t.Errorf("跳转脚本的 href 前缀与 modelAnchorPrefix(%q) 不一致:\n%s", modelAnchorPrefix, modelJumpScript)
+	}
+	if want := `href="#` + modelAnchorPrefix + `X"`; !strings.Contains(modelLink("X"), want) {
+		t.Errorf("modelLink 未使用锚点前缀 %q: %s", want, modelLink("X"))
+	}
+	// 高亮 class 两边也各写一份
+	if !strings.Contains(modelJumpScript, "'model-jump-target'") || !strings.Contains(modelJumpCSS, ".model-jump-target") {
+		t.Error("高亮 class 在脚本与样式表里不一致")
+	}
+}
+
 // TestDescriptionCSSCoversBothMarkdownClasses 每条规则都必须同时覆盖两套 class
 //
 // 回归点：只写 .renderedMarkdown 时，Swagger 2.0 的规范一条规则都不生效——表格没边框、

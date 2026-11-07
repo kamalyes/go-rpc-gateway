@@ -152,6 +152,33 @@ const descriptionMarkdownCSS = `
             white-space: pre;
         }
 
+        /* 类型列里的定义名是指向 Models 区块的锚点，得让人看出来能点
+         *
+         * 为什么挂在 href 前缀上而不是 class：描述过了一遍 DOMPurify，默认配置的
+         * FORBID_ATTR 里有 class 和 style，标签上写什么都会被摘掉，只有 href 留得下来
+         *
+         * [EN] The definition names in the type column are anchors into the Models section and
+         * have to read as clickable. The hook is the href prefix rather than a class because
+         * descriptions pass through DOMPurify, whose default FORBID_ATTR covers class and style:
+         * anything written on the tag is stripped and only the href survives. */
+        .swagger-ui .markdown a[href^="#model-"],
+        .swagger-ui .renderedMarkdown a[href^="#model-"] {
+            font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+            font-size: 12px;
+            font-weight: 500;
+            color: #3b7bbf;
+            text-decoration: none;
+            border-bottom: 1px dashed #9cc2ea;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .swagger-ui .markdown a[href^="#model-"]:hover,
+        .swagger-ui .renderedMarkdown a[href^="#model-"]:hover {
+            color: #1f5c99;
+            border-bottom-style: solid;
+            background: #eef5fd;
+        }
+
         .swagger-ui .markdown ul,
         .swagger-ui .markdown ol,
         .swagger-ui .renderedMarkdown ul,
@@ -180,6 +207,187 @@ const descriptionMarkdownCSS = `
             font-size: 14px;
             color: #3b4151;
         }
+`
+
+// modelJumpCSS 类型链接跳过去之后的落点高亮与返回按钮样式
+//
+// 这两条作用在 Swagger UI 自己的 DOM 上（section.models 下的 .model-container）而不是描述区的
+// Markdown，所以跟 descriptionMarkdownCSS 分开放；选择器写到 section.models 这一层是为了压过
+// 官方的 `.swagger-ui .model-container:hover`，少一层就在 hover 时被盖掉
+//
+// [EN] These two target Swagger UI's own DOM — the .model-container elements under
+// section.models — rather than the description markdown, so they live apart from
+// descriptionMarkdownCSS. The selector reaches down to section.models to outrank the stock
+// `.swagger-ui .model-container:hover`; one level shallower and hovering takes it back.
+const modelJumpCSS = `
+        .swagger-ui section.models .model-container.model-jump-target {
+            background: #eef5fd;
+            box-shadow: 0 0 0 2px #4990e2;
+            border-radius: 4px;
+        }
+        #swagger-model-jump-back {
+            display: none;
+            position: fixed;
+            right: 24px;
+            bottom: 28px;
+            z-index: 9999;
+            padding: 9px 16px;
+            border: 1px solid #3b7bbf;
+            border-radius: 20px;
+            background: #4990e2;
+            color: #fff;
+            font-size: 13px;
+            line-height: 1.4;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+        }
+        #swagger-model-jump-back:hover {
+            background: #3b7bbf;
+        }
+`
+
+// modelJumpScript 类型链接的跳转行为：展开 Models 区块与目标定义、滚过去、高亮落点，并留一个返回按钮
+//
+// 为什么不能只靠原生锚点：Models 区块折叠时，Swagger UI 的 Collapse 不是把子树藏起来而是整段
+// 移出 DOM（渲染成 <noscript/>），#model-Xxx 这时根本不存在，浏览器无处可跳；就算区块是展开的，
+// 单条定义默认仍是折叠的，跳过去只看到一行标题，字段一个都没有
+//
+// 为什么用事件委托：描述里的链接由 React 随 operation 的展开/收起反复创建销毁，
+// 逐个 addEventListener 只能绑到当下已渲染的那些，后面展开的接口全漏掉
+//
+// 为什么按 href 前缀识别：描述过 DOMPurify 时 class 和 data-* 都会被摘掉（FORBID_ATTR
+// 含 class/style，ALLOW_DATA_ATTR 默认关），href 是唯一能从 Go 那边带过来的标记
+//
+// [EN] A plain anchor is not enough. When the Models section is collapsed, Swagger UI's Collapse
+// does not hide the subtree, it drops it from the DOM entirely (rendering <noscript/>), so
+// #model-Xxx does not exist and the browser has nowhere to jump. Even with the section open each
+// definition is still collapsed, so the jump lands on a bare title row with no fields in sight.
+//
+// The listener is delegated because React creates and destroys these links as operations expand
+// and collapse: binding them one by one would only ever cover the ones rendered at that moment.
+//
+// Recognition goes by href prefix because DOMPurify strips class and data-* attributes from
+// descriptions (FORBID_ATTR covers class and style, ALLOW_DATA_ATTR is off by default). The href
+// is the only marker that survives the trip from the Go side.
+const modelJumpScript = `
+    (function () {
+        var HREF_PREFIX = '#model-';
+        var HIGHLIGHT_CLASS = 'model-jump-target';
+        var BACK_BUTTON_ID = 'swagger-model-jump-back';
+        var HIGHLIGHT_MS = 1800;
+        var MOUNT_WAIT_MS = 3000;
+        var backTo = null;
+
+        function openModelsSection(section) {
+            if (section.classList.contains('is-open')) {
+                return;
+            }
+            // 5.x 的标题是 <h4><button class="models-control">，老版本是 <h4 onClick>
+            var toggle = section.querySelector('button.models-control') || section.querySelector('h4');
+            if (toggle) {
+                toggle.click();
+            }
+        }
+
+        function expandModel(container) {
+            // 第一个 model-box-control 就是这一条自己的，嵌套字段的开关排在它后面
+            // 展开态下 ModelCollapse 带着 hideSelfOnExpand，这个按钮会被整个摘掉，
+            // 所以「查不到按钮」本身就说明它已经展开了，不必再点
+            var control = container.querySelector('button.model-box-control');
+            if (control && control.getAttribute('aria-expanded') !== 'true') {
+                control.click();
+            }
+        }
+
+        function highlight(container) {
+            container.classList.add(HIGHLIGHT_CLASS);
+            window.setTimeout(function () {
+                container.classList.remove(HIGHLIGHT_CLASS);
+            }, HIGHLIGHT_MS);
+        }
+
+        function backButton() {
+            var button = document.getElementById(BACK_BUTTON_ID);
+            if (button) {
+                return button;
+            }
+            button = document.createElement('button');
+            button.id = BACK_BUTTON_ID;
+            button.type = 'button';
+            button.textContent = '返回接口';
+            button.addEventListener('click', function () {
+                button.style.display = 'none';
+                if (backTo !== null) {
+                    window.scrollTo({ top: backTo, behavior: 'smooth' });
+                }
+            });
+            document.body.appendChild(button);
+            return button;
+        }
+
+        // 等目标定义真正挂到 DOM 上
+        //
+        // 不能数帧重试：Models 区块刚展开时这个节点还不存在，而 React 18 的提交由它自己的
+        // 调度器安排，跟 requestAnimationFrame 不对齐——帧预算有可能在 React 提交之前就花完，
+        // 于是跳转静悄悄地什么也不做改成盯 DOM 变化，节点什么时候出现就什么时候接着走
+        //
+        // [EN] A frame-count retry does not work here: the node does not exist yet when the
+        // Models section has only just been expanded, and React 18 commits on its own scheduler,
+        // which is not aligned with requestAnimationFrame — the frame budget can run out before
+        // React commits, leaving the jump to do nothing at all and say nothing about it. Watching
+        // for DOM changes instead picks the node up whenever it actually arrives.
+        function whenModelMounted(name, done) {
+            var id = HREF_PREFIX.slice(1) + name;
+            var mounted = document.getElementById(id);
+            if (mounted) {
+                done(mounted);
+                return;
+            }
+            var timer = null;
+            var observer = new MutationObserver(function () {
+                var node = document.getElementById(id);
+                if (!node) {
+                    return;
+                }
+                observer.disconnect();
+                window.clearTimeout(timer);
+                done(node);
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+            timer = window.setTimeout(function () {
+                observer.disconnect();
+            }, MOUNT_WAIT_MS);
+        }
+
+        function revealModel(container) {
+            expandModel(container);
+            container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            highlight(container);
+            backButton().style.display = 'block';
+        }
+
+        document.addEventListener('click', function (event) {
+            var target = event.target;
+            var link = target && target.closest ? target.closest('a[href]') : null;
+            if (!link) {
+                return;
+            }
+            var href = link.getAttribute('href') || '';
+            if (href.lastIndexOf(HREF_PREFIX, 0) !== 0) {
+                return;
+            }
+            var name = href.slice(HREF_PREFIX.length);
+            var section = document.querySelector('section.models');
+            // 规范没有 definitions 时整个 Models 区块都不渲染，这时不接手，交回浏览器按原生锚点处理
+            if (!name || !section) {
+                return;
+            }
+            event.preventDefault();
+            backTo = window.pageYOffset;
+            openModelsSection(section);
+            whenModelMounted(name, revealModel);
+        });
+    }());
 `
 
 // generateRootSwaggerUI 生成根 Swagger UI 页面
@@ -254,6 +462,7 @@ func (m *Middleware) generateScopedSwaggerUI(title, heading, description, specUR
         }
 
 %s
+%s
     </style>
 </head>
 <body>
@@ -282,8 +491,9 @@ func (m *Middleware) generateScopedSwaggerUI(title, heading, description, specUR
         });
     };
     </script>
+    <script>%s</script>
 </body>
-</html>`, title, descriptionMarkdownCSS, heading, description, linksHTML.String(), specURL)
+</html>`, title, descriptionMarkdownCSS, modelJumpCSS, heading, description, linksHTML.String(), specURL, modelJumpScript)
 }
 
 // commonSwaggerUIActions 返回聚合模式下的通用导航链接

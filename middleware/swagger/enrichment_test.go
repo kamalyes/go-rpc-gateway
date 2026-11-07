@@ -350,8 +350,8 @@ func TestEnrichResolvesRefBody(t *testing.T) {
 		"格式 <code>^[a-z]+(_[a-z]+)*$</code>",
 		// 枚举字段展开到底层类型并带出可选值
 		"可选值：<code>ENTITLEMENT_GROUP_UNSPECIFIED</code>",
-		// 对象引用显示定义名，方便去 Models 里找
-		"<code>SaveMeta</code>",
+		// 对象引用渲染成可点的 Models 锚点
+		`<a href="#model-SaveMeta">SaveMeta</a>`,
 	} {
 		if !strings.Contains(description, want) {
 			t.Errorf("body 字段表缺少 %q:\n%s", want, description)
@@ -391,6 +391,129 @@ func TestMarkdownCodeKeepsPipesIntact(t *testing.T) {
 	}
 	if want := "<code>^(a&#124;b)$</code>"; got != want {
 		t.Errorf("markdownCode = %s, want %s", got, want)
+	}
+}
+
+// newStructRefSpec 构建一份把结构体引用用全的规范：对象引用、对象数组、protobuf map、
+// 枚举引用、悬空引用各一个字段，用来固定类型列的渲染方式
+//
+// [EN] A spec that exercises every shape of struct reference — a plain object ref, an array of
+// objects, a protobuf map, an enum ref and a dangling ref — one field each, to pin down how the
+// type column renders them.
+func newStructRefSpec(t *testing.T) map[string]interface{} {
+	t.Helper()
+
+	raw := `{
+  "swagger": "2.0",
+  "paths": {
+    "/v1/items": {
+      "post": {
+        "summary": "保存条目",
+        "x-integration-owner": "kamalyes",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {"$ref": "#/definitions/SaveItemBody"}
+          }
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "SaveItemBody": {
+      "type": "object",
+      "properties": {
+        "detail": {"$ref": "#/definitions/ItemDetail", "title": "明细"},
+        "tags": {"type": "array", "items": {"$ref": "#/definitions/ItemTag"}, "title": "标签"},
+        "labels": {"type": "object", "additionalProperties": {"$ref": "#/definitions/commonLocalizedText"}, "title": "多语言名称"},
+        "extra": {"type": "object", "additionalProperties": true, "title": "自由扩展"},
+        "status": {"$ref": "#/definitions/enumsItemStatus", "title": "状态"},
+        "missing": {"$ref": "#/definitions/NotDeclared", "title": "引用了不存在的定义"},
+        "names": {"type": "array", "items": {"type": "string"}, "title": "名称"}
+      }
+    },
+    "ItemDetail": {"type": "object", "properties": {"remark": {"type": "string"}}},
+    "ItemTag": {"type": "object", "properties": {"key": {"type": "string"}}},
+    "commonLocalizedText": {"type": "object", "properties": {"zh": {"type": "string"}}},
+    "enumsItemStatus": {"type": "string", "enum": ["ITEM_STATUS_ON", "ITEM_STATUS_OFF"]}
+  }
+}`
+
+	var spec map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
+		t.Fatalf("解析测试规范失败: %v", err)
+	}
+	return spec
+}
+
+// TestEnrichLinksStructTypesToModels 结构体类型渲染成指向 Models 区块的锚点
+//
+// 回归点：对象引用过去只渲染成 <code>SaveMeta</code>，想看它有哪些字段只能自己滚到页面底部的
+// Models 区块里按名字翻；对象数组与 protobuf 的 map 字段更是连定义名都看不到，一律显示成
+// array 或 object
+//
+// [EN] Regression: an object reference used to render as <code>SaveMeta</code>, so seeing its
+// fields meant scrolling to the Models section at the foot of the page and hunting for the name.
+// Arrays of objects and protobuf map fields did not even show the definition name — they came
+// out as a bare "array" or "object".
+func TestEnrichLinksStructTypesToModels(t *testing.T) {
+	spec := newStructRefSpec(t)
+	enrichSpecForUI(spec)
+
+	paths, _ := spec[constants.FieldPaths].(map[string]interface{})
+	pathItem, _ := paths["/v1/items"].(map[string]interface{})
+	op, _ := pathItem["post"].(map[string]interface{})
+	description := mustString(op[constants.FieldDescription])
+
+	for _, want := range []string{
+		// body 自己的定义名也可点；链接写在 ** ** 之内，色条规则才还命中
+		"**body " + `<a href="#model-SaveItemBody">SaveItemBody</a>` + "**（必填）",
+		// 对象引用
+		`| <code>detail</code> | <a href="#model-ItemDetail">ItemDetail</a> |`,
+		// 对象数组：链接嵌在尖括号里，尖括号仍是实体
+		`array&lt;<a href="#model-ItemTag">ItemTag</a>&gt;`,
+		// protobuf map：值类型是结构体时同样给入口
+		`map&lt;string, <a href="#model-commonLocalizedText">commonLocalizedText</a>&gt;`,
+		// 枚举引用展开到底层类型，不给链接（可选值已单独列出）
+		"| <code>status</code> | string | 否 |",
+		"可选值：<code>ITEM_STATUS_ON</code>",
+		// additionalProperties: true 不是 map<>，照常显示 object
+		"| <code>extra</code> | object | 否 |",
+		// 悬空引用在 definitions 里找不到落点，不能生成死链接
+		"| <code>missing</code> | object | 否 |",
+		// 标量数组不受影响
+		"array&lt;string&gt;",
+	} {
+		if !strings.Contains(description, want) {
+			t.Errorf("body 字段表缺少 %q:\n%s", want, description)
+		}
+	}
+
+	if strings.Contains(description, `#model-NotDeclared`) {
+		t.Errorf("悬空引用生成了死链接:\n%s", description)
+	}
+	// 链接不再套 <code>：它要嵌进 array<>、map<> 里，叠一层代码块底色会让一格类型压三层背景
+	if strings.Contains(description, "<code><a") || strings.Contains(description, "</a></code>") {
+		t.Errorf("类型链接被 <code> 包裹:\n%s", description)
+	}
+}
+
+// TestModelLinkEscapesName 定义名直接进 href，引号与竖线都不能原样留下
+//
+// 规范可以来自远端服务：引号不实体化会把 href 属性提前闭合，竖线不实体化会把表格切开
+//
+// [EN] Specs can come from a remote service: an unescaped quote would close the href attribute
+// early, and an unescaped pipe would split the table cell.
+func TestModelLinkEscapesName(t *testing.T) {
+	if got, want := modelLink("SaveMeta"), `<a href="#model-SaveMeta">SaveMeta</a>`; got != want {
+		t.Errorf("modelLink = %s, want %s", got, want)
+	}
+
+	got := modelLink(`a"|b`)
+	if want := `<a href="#model-a&quot;&#124;b">a"&#124;b</a>`; got != want {
+		t.Errorf("modelLink = %s, want %s", got, want)
 	}
 }
 
