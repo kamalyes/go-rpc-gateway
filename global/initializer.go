@@ -19,9 +19,9 @@ import (
 	"time"
 
 	"github.com/bwmarrin/snowflake"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-logger"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/osx"
 )
@@ -297,20 +297,12 @@ func (i *PoolManagerInitializer) Initialize(ctx context.Context, cfg *gwconfig.G
 		return fmt.Errorf("LOGGER 未初始化")
 	}
 
-	// 创建连接池管理器
-	manager := cpool.NewManager(LOGGER)
-
-	// 初始化 Manager（这会初始化所有连接池）
-	if err := manager.Initialize(ctx, cfg); err != nil {
-		return fmt.Errorf("初始化 Pool Manager 失败: %w", err)
-	}
-
-	POOL_MANAGER = manager
+	// 创建连接池管理器（按配置初始化 数据库 / Redis / Snowflake 等）
+	POOL_MANAGER = cpool.NewManager(LOGGER)
 
 	// 将 Manager 的资源绑定到全局便捷引用变量
-	// ClickHouse 和 NATS 不再存储为独立全局变量，通过 GetClickHouse()/GetNats() 从 PoolManager 获取
-	DB = manager.GetDB()
-	REDIS = manager.GetRedis()
+	DB = POOL_MANAGER.GetDB()
+	REDIS = POOL_MANAGER.GetRedis()
 
 	return nil
 }

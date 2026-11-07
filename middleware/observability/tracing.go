@@ -64,21 +64,17 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/kamalyes/go-config/pkg/tracing"
-	"github.com/kamalyes/go-logger"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/exporters/zipkin"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -89,13 +85,13 @@ import (
 
 // TracingManager 链路追踪管理器
 type TracingManager struct {
-	config   *tracing.Tracing
+	config   *gcmiddleware.Tracing
 	tracer   oteltrace.Tracer
 	provider *sdktrace.TracerProvider
 }
 
 // NewTracingManager 创建链路追踪管理器
-func NewTracingManager(cfg *tracing.Tracing) (*TracingManager, error) {
+func NewTracingManager(cfg *gcmiddleware.Tracing) (*TracingManager, error) {
 	if !cfg.Enabled {
 		return &TracingManager{config: cfg}, nil
 	}
@@ -152,7 +148,7 @@ func (m *TracingManager) GetTracer() oteltrace.Tracer {
 }
 
 // createResource 创建OpenTelemetry资源
-func createResource(cfg *tracing.Tracing) (*resource.Resource, error) {
+func createResource(cfg *gcmiddleware.Tracing) (*resource.Resource, error) {
 	attrs := []attribute.KeyValue{
 		semconv.ServiceNameKey.String(cfg.ServiceName),
 		semconv.ServiceVersionKey.String(cfg.ServiceVersion),
@@ -176,94 +172,8 @@ func createResource(cfg *tracing.Tracing) (*resource.Resource, error) {
 	)
 }
 
-// createExporter 创建导出器
-func createExporter(cfg *tracing.Tracing) (sdktrace.SpanExporter, error) {
-	switch cfg.ExporterType {
-	case constants.TracingExporterZipkin:
-		return zipkin.New(cfg.ExporterEndpoint)
-	case constants.TracingExporterOTLPHTTP, constants.TracingExporterOTLP:
-		return newOTLPHTTPExporter(cfg)
-	case constants.TracingExporterOTLPGRPC:
-		return newOTLPGRPCExporter(cfg)
-	case constants.TracingExporterConsole, constants.TracingExporterNoop:
-		fallthrough
-	default:
-		return nil, nil
-	}
-}
-
-// newOTLPHTTPExporter 创建 OTLP HTTP 导出器
-// endpoint 支持完整 URL（如 http://host:port/api/default），会自动拆分为 host 与 URL path，
-// 并追加 /v1/traces 作为 traces 路径（与 OpenTelemetry Collector otlphttp 行为一致）
-func newOTLPHTTPExporter(cfg *tracing.Tracing) (sdktrace.SpanExporter, error) {
-	host, urlPath, schemeIsHTTP := parseOTLPHTTPAddress(cfg.ExporterEndpoint)
-
-	opts := []otlptracehttp.Option{
-		otlptracehttp.WithEndpoint(host),
-		otlptracehttp.WithURLPath(urlPath),
-	}
-	// http 协议或显式配置 insecure 时跳过 TLS
-	if schemeIsHTTP || cfg.ExporterTLSInsecure {
-		opts = append(opts, otlptracehttp.WithInsecure())
-	}
-	if len(cfg.ExporterHeaders) > 0 {
-		opts = append(opts, otlptracehttp.WithHeaders(cfg.ExporterHeaders))
-	}
-
-	if global.LOGGER != nil {
-		global.LOGGER.DebugMsg(fmt.Sprintf("[tracing] OTLP HTTP exporter: endpoint=%s path=%s insecure=%v", host, urlPath, schemeIsHTTP || cfg.ExporterTLSInsecure))
-	}
-
-	return otlptracehttp.New(context.Background(), opts...)
-}
-
-// newOTLPGRPCExporter 创建 OTLP gRPC 导出器
-// endpoint 仅需 host:port（如 127.0.0.1:5081），TLS 由 exporter-tls-insecure 控制
-func newOTLPGRPCExporter(cfg *tracing.Tracing) (sdktrace.SpanExporter, error) {
-	opts := []otlptracegrpc.Option{
-		otlptracegrpc.WithEndpoint(cfg.ExporterEndpoint),
-	}
-	if cfg.ExporterTLSInsecure {
-		opts = append(opts, otlptracegrpc.WithInsecure())
-	}
-	if len(cfg.ExporterHeaders) > 0 {
-		opts = append(opts, otlptracegrpc.WithHeaders(cfg.ExporterHeaders))
-	}
-
-	if global.LOGGER != nil {
-		global.LOGGER.DebugMsg(fmt.Sprintf("[tracing] OTLP gRPC exporter: endpoint=%s insecure=%v", cfg.ExporterEndpoint, cfg.ExporterTLSInsecure))
-	}
-
-	return otlptracegrpc.New(context.Background(), opts...)
-}
-
-// parseOTLPHTTPAddress 将 OTLP HTTP endpoint 解析为 host、urlPath 及是否为 http(明文)协议
-// 支持两种输入：
-//   - 完整 URL：http://127.0.0.1:30017/api/default → host=127.0.0.1:30017, path=/api/default/v1/traces
-//   - host:port：127.0.0.1:30017 → host=127.0.0.1:30017, path=/v1/traces
-func parseOTLPHTTPAddress(rawEndpoint string) (host, urlPath string, schemeIsHTTP bool) {
-	rawEndpoint = strings.TrimSpace(rawEndpoint)
-	if strings.HasPrefix(rawEndpoint, "http://") || strings.HasPrefix(rawEndpoint, "https://") {
-		schemeIsHTTP = strings.HasPrefix(rawEndpoint, "http://")
-		if u, err := url.Parse(rawEndpoint); err == nil {
-			host = u.Host
-			urlPath = strings.TrimRight(u.Path, "/")
-		}
-	}
-	if host == "" {
-		host = rawEndpoint
-	}
-	// 确保包含 traces 路径后缀，避免重复拼接
-	if urlPath == "" {
-		urlPath = "/v1/traces"
-	} else if !strings.HasSuffix(urlPath, "/v1/traces") {
-		urlPath = urlPath + "/v1/traces"
-	}
-	return
-}
-
 // createSampler 创建采样器
-func createSampler(cfg *tracing.Tracing) sdktrace.Sampler {
+func createSampler(cfg *gcmiddleware.Tracing) sdktrace.Sampler {
 	switch cfg.SamplerType {
 	case constants.TracingSamplerAlways:
 		return sdktrace.AlwaysSample()
@@ -572,68 +482,4 @@ func formatOtelMsg(msg string, keysAndValues ...interface{}) string {
 		parts = append(parts, fmt.Sprintf("%v=%v", keysAndValues[i], keysAndValues[i+1]))
 	}
 	return "[otel] " + strings.Join(parts, " ")
-}
-
-// ============================================================================
-// WebSocket (WSC) 链路追踪集成
-// ============================================================================
-
-// WSCTracingWrapper 包装 WebSocket 升级处理器，注入 OTel 链路追踪
-// 从 HTTP 升级请求中提取 W3C traceparent，创建连接级 span，
-// 并将 OTel context 注入到 Client.Context，使后续回调可继承 trace
-func WSCTracingWrapper(manager *TracingManager, handler http.HandlerFunc) http.HandlerFunc {
-	if manager == nil || manager.config == nil || !manager.config.Enabled {
-		return handler
-	}
-
-	return func(w http.ResponseWriter, r *http.Request) {
-		// 从请求头提取 W3C traceparent 传播上下文
-		ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
-
-		// 创建连接级 span
-		ctx, span := manager.tracer.Start(ctx, "wsc.upgrade "+r.URL.Path)
-		defer span.End()
-
-		// 设置 HTTP 基础属性
-		span.SetAttributes(
-			attribute.String(constants.TracingAttrHTTPMethod, r.Method),
-			attribute.String(constants.TracingAttrHTTPURL, r.URL.String()),
-			attribute.String(constants.TracingAttrHTTPPath, r.URL.Path),
-			attribute.String(constants.TracingAttrHTTPClientIP, netx.GetClientIP(r)),
-			attribute.String(constants.TracingAttrHTTPFlavor, r.Proto),
-		)
-
-		// 同步 OTel trace_id 到自定义 context（与 HTTP Tracing 中间件行为一致）
-		if r.Header.Get(constants.HeaderXTraceID) == "" {
-			if spanCtx := span.SpanContext(); spanCtx.IsValid() {
-				otelTraceID := spanCtx.TraceID().String()
-				ctx = core.WithTraceID(ctx, otelTraceID)
-				w.Header().Set(constants.HeaderXTraceID, otelTraceID)
-			}
-		} else {
-			w.Header().Set(constants.HeaderXTraceID, r.Header.Get(constants.HeaderXTraceID))
-		}
-
-		// 注入 W3C traceparent/baggage 到响应头（与 HTTP Tracing 中间件行为一致）
-		// gorilla/websocket Upgrade 会合并 w.Header() 与 responseHeader
-		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(w.Header()))
-
-		// 将增强后的 context 注入到请求，go-wsc HandleWebSocketUpgrade
-		// 会将 r.Context() 传递给 Client.Context，从而实现全链路追踪
-		handler(w, r.WithContext(ctx))
-	}
-}
-
-// WSCStartSpan 在 WSC 回调中创建子 span
-// 使用场景：OnMessageReceived、OnClientConnect 等回调中
-// ctx 参数来自回调函数，parentCtx 来自 Client.Context（承载连接级 span context）
-func WSCStartSpan(manager *TracingManager, parentCtx context.Context, operationName string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
-	if manager == nil || manager.tracer == nil {
-		return parentCtx, oteltrace.SpanFromContext(parentCtx)
-	}
-	ctx, span := manager.tracer.Start(parentCtx, operationName)
-	if len(attrs) > 0 {
-		span.SetAttributes(attrs...)
-	}
-	return ctx, span
 }

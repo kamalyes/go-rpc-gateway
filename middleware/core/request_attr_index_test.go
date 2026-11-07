@@ -18,8 +18,8 @@ import (
 	"reflect"
 	"testing"
 
-	gccommon "github.com/kamalyes/go-config/pkg/common"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gccommon "github.com/kamalyes/go-rpc-gateway/config/core"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

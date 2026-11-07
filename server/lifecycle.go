@@ -60,14 +60,6 @@ func (s *Server) Start() error {
 	// 启动命名监听器（多端口支持）
 	s.startNamedListeners()
 
-	// 启动 WebSocket 服务（如果已初始化）
-	if s.webSocketService != nil {
-		if err := s.webSocketService.Start(); err != nil {
-			logger.WithError(err).WarnMsg("WebSocket service failed to start")
-			// 不中断整个系统启动
-		}
-	}
-
 	// 启动 PProf 服务器（如果配置启用）
 	if s.config.Middleware != nil && s.config.Middleware.PProf != nil && s.config.Middleware.PProf.Enabled {
 		s.pprofServer = middleware.NewPProfServer(s.config.Middleware.PProf)
@@ -104,16 +96,6 @@ func (s *Server) Start() error {
 			"地址":   netx.JoinHostPort(grpcHost, grpcPort),
 			"URL":  fmt.Sprintf("grpc://%s", netx.JoinHostPort(grpcHost, grpcPort)),
 		},
-	}
-
-	if s.webSocketService != nil && s.webSocketService.IsRunning() {
-		wsHost := s.webSocketService.GetConfig().NodeIP
-		wsPort := s.webSocketService.GetConfig().NodePort
-		endpoints = append(endpoints, map[string]any{
-			"服务类型": "WebSocket",
-			"地址":   netx.JoinHostPort(wsHost, wsPort),
-			"URL":  fmt.Sprintf("ws://%s", netx.JoinHostPort(wsHost, wsPort)),
-		})
 	}
 
 	// 添加 PProf 服务器信息（如果启用）
@@ -158,13 +140,6 @@ func (s *Server) Stop() error {
 
 	// 取消上下文
 	s.cancel()
-
-	// 停止 WebSocket 服务
-	if s.webSocketService != nil {
-		if err := s.webSocketService.Stop(); err != nil {
-			logger.WithError(err).WarnMsg("Failed to stop WebSocket service")
-		}
-	}
 
 	// 停止HTTP服务器
 	if err := s.stopHTTPServer(); err != nil {

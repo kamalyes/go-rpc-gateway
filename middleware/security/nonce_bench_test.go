@@ -18,14 +18,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kamalyes/go-config/pkg/signature"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
 )
 
 // benchmarkDeriveNonceConfig 派生路径基准配置（对齐生产签名配置）
-var benchmarkDeriveNonceConfig = &signature.Signature{
+var benchmarkDeriveNonceConfig = &gcmiddleware.Signature{
 	Enabled:        true,
-	Type:           signature.SignatureTypeHMAC,
+	Type:           gcmiddleware.SignatureTypeHMAC,
 	NonceKeyPrefix: "nonce:",
 	NonceTTL:       10 * time.Minute,
 	RequireNonce:   true,

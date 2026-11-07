@@ -3,7 +3,7 @@
  * @Date: 2026-11-03 19:02:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2026-11-03 19:25:00
- * @FilePath: \\go-rpc-gateway\\middleware\\chain_bench_test.go
+ * @FilePath: \go-rpc-gateway\middleware\chain_bench_test.go
  * @Description: 默认中间件链的基准 - 逐个边际成本、累积成本与整链成本
  *
  * Copyright (c) 2026 by kamalyes, All Rights Reserved.
@@ -19,9 +19,9 @@ import (
 	"strings"
 	"testing"
 
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-logger"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 )
 
 // benchTarget 链末端的 handler，写一个与压测台相同量级的响应

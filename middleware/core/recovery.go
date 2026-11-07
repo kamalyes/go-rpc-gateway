@@ -18,7 +18,7 @@ import (
 	"net/http"
 	"runtime"
 
-	"github.com/kamalyes/go-config/pkg/recovery"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
@@ -27,7 +27,7 @@ import (
 )
 
 // RecoveryMiddleware 恢复中间件 - 处理 panic 恢复
-func RecoveryMiddleware(cfg *recovery.Recovery) HTTPMiddleware {
+func RecoveryMiddleware(cfg *gcmiddleware.Recovery) HTTPMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
@@ -42,7 +42,7 @@ func RecoveryMiddleware(cfg *recovery.Recovery) HTTPMiddleware {
 }
 
 // handlePanicRecovery 处理 panic 恢复（增强版）
-func handlePanicRecovery(w http.ResponseWriter, r *http.Request, err interface{}, config *recovery.Recovery) {
+func handlePanicRecovery(w http.ResponseWriter, r *http.Request, err interface{}, config *gcmiddleware.Recovery) {
 	ctx := r.Context()
 
 	// 获取堆栈信息
@@ -67,7 +67,7 @@ func handlePanicRecovery(w http.ResponseWriter, r *http.Request, err interface{}
 }
 
 // logPanicError 记录 panic 错误日志
-func logPanicError(ctx context.Context, r *http.Request, err any, stackTrace string, config *recovery.Recovery) {
+func logPanicError(ctx context.Context, r *http.Request, err any, stackTrace string, config *gcmiddleware.Recovery) {
 	// 预分配容量：5 基础字段 + 1 堆栈 + 4 上下文 = 最多 15 个键值对
 	fields := make([]any, 0, 15)
 	fields = append(fields,
@@ -102,7 +102,7 @@ func logPanicError(ctx context.Context, r *http.Request, err any, stackTrace str
 }
 
 // setPanicErrorResponse 设置 panic 错误响应
-func setPanicErrorResponse(w http.ResponseWriter, ctx context.Context, err interface{}, stackTrace string, config *recovery.Recovery) {
+func setPanicErrorResponse(w http.ResponseWriter, ctx context.Context, err interface{}, stackTrace string, config *gcmiddleware.Recovery) {
 	// 设置响应头
 	w.Header().Set(constants.HeaderContentType, httpx.ContentTypeApplicationJSON)
 	setTraceHeaders(w, ctx)

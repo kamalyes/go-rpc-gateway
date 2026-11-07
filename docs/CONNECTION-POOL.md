@@ -71,7 +71,6 @@ type PoolManager interface {
     GetSMTP() smtp.MailHandler
     GetClickHouse() *gorm.DB
     GetNats() *natsclient.NatsConn
-    GetNatsX() *natsx.Client
     GetI18n() interface{}
 
     SetDB(db *gorm.DB)
@@ -218,7 +217,7 @@ defer rows.Close()
 
 ## NATS / JetStream
 
-> 源码：[cpool/nats/client.go](../cpool/nats/client.go)
+> 源码：[cpool/nats/nats.go](../cpool/nats/nats.go)
 
 ```yaml
 queue:
@@ -236,20 +235,20 @@ natsConn.Conn.Publish("subject", data)
 // 使用 JetStream（需配置 jetstream-enabled）
 js := natsConn.JetStream
 js.Publish("subject", data)
-
-// 使用 go-natsx 易用性封装（推荐，提供泛型发布/订阅、批量流式消费、WorkerPool）
-natsxClient := gwglobal.GetNatsX()
 ```
 
-`NatsConn` 封装结构（由 `NewNats` 创建，将底层连接、JetStream 上下文与 go-natsx 客户端绑定在一起）：
+`NatsConn` 封装结构（由 `NewNats` 创建，只持有 `nats-io/nats.go` 官方类型，将底层连接与 JetStream 上下文绑定在一起）：
 
 ```go
 type NatsConn struct {
     Conn      *nats.Conn            // NATS 底层连接实例
     JetStream nats.JetStreamContext // JetStream 上下文（启用 JetStream 时非 nil）
-    Client    *natsx.Client         // go-natsx 易用性封装客户端（启用时非 nil）
 }
 ```
+
+> 连接池与 JetStream 都取自官方客户端，不再经第三方封装
+> 原先由封装层提供的 `GetNatsX()`、泛型发布/订阅与 WorkerPool 已移除；配置项
+> `worker-pool-size` / `worker-queue-size` 仍可填写但不再生效，填了会在启动时告警
 
 ## MQTT
 

@@ -18,11 +18,11 @@ import (
 	"net/url"
 	"strings"
 
-	gci18n "github.com/kamalyes/go-config/pkg/i18n"
-	goi18n "github.com/kamalyes/go-i18n"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
+	goi18n "github.com/kamalyes/go-toolbox/pkg/i18n"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -41,7 +41,7 @@ type I18nManager = goi18n.Manager
 // only the fields its translation engine reads; the detection fields describe
 // where a request's language comes from, which is this middleware's job, so the
 // conversion happens once at the boundary
-func toI18nConfig(c *gci18n.I18N) *goi18n.Config {
+func toI18nConfig(c *gcmiddleware.I18N) *goi18n.Config {
 	if c == nil {
 		return nil
 	}
@@ -64,7 +64,7 @@ func toI18nConfig(c *gci18n.I18N) *goi18n.Config {
 	}
 }
 
-func NewI18nManager(config *gci18n.I18N) (*goi18n.Manager, error) {
+func NewI18nManager(config *gcmiddleware.I18N) (*goi18n.Manager, error) {
 	return goi18n.NewManager(toI18nConfig(config))
 }
 
@@ -105,7 +105,7 @@ func SetLanguage(ctx context.Context, language string) context.Context {
 }
 
 func I18n() core.MiddlewareFunc {
-	config := gci18n.Default()
+	config := gcmiddleware.DefaultI18N()
 	manager, err := goi18n.NewManager(toI18nConfig(config))
 	if err != nil {
 		panic(fmt.Sprintf("failed to create i18n manager: %v", err))
@@ -117,13 +117,13 @@ func I18n() core.MiddlewareFunc {
 // I18nWithManager 返回国际化中间件
 //
 // detect 为可变参数，用于指定「从请求的哪里取语言」的检测配置（Header / Query /
-// Cookie 顺序与键名）；不传则用 gci18n.Default()
+// Cookie 顺序与键名）；不传则用 gcmiddleware.DefaultI18N()
 // 之所以不再从 manager.GetConfig() 取：go-i18n v0.3.0 的 Config 已不含检测字段，
 // 那些字段属于本中间件而非翻译引擎
 // [EN] detect carries the request-language detection settings; it is no longer
 // read from manager.GetConfig() because go-i18n's Config no longer holds them
-func I18nWithManager(manager *goi18n.Manager, detect ...*gci18n.I18N) core.MiddlewareFunc {
-	detectConfig := gci18n.Default()
+func I18nWithManager(manager *goi18n.Manager, detect ...*gcmiddleware.I18N) core.MiddlewareFunc {
+	detectConfig := gcmiddleware.DefaultI18N()
 	if len(detect) > 0 && detect[0] != nil {
 		detectConfig = detect[0]
 	}
@@ -158,29 +158,29 @@ func I18nWithManager(manager *goi18n.Manager, detect ...*gci18n.I18N) core.Middl
 // [EN] The two configs are split by ownership: detect says where to read the
 // language from, resolve says how to map it. Using detect for both would silently
 // drop a caller's custom legacy mappings
-func detectLanguage(r *http.Request, detect *gci18n.I18N, resolve *goi18n.Config) string {
+func detectLanguage(r *http.Request, detect *gcmiddleware.I18N, resolve *goi18n.Config) string {
 	for _, method := range detect.DetectionOrder {
 		switch method {
-		case gci18n.DetectionHeader:
+		case gcmiddleware.DetectionHeader:
 			if lang := detectFromHeader(r, detect, resolve); lang != "" {
 				return lang
 			}
-		case gci18n.DetectionQuery:
+		case gcmiddleware.DetectionQuery:
 			if lang := detectFromQuery(r, detect, resolve); lang != "" {
 				return lang
 			}
-		case gci18n.DetectionCookie:
+		case gcmiddleware.DetectionCookie:
 			if lang := detectFromCookie(r, detect, resolve); lang != "" {
 				return lang
 			}
-		case gci18n.DetectionDefault:
+		case gcmiddleware.DetectionDefault:
 			return resolve.DefaultLanguage
 		}
 	}
 	return resolve.DefaultLanguage
 }
 
-func detectFromHeader(r *http.Request, detect *gci18n.I18N, resolve *goi18n.Config) string {
+func detectFromHeader(r *http.Request, detect *gcmiddleware.I18N, resolve *goi18n.Config) string {
 	acceptLanguage := r.Header.Get(detect.LanguageHeader)
 	if acceptLanguage == "" {
 		return ""
@@ -208,14 +208,14 @@ func queryValue(rawQuery, key string) string {
 	return ""
 }
 
-func detectFromQuery(r *http.Request, detect *gci18n.I18N, resolve *goi18n.Config) string {
+func detectFromQuery(r *http.Request, detect *gcmiddleware.I18N, resolve *goi18n.Config) string {
 	if lang := queryValue(r.URL.RawQuery, detect.LanguageParam); lang != "" {
 		return resolve.ResolveLanguage(lang)
 	}
 	return ""
 }
 
-func detectFromCookie(r *http.Request, detect *gci18n.I18N, resolve *goi18n.Config) string {
+func detectFromCookie(r *http.Request, detect *gcmiddleware.I18N, resolve *goi18n.Config) string {
 	cookieName := mathx.IfEmpty(detect.CookieName, detect.LanguageParam)
 
 	cookie, err := r.Cookie(cookieName)

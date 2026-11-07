@@ -448,7 +448,7 @@ grpc:
 
 ```go
 import (
-    breakerconfig "github.com/kamalyes/go-config/pkg/breaker"
+    breakerconfig "github.com/kamalyes/go-rpc-gateway/config/breaker"
     grpcpool "github.com/kamalyes/go-rpc-gateway/cpool/grpc"
 )
 

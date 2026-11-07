@@ -39,24 +39,13 @@ import (
 	mwsecurity "github.com/kamalyes/go-rpc-gateway/middleware/security"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	breakerconfig "github.com/kamalyes/go-config/pkg/breaker"
-	"github.com/kamalyes/go-config/pkg/cors"
-	gci18n "github.com/kamalyes/go-config/pkg/i18n"
-	"github.com/kamalyes/go-config/pkg/monitoring"
-	gopprof "github.com/kamalyes/go-config/pkg/pprof"
-	"github.com/kamalyes/go-config/pkg/ratelimit"
-	"github.com/kamalyes/go-config/pkg/recovery"
-	"github.com/kamalyes/go-config/pkg/security"
-	shedderconfig "github.com/kamalyes/go-config/pkg/shedder"
-	"github.com/kamalyes/go-config/pkg/signature"
-	"github.com/kamalyes/go-config/pkg/tracing"
-	goi18n "github.com/kamalyes/go-i18n"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/errors"
+	goi18n "github.com/kamalyes/go-toolbox/pkg/i18n"
 	"github.com/kamalyes/go-toolbox/pkg/sign"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
-	oteltrace "go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"gorm.io/gorm"
@@ -240,7 +229,7 @@ func NewResponseWriter(w http.ResponseWriter) *ResponseWriter {
 	return core.NewResponseWriter(w)
 }
 
-func RecoveryMiddleware(cfg *recovery.Recovery) HTTPMiddleware {
+func RecoveryMiddleware(cfg *gcmiddleware.Recovery) HTTPMiddleware {
 	return core.RecoveryMiddleware(cfg)
 }
 
@@ -445,11 +434,11 @@ func CPUUsageSource() string {
 	return resilience.CPUUsageSource()
 }
 
-func GRPCRateLimitStreamInterceptor(config *ratelimit.RateLimit, limiter RateLimiter) grpc.StreamServerInterceptor {
+func GRPCRateLimitStreamInterceptor(config *gcmiddleware.RateLimit, limiter RateLimiter) grpc.StreamServerInterceptor {
 	return resilience.GRPCRateLimitStreamInterceptor(config, limiter)
 }
 
-func GRPCRateLimitUnaryInterceptor(config *ratelimit.RateLimit, limiter RateLimiter) grpc.UnaryServerInterceptor {
+func GRPCRateLimitUnaryInterceptor(config *gcmiddleware.RateLimit, limiter RateLimiter) grpc.UnaryServerInterceptor {
 	return resilience.GRPCRateLimitUnaryInterceptor(config, limiter)
 }
 
@@ -461,39 +450,39 @@ func NewBreaker(failureThreshold, successThreshold, volumeThreshold int, timeout
 	return resilience.NewBreaker(failureThreshold, successThreshold, volumeThreshold, timeout)
 }
 
-func NewBreakerManager(cfg *breakerconfig.CircuitBreaker) *BreakerManager {
+func NewBreakerManager(cfg *gcmiddleware.CircuitBreaker) *BreakerManager {
 	return resilience.NewBreakerManager(cfg)
 }
 
-func NewFixedWindowLimiter(config *ratelimit.RateLimit) *FixedWindowLimiter {
+func NewFixedWindowLimiter(config *gcmiddleware.RateLimit) *FixedWindowLimiter {
 	return resilience.NewFixedWindowLimiter(config)
 }
 
-func NewShedder(cfg *shedderconfig.Shedder) *Shedder {
+func NewShedder(cfg *gcmiddleware.Shedder) *Shedder {
 	return resilience.NewShedder(cfg)
 }
 
-func NewShedderManager(cfg *shedderconfig.Shedder) *ShedderManager {
+func NewShedderManager(cfg *gcmiddleware.Shedder) *ShedderManager {
 	return resilience.NewShedderManager(cfg)
 }
 
-func NewShedderWithCPUFunc(cfg *shedderconfig.Shedder, cpuUsageFn func() (int64, bool)) *Shedder {
+func NewShedderWithCPUFunc(cfg *gcmiddleware.Shedder, cpuUsageFn func() (int64, bool)) *Shedder {
 	return resilience.NewShedderWithCPUFunc(cfg, cpuUsageFn)
 }
 
-func NewSlidingWindowLimiter(config *ratelimit.RateLimit) *SlidingWindowLimiter {
+func NewSlidingWindowLimiter(config *gcmiddleware.RateLimit) *SlidingWindowLimiter {
 	return resilience.NewSlidingWindowLimiter(config)
 }
 
-func NewTokenBucketLimiter(cfg *ratelimit.RateLimit) *TokenBucketLimiter {
+func NewTokenBucketLimiter(cfg *gcmiddleware.RateLimit) *TokenBucketLimiter {
 	return resilience.NewTokenBucketLimiter(cfg)
 }
 
-func RateLimitMiddleware(config *ratelimit.RateLimit) HTTPMiddleware {
+func RateLimitMiddleware(config *gcmiddleware.RateLimit) HTTPMiddleware {
 	return resilience.RateLimitMiddleware(config)
 }
 
-func RateLimitMiddlewareWithProvider(config *ratelimit.RateLimit, provider DynamicRateLimitProvider) HTTPMiddleware {
+func RateLimitMiddlewareWithProvider(config *gcmiddleware.RateLimit, provider DynamicRateLimitProvider) HTTPMiddleware {
 	return resilience.RateLimitMiddlewareWithProvider(config, provider)
 }
 
@@ -536,13 +525,13 @@ type (
 	HealthStatus      = observability.HealthStatus
 	LogFields         = observability.LogFields
 	MetricsManager    = observability.MetricsManager
-	MySQLChecker      = observability.MySQLChecker
+	MySQLChecker      = observability.PostgreSQLChecker // 兼容旧名
+	PostgreSQLChecker = observability.PostgreSQLChecker
 	PProfServer       = observability.PProfServer
 	RedisChecker      = observability.RedisChecker
 	RequestLogger     = observability.RequestLogger
 	ShedderStat       = observability.ShedderStat
 	TracingManager    = observability.TracingManager
-	WSCStats          = observability.WSCStats
 )
 
 // 常量再导出：常量带有子包中声明的类型
@@ -608,19 +597,23 @@ func NewLogFields() *LogFields {
 	return observability.NewLogFields()
 }
 
-func NewMetricsManager(cfg *monitoring.Monitoring) *MetricsManager {
+func NewMetricsManager(cfg *gcmiddleware.Monitoring) *MetricsManager {
 	return observability.NewMetricsManager(cfg)
 }
 
 func NewMySQLChecker(timeout time.Duration) *MySQLChecker {
-	return observability.NewMySQLChecker(timeout)
+	return observability.NewPostgreSQLChecker(timeout)
 }
 
-func NewMySQLCheckerWithDB(db *gorm.DB, timeout time.Duration) *MySQLChecker {
-	return observability.NewMySQLCheckerWithDB(db, timeout)
+func NewPostgreSQLChecker(timeout time.Duration) *PostgreSQLChecker {
+	return observability.NewPostgreSQLChecker(timeout)
 }
 
-func NewPProfServer(cfg *gopprof.PProf) *PProfServer {
+func NewPostgreSQLCheckerWithDB(db *gorm.DB, timeout time.Duration) *PostgreSQLChecker {
+	return observability.NewPostgreSQLCheckerWithDB(db, timeout)
+}
+
+func NewPProfServer(cfg *gcmiddleware.PProf) *PProfServer {
 	return observability.NewPProfServer(cfg)
 }
 
@@ -636,7 +629,7 @@ func NewRequestLogger(ctx context.Context) *RequestLogger {
 	return observability.NewRequestLogger(ctx)
 }
 
-func NewTracingManager(cfg *tracing.Tracing) (*TracingManager, error) {
+func NewTracingManager(cfg *gcmiddleware.Tracing) (*TracingManager, error) {
 	return observability.NewTracingManager(cfg)
 }
 
@@ -648,7 +641,7 @@ func ResetProtojsonOptions() {
 	observability.ResetProtojsonOptions()
 }
 
-func StartPProfServer(cfg *gopprof.PProf) error {
+func StartPProfServer(cfg *gcmiddleware.PProf) error {
 	return observability.StartPProfServer(cfg)
 }
 
@@ -670,14 +663,6 @@ func UnaryClientLoggingInterceptor(serviceName string) grpc.UnaryClientIntercept
 
 func UnaryServerLoggingInterceptor() grpc.UnaryServerInterceptor {
 	return observability.UnaryServerLoggingInterceptor()
-}
-
-func WSCStartSpan(manager *TracingManager, parentCtx context.Context, operationName string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
-	return observability.WSCStartSpan(manager, parentCtx, operationName, attrs...)
-}
-
-func WSCTracingWrapper(manager *TracingManager, handler http.HandlerFunc) http.HandlerFunc {
-	return observability.WSCTracingWrapper(manager, handler)
 }
 
 // ============================================================================
@@ -710,7 +695,7 @@ type (
 // 函数再导出：薄包装，签名与子包中的定义逐字一致
 // [EN] Re-exported functions: thin wrappers whose signatures match the subpackage definitions verbatim
 
-func CORSMiddleware(corsConfig *cors.Cors) HTTPMiddleware {
+func CORSMiddleware(corsConfig *gcmiddleware.Cors) HTTPMiddleware {
 	return mwsecurity.CORSMiddleware(corsConfig)
 }
 
@@ -754,11 +739,11 @@ func NewWhitelistManager() *WhitelistManager {
 	return mwsecurity.NewWhitelistManager()
 }
 
-func NonceMiddleware(config *signature.Signature) HTTPMiddleware {
+func NonceMiddleware(config *gcmiddleware.Signature) HTTPMiddleware {
 	return mwsecurity.NonceMiddleware(config)
 }
 
-func PathProtectionMiddleware(pathPrefix string, cfg *security.ServiceProtection) HTTPMiddleware {
+func PathProtectionMiddleware(pathPrefix string, cfg *gcmiddleware.ServiceProtection) HTTPMiddleware {
 	return mwsecurity.PathProtectionMiddleware(pathPrefix, cfg)
 }
 
@@ -766,23 +751,23 @@ func RegisterWhitelistRule(rule WhitelistRule) {
 	mwsecurity.RegisterWhitelistRule(rule)
 }
 
-func SCPMiddleware(cspConfig *security.CSP) HTTPMiddleware {
+func SCPMiddleware(cspConfig *gcmiddleware.CSP) HTTPMiddleware {
 	return mwsecurity.SCPMiddleware(cspConfig)
 }
 
-func SignatureMiddleware(config *signature.Signature) HTTPMiddleware {
+func SignatureMiddleware(config *gcmiddleware.Signature) HTTPMiddleware {
 	return mwsecurity.SignatureMiddleware(config)
 }
 
-func SignatureMiddlewareWithProvider(config *signature.Signature, provider DynamicSignatureProvider) HTTPMiddleware {
+func SignatureMiddlewareWithProvider(config *gcmiddleware.Signature, provider DynamicSignatureProvider) HTTPMiddleware {
 	return mwsecurity.SignatureMiddlewareWithProvider(config, provider)
 }
 
-func SignatureMiddlewareWithValidator(config *signature.Signature, validator SignatureValidator) HTTPMiddleware {
+func SignatureMiddlewareWithValidator(config *gcmiddleware.Signature, validator SignatureValidator) HTTPMiddleware {
 	return mwsecurity.SignatureMiddlewareWithValidator(config, validator)
 }
 
-func TimestampMiddleware(config *signature.Signature) HTTPMiddleware {
+func TimestampMiddleware(config *gcmiddleware.Signature) HTTPMiddleware {
 	return mwsecurity.TimestampMiddleware(config)
 }
 
@@ -821,7 +806,7 @@ func I18nFromContext(ctx context.Context) *goi18n.Context {
 	return i18n.I18nFromContext(ctx)
 }
 
-func I18nWithManager(manager *goi18n.Manager, detect ...*gci18n.I18N) MiddlewareFunc {
+func I18nWithManager(manager *goi18n.Manager, detect ...*gcmiddleware.I18N) MiddlewareFunc {
 	return i18n.I18nWithManager(manager, detect...)
 }
 
@@ -829,7 +814,7 @@ func NewFileMessageLoader(localesPath string) *goi18n.FileLoader {
 	return i18n.NewFileMessageLoader(localesPath)
 }
 
-func NewI18nManager(config *gci18n.I18N) (*goi18n.Manager, error) {
+func NewI18nManager(config *gcmiddleware.I18N) (*goi18n.Manager, error) {
 	return i18n.NewI18nManager(config)
 }
 

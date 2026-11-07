@@ -4,7 +4,7 @@
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2026-07-31 01:15:00
  * @FilePath: \go-rpc-gateway\middleware\observability\accesslog.go
- * @Description: 访问日志 - AccessRecord 模型（gorm tag 供 ClickHouse 自动建表）+ 钩子注册/派发 + HTTP 快照构建
+ * @Description: 访问日志 - AccessRecord 模型 + 钩子注册/派发 + HTTP 快照构建
  *
  * Copyright (c) 2026 by kamalyes, All Rights Reserved.
  */
@@ -20,12 +20,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kamalyes/go-rpc-gateway/constants"
+	sqltypes "github.com/kamalyes/go-rpc-gateway/cpool/database/types"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
-	sqltypes "github.com/kamalyes/go-sqlbuilder/types"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
-	"gorm.io/gorm"
 )
 
 // AccessLogKind 访问日志来源类型
@@ -73,14 +72,6 @@ type AccessRecord struct {
 	Account      string                     `gorm:"column:account;default:'';comment:账号(UserName，回退UserID)" json:"account"`
 	TenantID     string                     `gorm:"column:tenant_id;default:'';comment:租户ID" json:"tenantID"`
 	ClientIP     string                     `gorm:"column:client_ip;default:'';comment:客户端IP" json:"clientIP"`
-}
-
-// BeforeCreate gorm 钩子：写入前补全默认值
-// 由 BaseRepository.CreateBatch → gorm.CreateInBatches 触发（含异步批量写入路径）
-func (m *AccessRecord) BeforeCreate(tx *gorm.DB) error {
-	m.ID = mathx.IfEmpty(m.ID, uuid.NewString())
-	m.RequestTime = mathx.IfNotZero(m.RequestTime, time.Now())
-	return nil
 }
 
 // AccessLogHandler 访问日志钩子函数
@@ -152,6 +143,7 @@ func captureAccessLog(ctx context.Context, r *http.Request, rw *core.ResponseWri
 	}
 
 	rec := &AccessRecord{
+		ID:           uuid.NewString(),
 		Kind:         AccessLogKindHTTP,
 		Service:      serviceName,
 		RequestTime:  start,

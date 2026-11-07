@@ -20,8 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-config/pkg/logging"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
@@ -84,7 +84,7 @@ func getProtojsonOptions() protojson.MarshalOptions {
 
 // RequestLogger 统一的请求日志记录器
 type RequestLogger struct {
-	config *logging.Logging
+	config *gcmiddleware.Logging
 	ctx    context.Context
 }
 
@@ -252,13 +252,13 @@ func (rl *RequestLogger) Log(level string, message string, fields *LogFields) {
 }
 
 // getLoggingConfig 获取日志配置
-func getLoggingConfig() *logging.Logging {
+func getLoggingConfig() *gcmiddleware.Logging {
 	if global.GATEWAY != nil &&
 		global.GATEWAY.Middleware != nil &&
 		global.GATEWAY.Middleware.Logging != nil {
 		return global.GATEWAY.Middleware.Logging
 	}
-	return logging.Default()
+	return gcmiddleware.DefaultLogging()
 }
 
 // hasPrefixFold 前缀大小写不敏感匹配（零分配，替代 strings.ToLower+HasPrefix）
@@ -267,7 +267,7 @@ func hasPrefixFold(s, prefix string) bool {
 }
 
 // isLoggableContentType 检查 Content-Type 是否可记录
-func isLoggableContentType(config *logging.Logging, contentType string) bool {
+func isLoggableContentType(config *gcmiddleware.Logging, contentType string) bool {
 	if contentType == "" {
 		return true
 	}
@@ -283,7 +283,7 @@ func isLoggableContentType(config *logging.Logging, contentType string) bool {
 // isSkipPath 检查是否为跳过路径
 // skip 项支持 glob 通配符（* 可匹配 /，? 匹配单字符），无通配符时退化为精确匹配
 // 示例："/v1/audit-logs*" 覆盖 "/v1/audit-logs" 与 "/v1/audit-logs/{id}"
-func isSkipPath(config *logging.Logging, path string) bool {
+func isSkipPath(config *gcmiddleware.Logging, path string) bool {
 	for _, skip := range config.SkipPaths {
 		if matcher.MatchPathGlob(path, skip) {
 			return true
@@ -457,7 +457,7 @@ func LoggingMiddleware() core.HTTPMiddleware {
 }
 
 // logHTTPRequest 记录 HTTP 请求
-func logHTTPRequest(ctx context.Context, r *http.Request, rw *core.ResponseWriter, start time.Time, duration time.Duration, config *logging.Logging, reqBody []byte, hasAccessLog bool) {
+func logHTTPRequest(ctx context.Context, r *http.Request, rw *core.ResponseWriter, start time.Time, duration time.Duration, config *gcmiddleware.Logging, reqBody []byte, hasAccessLog bool) {
 	logger := NewRequestLogger(ctx)
 	masker := activeMasker()
 

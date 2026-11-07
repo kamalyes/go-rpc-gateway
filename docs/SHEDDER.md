@@ -221,7 +221,7 @@ func NewShedder(cfg *shedderconfig.Shedder) *Shedder
 func NewShedderWithCPUFunc(cfg *shedderconfig.Shedder, cpuUsageFn func() (int64, bool)) *Shedder
 ```
 
-配置类型是 go-config 的 `shedderconfig.Shedder`（`github.com/kamalyes/go-config/pkg/shedder`），详见下面的[配置](#配置)小节。
+配置类型是 go-config 的 `shedderconfig.Shedder`（`github.com/kamalyes/go-rpc-gateway/config/shedder`），详见下面的[配置](#配置)小节。
 
 `cfg` 为 `nil` 时取 `shedderconfig.Default()`；非法字段一律回落默认而不是报错——一份写错的降载配置不该让网关起不来。归一化返回的是配置副本，不会改写传进来的那一份（传进来的通常就是 `cfg.Middleware.Shedder` 本身，就地改写会把回落后的值写回全局配置树）。`cpuUsageFn` 为 `nil` 时按「不支持采样」处理。
 
@@ -562,7 +562,7 @@ func (m *Manager) GetShedderManager() *ShedderManager
 单独使用核心降载器（不经中间件，例如保护一段自己写的后台任务入口）：
 
 ```go
-// shedderconfig 为 github.com/kamalyes/go-config/pkg/shedder
+// shedderconfig 为 github.com/kamalyes/go-rpc-gateway/config/shedder
 // 注意 enabled 只由 Manager 在创建 ShedderManager 时判定，直接 new 出来的降载器总是生效
 shedder := middleware.NewShedder(shedderconfig.Default())
 

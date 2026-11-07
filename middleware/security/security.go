@@ -19,22 +19,21 @@ import (
 	"strings"
 	"time"
 
-	validator "github.com/kamalyes/go-argus"
-	"github.com/kamalyes/go-config/pkg/cors"
-	"github.com/kamalyes/go-config/pkg/security"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
 	"github.com/kamalyes/go-rpc-gateway/response"
+	validator "github.com/kamalyes/go-toolbox/pkg/argus"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 )
 
 // CORSMiddleware CORS 中间件
 // methods/headers 的逗号拼接与 origin 集合在构建期预计算，热路径零拼接零分配
-func CORSMiddleware(corsConfig *cors.Cors) core.HTTPMiddleware {
-	mergedHeaders := mathx.SliceUnion(cors.Default().AllowedHeaders, corsConfig.AllowedHeaders)
+func CORSMiddleware(corsConfig *gcmiddleware.Cors) core.HTTPMiddleware {
+	mergedHeaders := mathx.SliceUnion(gcmiddleware.DefaultCors().AllowedHeaders, corsConfig.AllowedHeaders)
 
 	// 预计算允许方法/头部的逗号分隔字符串（避免每请求 strings.Join）
 	allowMethodsValue := strings.Join(corsConfig.AllowedMethods, ", ")
@@ -149,7 +148,7 @@ func setAllowOrigin(header http.Header, origin string, allowAllOrigins bool, ori
 
 // SCPMiddleware 安全中间件 - 从配置读取 CSP 策略
 // 参数 cspConfig: 从 go-config/pkg/security 读取的 CSP 配置
-func SCPMiddleware(cspConfig *security.CSP) core.HTTPMiddleware {
+func SCPMiddleware(cspConfig *gcmiddleware.CSP) core.HTTPMiddleware {
 	// 获取 CSP 策略字符串
 	var cspPolicy = cspConfig.GetPolicy()
 	return func(next http.Handler) http.Handler {
@@ -280,7 +279,7 @@ func CSRFTokenHandler(w http.ResponseWriter, r *http.Request) {
 
 // PathProtectionMiddleware 路径级保护中间件 - 基于路径前缀的安全控制
 // 用于 pprof, swagger, metrics 等敏感端点的统一保护
-func PathProtectionMiddleware(pathPrefix string, cfg *security.ServiceProtection) core.HTTPMiddleware {
+func PathProtectionMiddleware(pathPrefix string, cfg *gcmiddleware.ServiceProtection) core.HTTPMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !shouldProtectPath(r.URL.Path, pathPrefix, cfg) {
@@ -299,7 +298,7 @@ func PathProtectionMiddleware(pathPrefix string, cfg *security.ServiceProtection
 }
 
 // shouldProtectPath 检查路径是否需要保护
-func shouldProtectPath(path, pathPrefix string, cfg *security.ServiceProtection) bool {
+func shouldProtectPath(path, pathPrefix string, cfg *gcmiddleware.ServiceProtection) bool {
 	if !strings.HasPrefix(path, pathPrefix) {
 		return false
 	}
@@ -307,7 +306,7 @@ func shouldProtectPath(path, pathPrefix string, cfg *security.ServiceProtection)
 }
 
 // validatePathAccess 验证路径访问权限（IP、认证、HTTPS）
-func validatePathAccess(w http.ResponseWriter, r *http.Request, pathPrefix string, cfg *security.ServiceProtection) error {
+func validatePathAccess(w http.ResponseWriter, r *http.Request, pathPrefix string, cfg *gcmiddleware.ServiceProtection) error {
 	if err := checkIPWhitelist(r, pathPrefix, cfg.IPWhitelist); err != nil {
 		http.Error(w, constants.ErrMsgIPNotAllowed, http.StatusForbidden)
 		return err
@@ -345,7 +344,7 @@ func checkIPWhitelist(r *http.Request, pathPrefix string, whitelist []string) er
 }
 
 // checkAuthentication 检查认证
-func checkAuthentication(w http.ResponseWriter, r *http.Request, pathPrefix string, cfg *security.ServiceProtection) error {
+func checkAuthentication(w http.ResponseWriter, r *http.Request, pathPrefix string, cfg *gcmiddleware.ServiceProtection) error {
 	if !cfg.AuthRequired {
 		return nil
 	}
@@ -386,7 +385,7 @@ func isIPInWhitelist(clientIP string, whitelist []string) bool {
 }
 
 // checkPathAuthentication 检查路径认证
-func checkPathAuthentication(r *http.Request, cfg *security.ServiceProtection) bool {
+func checkPathAuthentication(r *http.Request, cfg *gcmiddleware.ServiceProtection) bool {
 	authType := strings.ToLower(cfg.AuthType)
 
 	switch authType {

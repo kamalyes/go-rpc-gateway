@@ -116,8 +116,6 @@ const (
 	ErrCodeHealthManagerFailed   ErrorCode = 1105
 	ErrCodeGRPCServerInitFailed  ErrorCode = 1106
 	ErrCodeHTTPGatewayInitFailed ErrorCode = 1107
-	ErrCodeWSCNotEnabled         ErrorCode = 1108
-	ErrCodeWSCRouteFailed        ErrorCode = 1109
 	ErrCodeUserAuthNotFound      ErrorCode = 1110
 
 	// 服务器和基础设施错误 (1200-1299)

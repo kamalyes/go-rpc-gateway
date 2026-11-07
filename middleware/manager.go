@@ -14,8 +14,8 @@ import (
 	"net/http"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-config/pkg/ratelimit"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
@@ -23,7 +23,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/middleware/observability"
 	"github.com/kamalyes/go-rpc-gateway/middleware/resilience"
 	"github.com/kamalyes/go-rpc-gateway/middleware/security"
-	swaggerMiddleware "github.com/kamalyes/go-swagger"
+	swaggerMiddleware "github.com/kamalyes/go-rpc-gateway/middleware/swagger"
 	"google.golang.org/grpc"
 )
 
@@ -86,16 +86,16 @@ func NewManager(cfg *gwconfig.Gateway) (*Manager, error) {
 	if cfg.RateLimit.Enabled {
 		// 根据策略选择限流器实现
 		switch cfg.RateLimit.Strategy {
-		case ratelimit.StrategyTokenBucket:
+		case gcmiddleware.StrategyTokenBucket:
 			manager.rateLimiter = resilience.NewTokenBucketLimiter(cfg.RateLimit)
-		case ratelimit.StrategySlidingWindow:
+		case gcmiddleware.StrategySlidingWindow:
 			if global.REDIS != nil {
 				manager.rateLimiter = resilience.NewSlidingWindowLimiter(cfg.RateLimit)
 			} else {
 				manager.rateLimiter = resilience.NewTokenBucketLimiter(cfg.RateLimit) // 降级到令牌桶
 				global.LOGGER.Warn("Redis不可用，限流器降级为令牌桶模式")
 			}
-		case ratelimit.StrategyFixedWindow:
+		case gcmiddleware.StrategyFixedWindow:
 			manager.rateLimiter = resilience.NewFixedWindowLimiter(cfg.RateLimit)
 		default:
 			manager.rateLimiter = resilience.NewTokenBucketLimiter(cfg.RateLimit)

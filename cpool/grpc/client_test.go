@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	gwglobal "github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"

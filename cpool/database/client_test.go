@@ -1,137 +1,51 @@
 /*
  * @Author: kamalyes 501893067@qq.com
- * @Date: 2025-11-07 12:00:00
+ * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
- * @LastEditTime: 2025-11-13 07:28:09
+ * @LastEditTime: 2025-12-22 15:27:05
  * @FilePath: \go-rpc-gateway\cpool\database\client_test.go
- * @Description: client 数据库连接测试
+ * @Description: 数据库连接测试（单 DSN 方案）
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
  */
+
 package database
 
 import (
 	"testing"
-	"time"
 
-	"github.com/kamalyes/go-config/pkg/database"
-	"github.com/stretchr/testify/assert"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
+	"github.com/kamalyes/go-rpc-gateway/config/database"
 )
 
-// TestBuildDSN 测试DSN构建
-func TestBuildDSN(t *testing.T) {
-	// 创建MySQL配置
-	mysqlConfig := &database.MySQL{
-		Host:     "localhost",
-		Port:     "3306",
-		Username: "user",
-		Password: "pass",
-		Dbname:   "testdb",
-		Config:   "charset=utf8mb4&parseTime=True&loc=Local",
+func TestGormDisabled(t *testing.T) {
+	cfg := &gwconfig.Gateway{
+		Database: &database.Database{Enabled: false, DSN: "postgres://u:p@127.0.0.1:5432/db"},
 	}
-
-	// 测试MySQL DSN
-	// mysql.Config.FormatDSN() 会自动添加默认参数并按内部顺序排列
-	mysqlDSN := buildDSN(mysqlConfig, database.DBTypeMySQL)
-	expected := "user:pass@tcp(localhost:3306)/testdb?checkConnLiveness=false&maxAllowedPacket=0&charset=utf8mb4&loc=Local&parseTime=True"
-	assert.Equal(t, expected, mysqlDSN)
-
-	// 创建PostgreSQL配置
-	postgresConfig := &database.PostgreSQL{
-		Host:     "localhost",
-		Port:     "5432",
-		Username: "user",
-		Password: "pass",
-		Dbname:   "testdb",
-		Config:   "sslmode=disable",
+	if db := Gorm(t.Context(), cfg, nil); db != nil {
+		t.Fatal("expected nil when database disabled")
 	}
-
-	// 测试PostgreSQL DSN（TimeZone=UTC 为有意追加：会话级时区与 ClickHouse 统一，见 buildDSN 注释）
-	postgresDSN := buildDSN(postgresConfig, database.DBTypePostgreSQL)
-	expected = "host=localhost user=user password=pass dbname=testdb port=5432 sslmode=disable TimeZone=UTC"
-	assert.Equal(t, expected, postgresDSN)
-
-	cockroachConfig := &database.CockroachDB{
-		Host:     "localhost",
-		Port:     "26257",
-		Username: "root",
-		Password: "",
-		Dbname:   "apex_ac",
-		Config:   "sslmode=disable",
-	}
-
-	cockroachDSN := buildDSN(cockroachConfig, database.DBTypeCockroachDB)
-	expected = "host=localhost user=root password='' dbname=apex_ac port=26257 sslmode=disable TimeZone=UTC"
-	assert.Equal(t, expected, cockroachDSN)
-
-	// 创建SQLite配置
-	sqliteConfig := &database.SQLite{
-		DbPath: "/tmp/test.db",
-	}
-
-	// 测试SQLite DSN
-	sqliteDSN := buildDSN(sqliteConfig, database.DBTypeSQLite)
-	assert.Equal(t, "/tmp/test.db", sqliteDSN)
 }
 
-// TestGormConfig 测试GORM配置
-func TestGormConfig(t *testing.T) {
-	tests := []struct {
-		name                                     string
-		slowThreshold                            int
-		ignoreRecordNotFoundError                bool
-		skipDefaultTransaction                   bool
-		prepareStmt                              bool
-		disableForeignKeyConstraintWhenMigrating bool
-		allowGlobalUpdate                        bool
-		createBatchSize                          int
-		singularTable                            bool
-	}{
-		{"默认配置", 100, false, false, true, true, false, 100, true},
-		{"高性能配置", 50, true, true, true, false, false, 200, true},
-		{"安全配置", 200, false, false, true, true, false, 50, false},
+func TestGormEmptyDSN(t *testing.T) {
+	cfg := &gwconfig.Gateway{
+		Database: &database.Database{Enabled: true},
 	}
+	if db := Gorm(t.Context(), cfg, nil); db != nil {
+		t.Fatal("expected nil when DSN empty")
+	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// 创建测试用的MySQL配置
-			mysqlConfig := &database.MySQL{
-				Host:                                     "localhost",
-				Port:                                     "3306",
-				Username:                                 "user",
-				Password:                                 "pass",
-				Dbname:                                   "testdb",
-				Config:                                   "charset=utf8mb4",
-				SlowThreshold:                            tt.slowThreshold,
-				IgnoreRecordNotFoundError:                tt.ignoreRecordNotFoundError,
-				SkipDefaultTransaction:                   tt.skipDefaultTransaction,
-				PrepareStmt:                              tt.prepareStmt,
-				DisableForeignKeyConstraintWhenMigrating: tt.disableForeignKeyConstraintWhenMigrating,
-				AllowGlobalUpdate:                        tt.allowGlobalUpdate,
-				CreateBatchSize:                          tt.createBatchSize,
-				SingularTable:                            tt.singularTable,
-				QueryFields:                              true,
-				DisableNestedTransaction:                 false,
-			}
-
-			config := gormConfig(mysqlConfig)
-			assert.NotNil(t, config)
-
-			// 验证 GORM 配置
-			assert.Equal(t, tt.skipDefaultTransaction, config.SkipDefaultTransaction)
-			assert.Equal(t, tt.prepareStmt, config.PrepareStmt)
-			assert.Equal(t, tt.disableForeignKeyConstraintWhenMigrating, config.DisableForeignKeyConstraintWhenMigrating)
-			assert.Equal(t, tt.allowGlobalUpdate, config.AllowGlobalUpdate)
-			assert.Equal(t, tt.createBatchSize, config.CreateBatchSize)
-			assert.NotNil(t, config.NamingStrategy)
-
-			// 验证logger配置
-			assert.NotNil(t, config.Logger)
-			gormLogger, ok := config.Logger.(*GormLogger)
-			assert.True(t, ok)
-			assert.NotNil(t, gormLogger)
-			assert.Equal(t, time.Duration(tt.slowThreshold)*time.Millisecond, gormLogger.Config.SlowThreshold)
-			assert.Equal(t, tt.ignoreRecordNotFoundError, gormLogger.Config.IgnoreRecordNotFoundError)
-		})
+func TestGormConfig(t *testing.T) {
+	c := database.DefaultDatabaseConfig()
+	gc := gormConfig(c)
+	if gc.SkipDefaultTransaction != c.SkipDefaultTransaction {
+		t.Fatal("SkipDefaultTransaction not applied")
+	}
+	if gc.PrepareStmt != c.PrepareStmt {
+		t.Fatal("PrepareStmt not applied")
+	}
+	if gc.Logger == nil {
+		t.Fatal("custom gorm logger not set")
 	}
 }

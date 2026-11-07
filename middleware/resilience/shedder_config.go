@@ -13,7 +13,7 @@ package resilience
 import (
 	"time"
 
-	shedderconfig "github.com/kamalyes/go-config/pkg/shedder"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 )
 
 // ============================================================================
@@ -21,7 +21,7 @@ import (
 // [EN] Local adapters for the shedding configuration
 // ============================================================================
 //
-// 配置类型本身在 go-config 的 pkg/shedder（shedderconfig.Shedder），
+// 配置类型本身在 go-config 的 pkg/shedder（gcmiddleware.Shedder），
 // 与熔断配置下沉到 pkg/breaker 的惯例一致，YAML 侧对应 middleware.shedder 子树
 // 本文件只提供两类 go-config 没有的东西：
 //
@@ -33,7 +33,7 @@ import (
 // 一旦加进去，别的使用方即使用别的算法也会被这套约束绑住
 //
 // [EN] The configuration type itself lives in go-config's pkg/shedder
-// (shedderconfig.Shedder), mirroring how the breaker config sits in pkg/breaker, and is read
+// (gcmiddleware.Shedder), mirroring how the breaker config sits in pkg/breaker, and is read
 // from the middleware.shedder YAML subtree. This file only adds what go-config deliberately
 // does not carry: the millisecond-to-Duration conversions, and the fallback of invalid values
 // to defaults. Those constraints (buckets capped at the window's millisecond count, beta
@@ -58,8 +58,8 @@ import (
 // normally cfg.Middleware.Shedder itself, and writing clamped buckets or substituted
 // thresholds back into the global config tree would make a config dump show something other
 // than what the operator wrote. A shallow copy suffices, since ExcludePaths is only read
-func normalizeShedderConfig(cfg *shedderconfig.Shedder) *shedderconfig.Shedder {
-	def := shedderconfig.Default()
+func normalizeShedderConfig(cfg *gcmiddleware.Shedder) *gcmiddleware.Shedder {
+	def := gcmiddleware.DefaultShedder()
 	if cfg == nil {
 		return def
 	}
@@ -100,26 +100,26 @@ func normalizeShedderConfig(cfg *shedderconfig.Shedder) *shedderconfig.Shedder {
 
 // shedderWindowSpan 返回滑窗总长度
 //
-// 三个换算函数都是包级函数而不是方法：shedderconfig.Shedder 是 go-config 的类型，
+// 三个换算函数都是包级函数而不是方法：gcmiddleware.Shedder 是 go-config 的类型，
 // 本包无法为它定义方法，也不该为了三行换算在配置库里加 API
 //
 // [EN] Returns the sliding window span. These three conversions are package functions rather
-// than methods because shedderconfig.Shedder belongs to go-config and methods cannot be
+// than methods because gcmiddleware.Shedder belongs to go-config and methods cannot be
 // attached from here — nor should three lines of arithmetic become API in a config library
-func shedderWindowSpan(cfg *shedderconfig.Shedder) time.Duration {
+func shedderWindowSpan(cfg *gcmiddleware.Shedder) time.Duration {
 	return time.Duration(cfg.WindowMS) * time.Millisecond
 }
 
 // shedderCooldown 返回降载冷却时长
 //
 // [EN] Returns the shedding cool-off duration
-func shedderCooldown(cfg *shedderconfig.Shedder) time.Duration {
+func shedderCooldown(cfg *gcmiddleware.Shedder) time.Duration {
 	return time.Duration(cfg.CooldownMS) * time.Millisecond
 }
 
 // shedderMinRT 返回滑窗无样本时的兜底响应时间
 //
 // [EN] Returns the fallback response time used when the window holds no sample
-func shedderMinRT(cfg *shedderconfig.Shedder) time.Duration {
+func shedderMinRT(cfg *gcmiddleware.Shedder) time.Duration {
 	return time.Duration(cfg.MinRTMS) * time.Millisecond
 }

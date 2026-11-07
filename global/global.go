@@ -17,33 +17,29 @@ import (
 	"time"
 
 	"github.com/bwmarrin/snowflake"
-	goconfig "github.com/kamalyes/go-config"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-logger"
-	"github.com/kamalyes/go-natsx"
+	"github.com/kamalyes/go-rpc-gateway/config"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
-	natsclient "github.com/kamalyes/go-rpc-gateway/cpool/nats"
 	"github.com/kamalyes/go-toolbox/pkg/desensitize"
-	gowsc "github.com/kamalyes/go-wsc"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
 var (
-	GATEWAY        *gwconfig.Gateway                         // 网关配置
-	LOGGER         logger.ILogger                            // 日志器
-	POOL_MANAGER   *cpool.Manager                            // 连接池管理器（所有连接的唯一管理者）
-	CONFIG_MANAGER *goconfig.IntegratedConfigManager         // 统一配置管理器
-	CTX            context.Context                           // 全局上下文
-	CANCEL         context.CancelFunc                        // 上下文取消函数
-	WSCHUB         *gowsc.Hub                                // 全局WebSocket服务实例
-	Node           *snowflake.Node                           // 雪花算法节点（用于分布式ID生成）
-	LOG            logger.ILogger                            // 日志器别名（兼容旧代码）
-	DB             *gorm.DB                                  // 数据库连接（便捷引用，实际由 PoolManager 管理）
-	REDIS          redis.UniversalClient                     // Redis连接（便捷引用，实际由 PoolManager 管理）
-	DATAMASKER     *desensitize.DataMasker                   // 数据脱敏器
-	SERVER_NODE    string                                    // 当前服务节点标识（K8s 环境下为 Pod 名称），用于响应头和 gRPC metadata 透传
-	GPerFix        string                            = "gw_" // 全局表前缀
+	GATEWAY        *gwconfig.Gateway                       // 网关配置
+	LOGGER         logger.ILogger                          // 日志器
+	POOL_MANAGER   *cpool.Manager                          // 连接池管理器（所有连接的唯一管理者）
+	CONFIG_MANAGER *config.IntegratedConfigManager         // 统一配置管理器
+	CTX            context.Context                         // 全局上下文
+	CANCEL         context.CancelFunc                      // 上下文取消函数
+	Node           *snowflake.Node                         // 雪花算法节点（用于分布式ID生成）
+	LOG            logger.ILogger                          // 日志器别名（兼容旧代码）
+	DB             *gorm.DB                                // 数据库连接（便捷引用，实际由 PoolManager 管理）
+	REDIS          redis.UniversalClient                   // Redis连接（便捷引用，实际由 PoolManager 管理）
+	DATAMASKER     *desensitize.DataMasker                 // 数据脱敏器
+	SERVER_NODE    string                                  // 当前服务节点标识（K8s 环境下为 Pod 名称），用于响应头和 gRPC metadata 透传
+	GPerFix        string                          = "gw_" // 全局表前缀
 )
 
 // EnsureLoggerInitialized 确保全局日志器被正确初始化
@@ -75,7 +71,7 @@ func CleanupGlobal() {
 		CANCEL()
 	}
 
-	// 关闭连接池管理器（会自动关闭所有连接：DB、Redis、ClickHouse、NATS 等）
+	// 关闭连接池管理器（会自动关闭所有连接：PG、Redis 等）
 	if POOL_MANAGER != nil {
 		if err := POOL_MANAGER.Close(); err != nil {
 			LOGGER.InfoContext(ctx, "❌ 关闭连接池管理器失败: %v", err)
@@ -102,7 +98,6 @@ func CleanupGlobal() {
 	Node = nil
 	CTX = nil
 	CANCEL = nil
-	WSCHUB = nil
 	SERVER_NODE = ""
 
 	if LOGGER != nil {
@@ -141,34 +136,6 @@ func GetRedis() redis.UniversalClient {
 	return REDIS
 }
 
-// GetClickHouse 获取 ClickHouse gorm 连接
-// 直接从 PoolManager 获取，避免冗余存储
-func GetClickHouse() *gorm.DB {
-	if POOL_MANAGER != nil {
-		return POOL_MANAGER.GetClickHouse()
-	}
-	return nil
-}
-
-// GetNats 获取 NATS 连接封装（包含 Conn 和 JetStream）
-// 直接从 PoolManager 获取，避免冗余存储
-func GetNats() *natsclient.NatsConn {
-	if POOL_MANAGER != nil {
-		return POOL_MANAGER.GetNats()
-	}
-	return nil
-}
-
-// GetNatsX 获取 go-natsx 易用性封装客户端
-// 提供泛型发布/订阅、批量流式消费、WorkerPool 等高级功能
-// 直接从 PoolManager 获取，避免冗余存储
-func GetNatsX() *natsx.Client {
-	if POOL_MANAGER != nil {
-		return POOL_MANAGER.GetNatsX()
-	}
-	return nil
-}
-
 // GetSnowflakeNode 获取雪花算法节点
 func GetSnowflakeNode() *snowflake.Node {
 	return Node
@@ -180,18 +147,13 @@ func GetServerNode() string {
 	return SERVER_NODE
 }
 
-// GetWebSocketService 获取全局WebSocket服务实例
-func GetWebSocketService() *gowsc.Hub {
-	return WSCHUB
-}
-
 // GetGatewayConfig 获取网关配置
 func GetGatewayConfig() *gwconfig.Gateway {
 	return GATEWAY
 }
 
 // GetConfigManager 获取配置管理器
-func GetConfigManager() *goconfig.IntegratedConfigManager {
+func GetConfigManager() *config.IntegratedConfigManager {
 	return CONFIG_MANAGER
 }
 
@@ -219,9 +181,9 @@ func ReloadConfig() error {
 }
 
 // GetEnvironment 获取当前环境
-func GetEnvironment() goconfig.EnvironmentType {
+func GetEnvironment() config.EnvironmentType {
 	if CONFIG_MANAGER != nil {
 		return CONFIG_MANAGER.GetEnvironment()
 	}
-	return goconfig.GetEnvironment()
+	return config.GetEnvironment()
 }

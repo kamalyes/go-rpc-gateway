@@ -9,7 +9,7 @@ import (
     "log"
     "os"
 
-    goconfig "github.com/kamalyes/go-config"
+    goconfig "github.com/kamalyes/go-rpc-gateway/config"
     "github.com/kamalyes/go-rpc-gateway/gateway"
 )
 
@@ -97,7 +97,7 @@ func main() {
 package bootstrap
 
 import (
-    goconfig "github.com/kamalyes/go-config"
+    goconfig "github.com/kamalyes/go-rpc-gateway/config"
     "github.com/kamalyes/go-rpc-gateway/gateway"
     gwglobal "github.com/kamalyes/go-rpc-gateway/global"
 )

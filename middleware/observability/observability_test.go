@@ -16,16 +16,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kamalyes/go-config/pkg/monitoring"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // newTestMonitoringConfig 创建测试用监控配置（已启用 metrics）
-func newTestMonitoringConfig() *monitoring.Monitoring {
-	return &monitoring.Monitoring{
+func newTestMonitoringConfig() *gcmiddleware.Monitoring {
+	return &gcmiddleware.Monitoring{
 		Enabled: true,
-		Metrics: &monitoring.Metrics{
+		Metrics: &gcmiddleware.MonitoringMetrics{
 			Enabled: true,
 			Buckets: []float64{0.1, 0.5, 1},
 		},
@@ -33,9 +33,9 @@ func newTestMonitoringConfig() *monitoring.Monitoring {
 }
 
 func TestNewMetricsManager_Disabled(t *testing.T) {
-	cfg := &monitoring.Monitoring{
+	cfg := &gcmiddleware.Monitoring{
 		Enabled: true,
-		Metrics: &monitoring.Metrics{Enabled: false},
+		Metrics: &gcmiddleware.MonitoringMetrics{Enabled: false},
 	}
 	if mm := NewMetricsManager(cfg); mm != nil {
 		t.Error("metrics 未启用时应返回 nil")
@@ -211,55 +211,6 @@ func TestBreakerCollector(t *testing.T) {
 	}
 }
 
-func TestWSCCollector(t *testing.T) {
-	mm := NewMetricsManager(newTestMonitoringConfig())
-	mm.SetWSCStatsFn(func() *WSCStats {
-		return &WSCStats{
-			TotalClients:     10,
-			WebSocketClients: 8,
-			SSEClients:       2,
-			OnlineUsers:      5,
-			MessagesSent:     1000,
-			MessagesReceived: 2000,
-			BroadcastsSent:   100,
-			QueuedMessages:   3,
-			Uptime:           60000, // 毫秒
-		}
-	})
-
-	families, err := mm.registry.Gather()
-	if err != nil {
-		t.Fatalf("Gather 失败: %v", err)
-	}
-
-	names := make(map[string]bool)
-	for _, f := range families {
-		names[f.GetName()] = true
-	}
-	for _, expected := range []string{
-		"gateway_wsc_total_clients",
-		"gateway_wsc_websocket_clients",
-		"gateway_wsc_online_users",
-		"gateway_wsc_messages_sent_total",
-		"gateway_wsc_messages_received_total",
-		"gateway_wsc_uptime_seconds",
-	} {
-		if !names[expected] {
-			t.Errorf("未找到 WebSocket 指标 %s", expected)
-		}
-	}
-}
-
-func TestWSCCollector_NilStats(t *testing.T) {
-	mm := NewMetricsManager(newTestMonitoringConfig())
-	mm.SetWSCStatsFn(func() *WSCStats { return nil })
-
-	// 不应 panic
-	if _, err := mm.registry.Gather(); err != nil {
-		t.Fatalf("Gather 失败: %v", err)
-	}
-}
-
 func TestRecordRateLimitRejected(t *testing.T) {
 	mm := NewMetricsManager(newTestMonitoringConfig())
 
@@ -288,7 +239,6 @@ func TestSetters_NilManager(t *testing.T) {
 	var mm *MetricsManager
 	mm.SetPoolHealthFn(func() map[string]bool { return nil })
 	mm.SetBreakerStatsFn(func() []BreakerStat { return nil })
-	mm.SetWSCStatsFn(func() *WSCStats { return nil })
 }
 
 // processMetricsSupported 探测本平台能否采集 process 指标

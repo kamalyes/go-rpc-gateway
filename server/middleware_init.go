@@ -48,11 +48,11 @@ func (s *Server) initHealthManager() error {
 		healthManager.RegisterChecker(redisChecker)
 	}
 
-	// 添加MySQL健康检查
+	// 添加PostgreSQL健康检查（配置键沿用 health.mysql 保持配置兼容）
 	if s.config.Health.MySQL.Enabled {
 		timeout := time.Duration(s.config.Health.MySQL.Timeout) * time.Second
-		mysqlChecker := middleware.NewMySQLChecker(timeout)
-		healthManager.RegisterChecker(mysqlChecker)
+		pgChecker := middleware.NewPostgreSQLChecker(timeout)
+		healthManager.RegisterChecker(pgChecker)
 	}
 
 	s.healthManager = healthManager
@@ -76,13 +76,7 @@ func (s *Server) initServers() error {
 		global.LOGGER.WithError(err).WarnMsg("命名监听器初始化失败，将跳过启动")
 	}
 
-	// 初始化 WebSocket 服务（如果启用）
-	if err := s.initWebSocket(); err != nil {
-		global.LOGGER.WithError(err).WarnMsg("WebSocket 服务初始化失败，将跳过启动")
-		// 注意：不返回错误，允许系统在没有 WebSocket 的情况下继续运行
-	}
-
-	// 注入扩展指标采集函数（连接池/熔断器/WebSocket）
+	// 注入扩展指标采集函数（连接池/熔断器）
 	// 在所有组件初始化完成后调用，实现按需采集业务指标
 	s.injectMetricsCollectors()
 
@@ -153,32 +147,5 @@ func (s *Server) injectMetricsCollectors() {
 		}
 	}
 
-	// 注入 WebSocket 统计采集函数
-	if s.webSocketService != nil {
-		wsSvc := s.webSocketService
-		mm.SetWSCStatsFn(func() *middleware.WSCStats {
-			hub := wsSvc.GetHub()
-			if hub == nil {
-				return nil
-			}
-			stats := hub.Stats().GetStats()
-			if stats == nil {
-				return nil
-			}
-			return &middleware.WSCStats{
-				TotalClients:     stats.TotalClients,
-				WebSocketClients: stats.WebSocketClients,
-				SSEClients:       stats.SSEClients,
-				AgentConnections: stats.AgentConnections,
-				OnlineUsers:      stats.OnlineUsers,
-				MessagesSent:     stats.MessagesSent,
-				MessagesReceived: stats.MessagesReceived,
-				BroadcastsSent:   stats.BroadcastsSent,
-				QueuedMessages:   stats.QueuedMessages,
-				Uptime:           stats.Uptime,
-			}
-		})
-	}
-
-	global.LOGGER.InfoMsg("✅ 扩展指标采集函数已注入（连接池/熔断器/降载器/WebSocket）")
+	global.LOGGER.InfoMsg("✅ 扩展指标采集函数已注入（连接池/熔断器/降载器）")
 }

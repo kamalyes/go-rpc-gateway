@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	shedderconfig "github.com/kamalyes/go-config/pkg/shedder"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -45,8 +45,8 @@ func (f *fakeCPU) read() (int64, bool) {
 }
 
 // newTestShedderConfig 测试用降载配置：窗口 1s / 10 桶（单桶 100ms），冷却 1s
-func newTestShedderConfig() *shedderconfig.Shedder {
-	return &shedderconfig.Shedder{
+func newTestShedderConfig() *gcmiddleware.Shedder {
+	return &gcmiddleware.Shedder{
 		Enabled:       true,
 		CPUThreshold:  900,
 		WindowMS:      1000,
@@ -504,7 +504,7 @@ func TestShedder_ConcurrentAllowSettleNoLeak(t *testing.T) {
 // ============================================================================
 
 func TestShedderManager_DefaultExcludePaths(t *testing.T) {
-	m := NewShedderManager(&shedderconfig.Shedder{Enabled: true, ExcludePaths: shedderconfig.Default().ExcludePaths})
+	m := NewShedderManager(&gcmiddleware.Shedder{Enabled: true, ExcludePaths: gcmiddleware.DefaultShedder().ExcludePaths})
 
 	protected := []string{"/api/v1/users", "/", "/v1/messages/send"}
 	for _, p := range protected {
@@ -523,7 +523,7 @@ func TestShedderManager_DefaultExcludePaths(t *testing.T) {
 }
 
 func TestShedderManager_ExcludeIsPrefixMatch(t *testing.T) {
-	m := NewShedderManager(&shedderconfig.Shedder{Enabled: true, ExcludePaths: []string{"/internal/"}})
+	m := NewShedderManager(&gcmiddleware.Shedder{Enabled: true, ExcludePaths: []string{"/internal/"}})
 
 	if m.IsPathProtected("/internal/debug/vars") {
 		t.Error("排除规则应按前缀匹配，子路径也要排除")
@@ -552,8 +552,8 @@ func TestShedderManager_NilSafe(t *testing.T) {
 
 func TestShedderManager_NormalizesConfig(t *testing.T) {
 	// 非法配置必须回落默认而不是让网关起不来
-	def := shedderconfig.Default()
-	m := NewShedderManager(&shedderconfig.Shedder{Enabled: true, CPUThreshold: 5000, WindowBuckets: -1, FlyingBeta: 2})
+	def := gcmiddleware.DefaultShedder()
+	m := NewShedderManager(&gcmiddleware.Shedder{Enabled: true, CPUThreshold: 5000, WindowBuckets: -1, FlyingBeta: 2})
 	cfg := m.Config()
 	if cfg.CPUThreshold != def.CPUThreshold {
 		t.Errorf("越界的 CPU 阈值应回落默认, got %d", cfg.CPUThreshold)
@@ -984,7 +984,7 @@ func TestShedderNewWithCPUFunc_NilFuncIsSafe(t *testing.T) {
 
 func TestNormalizeShedderConfig_NilUsesDefault(t *testing.T) {
 	cfg := normalizeShedderConfig(nil)
-	def := shedderconfig.Default()
+	def := gcmiddleware.DefaultShedder()
 	if cfg == nil {
 		t.Fatal("入参为 nil 时应返回一份默认配置而不是 nil")
 	}
@@ -995,8 +995,8 @@ func TestNormalizeShedderConfig_NilUsesDefault(t *testing.T) {
 }
 
 func TestNormalizeShedderConfig_InvalidFieldsFallBack(t *testing.T) {
-	def := shedderconfig.Default()
-	cfg := normalizeShedderConfig(&shedderconfig.Shedder{
+	def := gcmiddleware.DefaultShedder()
+	cfg := normalizeShedderConfig(&gcmiddleware.Shedder{
 		CPUThreshold:   5000, // 超出 (0,1000]
 		MaxConcurrency: -1,
 		WindowMS:       0,
@@ -1021,7 +1021,7 @@ func TestNormalizeShedderConfig_InvalidFieldsFallBack(t *testing.T) {
 }
 
 func TestNormalizeShedderConfig_KeepsValidFields(t *testing.T) {
-	src := &shedderconfig.Shedder{
+	src := &gcmiddleware.Shedder{
 		ModuleName:     "shedder-test",
 		Enabled:        true,
 		CPUThreshold:   850,
@@ -1052,7 +1052,7 @@ func TestNormalizeShedderConfig_KeepsValidFields(t *testing.T) {
 }
 
 func TestNormalizeShedderConfig_ClampsBuckets(t *testing.T) {
-	cfg := normalizeShedderConfig(&shedderconfig.Shedder{WindowMS: 10, WindowBuckets: 1000})
+	cfg := normalizeShedderConfig(&gcmiddleware.Shedder{WindowMS: 10, WindowBuckets: 1000})
 	if cfg.WindowBuckets != 10 {
 		t.Errorf("桶数不应超过窗口毫秒数, got %d", cfg.WindowBuckets)
 	}
@@ -1061,7 +1061,7 @@ func TestNormalizeShedderConfig_ClampsBuckets(t *testing.T) {
 // TestNormalizeShedderConfig_DoesNotMutateInput 归一化必须返回副本
 // 入参通常就是 cfg.Middleware.Shedder 本身，就地改写会把回落后的值写回全局配置树
 func TestNormalizeShedderConfig_DoesNotMutateInput(t *testing.T) {
-	src := &shedderconfig.Shedder{Enabled: true, WindowMS: 10, WindowBuckets: 1000, FlyingBeta: 2}
+	src := &gcmiddleware.Shedder{Enabled: true, WindowMS: 10, WindowBuckets: 1000, FlyingBeta: 2}
 	cfg := normalizeShedderConfig(src)
 	if cfg == src {
 		t.Fatal("应返回副本而不是入参本身")
@@ -1072,7 +1072,7 @@ func TestNormalizeShedderConfig_DoesNotMutateInput(t *testing.T) {
 }
 
 func TestShedderDurationHelpers(t *testing.T) {
-	cfg := &shedderconfig.Shedder{WindowMS: 3000, CooldownMS: 800, MinRTMS: 600}
+	cfg := &gcmiddleware.Shedder{WindowMS: 3000, CooldownMS: 800, MinRTMS: 600}
 	if shedderWindowSpan(cfg) != 3*time.Second ||
 		shedderCooldown(cfg) != 800*time.Millisecond ||
 		shedderMinRT(cfg) != 600*time.Millisecond {
@@ -1085,7 +1085,7 @@ func TestShedderDurationHelpers(t *testing.T) {
 // 默认关闭是因为降载会主动丢流量，默认排除健康检查/指标是因为它们被丢会把一次
 // 本可自愈的过载变成重启风暴
 func TestShedderConfigDefault_SafeDefaults(t *testing.T) {
-	cfg := shedderconfig.Default()
+	cfg := gcmiddleware.DefaultShedder()
 	if cfg.Enabled {
 		t.Error("降载默认应关闭：主动丢流量的策略必须由使用方显式开启")
 	}

@@ -13,8 +13,8 @@ package redis
 import (
 	"context"
 
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-logger"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/redis/go-redis/v9"
 )
 

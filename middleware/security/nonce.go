@@ -18,12 +18,12 @@ import (
 	"net/http"
 	"time"
 
-	validator "github.com/kamalyes/go-argus"
-	"github.com/kamalyes/go-config/pkg/signature"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
 	"github.com/kamalyes/go-rpc-gateway/response"
+	validator "github.com/kamalyes/go-toolbox/pkg/argus"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -34,7 +34,7 @@ import (
 // - 检测重放攻击（同一 Nonce 被多次使用）
 // - 旧客户端未携带 Nonce 时基于请求指纹自动派生，无需改造即获得防重放能力
 // - 便于安全审计（可以统计 Nonce 使用频率）
-func NonceMiddleware(config *signature.Signature) core.HTTPMiddleware {
+func NonceMiddleware(config *gcmiddleware.Signature) core.HTTPMiddleware {
 	if !config.Enabled {
 		return core.NoopMiddleware
 	}
@@ -107,7 +107,7 @@ func NonceMiddleware(config *signature.Signature) core.HTTPMiddleware {
 // 指纹 = Authorization + AccessKey + Timestamp + Query + Body 的 MD5
 // 同一签名请求被原样重放时派生值相同，将被防重放检测拦截
 // 正常重试会携带新 Timestamp 重新签名，派生值不同，不受影响
-func deriveNonce(r *http.Request, requestCommonMeta *core.RequestCommonMeta, config *signature.Signature) (string, error) {
+func deriveNonce(r *http.Request, requestCommonMeta *core.RequestCommonMeta, config *gcmiddleware.Signature) (string, error) {
 	body, err := readRequestBody(r, config.SkipBody)
 	if err != nil {
 		return "", fmt.Errorf("failed to read request body: %w", err)

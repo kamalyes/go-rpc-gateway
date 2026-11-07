@@ -15,9 +15,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kamalyes/go-config/pkg/banner"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-logger"
+	banner "github.com/kamalyes/go-rpc-gateway/config/core"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 )
 
@@ -58,7 +58,7 @@ func (b *BannerManager) printStartupBanner(report startupReport) {
 	if report.bannerTemplate != "" {
 		b.cg.Debug("%s", report.bannerTemplate)
 	} else {
-		b.cg.Debug("%s", banner.Default().Template)
+		b.cg.Debug("%s", banner.DefaultBanner().Template)
 	}
 	b.cg.Info("🚀 %s - Enterprise Edition", report.title)
 

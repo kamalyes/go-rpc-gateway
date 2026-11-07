@@ -46,7 +46,6 @@ var (
 | `GetMinIO()` | `*minio.Client` | [global.go:L148](../global/global.go#L148) |
 | `GetClickHouse()` | `*gorm.DB` | [global.go:L154](../global/global.go#L154) |
 | `GetNats()` | `*natsclient.NatsConn` | [global.go:L163](../global/global.go#L163) |
-| `GetNatsX()` | `*natsx.Client` | [global.go:L173](../global/global.go#L173) |
 | `GetSnowflakeNode()` | `*snowflake.Node` | [global.go:L181](../global/global.go#L181) |
 | `GetServerNode()` | `string` | [global.go:L187](../global/global.go#L187) |
 | `GetWebSocketService()` | `*gowsc.Hub` | [global.go:L192](../global/global.go#L192) |

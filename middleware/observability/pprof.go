@@ -20,27 +20,27 @@ import (
 	"strings"
 	"sync"
 
-	validator "github.com/kamalyes/go-argus"
-	gopprof "github.com/kamalyes/go-config/pkg/pprof"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	validator "github.com/kamalyes/go-toolbox/pkg/argus"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 )
 
 // PProfServer 可控制的pprof服务器实例 它允许在配置更改时停止和重新创建服务器
 type PProfServer struct {
-	cfg        *gopprof.PProf
+	cfg        *gcmiddleware.PProf
 	httpServer *http.Server
 	mu         sync.Mutex
 }
 
 // NewPProfServer 创建可控制的pprof服务器实例
-func NewPProfServer(cfg *gopprof.PProf) *PProfServer {
+func NewPProfServer(cfg *gcmiddleware.PProf) *PProfServer {
 	return &PProfServer{cfg: cfg}
 }
 
 // initSamplingConfig 初始化采样配置
-func initSamplingConfig(cfg *gopprof.PProf) {
+func initSamplingConfig(cfg *gcmiddleware.PProf) {
 	if cfg == nil || cfg.Sampling == nil {
 		return
 	}
@@ -62,7 +62,7 @@ func initSamplingConfig(cfg *gopprof.PProf) {
 }
 
 // authenticateRequest 认证请求
-func authenticateRequest(cfg *gopprof.PProf, r *http.Request) bool {
+func authenticateRequest(cfg *gcmiddleware.PProf, r *http.Request) bool {
 	if cfg.Authentication == nil || !cfg.Authentication.Enabled {
 		return true
 	}
@@ -84,7 +84,7 @@ func authenticateRequest(cfg *gopprof.PProf, r *http.Request) bool {
 }
 
 // checkPProfIPWhitelist 检查pprof IP白名单
-func checkPProfIPWhitelist(cfg *gopprof.PProf, r *http.Request) bool {
+func checkPProfIPWhitelist(cfg *gcmiddleware.PProf, r *http.Request) bool {
 	if cfg.Authentication == nil || len(cfg.Authentication.AllowedIPs) == 0 {
 		return true
 	}
@@ -94,7 +94,7 @@ func checkPProfIPWhitelist(cfg *gopprof.PProf, r *http.Request) bool {
 }
 
 // isProfileEnabled 检查是否启用了对应的性能分析
-func isProfileEnabled(cfg *gopprof.PProf, pprofPath string) bool {
+func isProfileEnabled(cfg *gcmiddleware.PProf, pprofPath string) bool {
 	if cfg.EnableProfiles == nil {
 		return true
 	}
@@ -124,7 +124,7 @@ func isProfileEnabled(cfg *gopprof.PProf, pprofPath string) bool {
 }
 
 // createAuthMiddleware 创建认证中间件
-func createAuthMiddleware(cfg *gopprof.PProf) func(http.Handler) http.Handler {
+func createAuthMiddleware(cfg *gcmiddleware.PProf) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// 认证检查
@@ -222,6 +222,6 @@ func (s *PProfServer) Shutdown(ctx context.Context) error {
 }
 
 // StartPProfServer 启动独立的pprof服务器
-func StartPProfServer(cfg *gopprof.PProf) error {
+func StartPProfServer(cfg *gcmiddleware.PProf) error {
 	return NewPProfServer(cfg).Start()
 }

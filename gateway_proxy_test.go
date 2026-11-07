@@ -16,7 +16,7 @@ import (
 	"testing"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	grpcpool "github.com/kamalyes/go-rpc-gateway/cpool/grpc"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/server"

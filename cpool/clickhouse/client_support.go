@@ -1,15 +1,22 @@
+//go:build clickhouse
+
 /*
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2026-04-28 15:20:16
- * @FilePath: \go-rpc-gateway\cpool\clickhouse\client.go
+ * @FilePath: \go-rpc-gateway\cpool\clickhouse\client_support.go
  * @Description: ClickHouse 数据库连接工厂函数
  * 支持原生 ClickHouse 连接和标准 database/sql 接口两种模式
  * 遵循纯工厂函数模式，不维护包级全局状态，由 Manager 统一管理连接生命周期
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
  */
+
+// client_support 仅在启用 clickhouse 构建标签（-tags clickhouse）时编译。
+// ClickHouse/clickhouse-go/v2 连带 gorm clickhouse 驱动、lz4、segmentio/asm、
+// ch-go 等传递依赖（约 5MB），未使用 ClickHouse 的服务默认不编译进生产二进制
+
 package clickhouse
 
 import (
@@ -20,10 +27,10 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-config/pkg/tsdb"
-	"github.com/kamalyes/go-logger"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
+	"github.com/kamalyes/go-rpc-gateway/config/tsdb"
 	"github.com/kamalyes/go-rpc-gateway/cpool/database"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 	gormch "gorm.io/driver/clickhouse"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"

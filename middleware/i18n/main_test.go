@@ -15,9 +15,9 @@ import (
 	"os"
 	"testing"
 
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-logger"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/kamalyes/go-rpc-gateway/global"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 )
 
 // TestMain 测试入口

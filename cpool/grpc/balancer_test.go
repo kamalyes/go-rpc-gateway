@@ -179,6 +179,12 @@ func TestP2CPicker_DoneReleasesInflight(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, node.inflight.Load(), "Pick 之后在途数应为 1")
 
+	// 留出可测量的延迟样本：Windows 计时器分辨率下 pick→done 间隔可为 0ns，
+	// 样本为 0 会让下面的 ewma 断言 flaky
+	// [EN] Leave a measurable latency sample: on Windows the pick→done gap can
+	// be 0ns, and a zero sample makes the ewma assertion below flaky
+	time.Sleep(time.Millisecond)
+
 	result.Done(balancer.DoneInfo{BytesSent: true, BytesReceived: true})
 	assert.EqualValues(t, 0, node.inflight.Load())
 	assert.Greater(t, node.ewma.Load(), uint64(0), "完成的调用应留下延迟样本")
@@ -545,6 +551,13 @@ func TestP2CBalancer_EndToEndThroughClientConn(t *testing.T) {
 	for _, node := range pb.nodes {
 		assert.Equal(t, lis.Addr().String(), node.addr)
 		assert.EqualValues(t, 0, node.inflight.Load(), "调用结束后在途数应归零")
-		assert.Greater(t, node.ewma.Load(), uint64(0), "应留下延迟样本，证明走的是我们的 Done 回调")
+		// 断言 lastUpdate 而非 ewma：Windows 单调时钟分辨率粗，一趟快的回环 RPC
+		// 会被采样成 0ns，ewma 因此可为 0；lastUpdate 在 observe 里无条件 Swap，
+		// 只要 Done 回调跑过就必然 > 0，与时钟分辨率无关
+		// [EN] Assert on lastUpdate instead of ewma: Windows' coarse monotonic clock
+		// can sample a fast loopback RPC as 0ns, leaving ewma at zero; lastUpdate is
+		// unconditionally swapped inside observe, so any Done callback run makes it
+		// positive regardless of clock resolution
+		assert.Greater(t, node.lastUpdate.Load(), int64(0), "应留下延迟样本，证明走的是我们的 Done 回调")
 	}
 }

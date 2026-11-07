@@ -17,15 +17,13 @@ import (
 
 	"github.com/bwmarrin/snowflake"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	cachex "github.com/kamalyes/go-cachex"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-logger"
-	"github.com/kamalyes/go-natsx"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	chclient "github.com/kamalyes/go-rpc-gateway/cpool/clickhouse"
 	"github.com/kamalyes/go-rpc-gateway/cpool/database"
 	natsclient "github.com/kamalyes/go-rpc-gateway/cpool/nats"
 	"github.com/kamalyes/go-rpc-gateway/cpool/redis"
 	"github.com/kamalyes/go-rpc-gateway/cpool/smtp"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 	redisClient "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
@@ -40,9 +38,6 @@ type PoolManager interface {
 
 	// 获取Redis客户端
 	GetRedis() redisClient.UniversalClient
-
-	// 获取缓存客户端
-	GetCache() cachex.CtxCache
 
 	// 获取MQTT客户端
 	GetMQTT() mqtt.Client
@@ -59,17 +54,11 @@ type PoolManager interface {
 	// 获取NATS连接封装（包含 Conn 和 JetStream）
 	GetNats() *natsclient.NatsConn
 
-	// 获取 go-natsx 易用性封装客户端
-	GetNatsX() *natsx.Client
-
 	// 设置数据库连接
 	SetDB(db *gorm.DB)
 
 	// 设置Redis客户端
 	SetRedis(rdb redisClient.UniversalClient)
-
-	// 设置缓存客户端
-	SetCache(cache cachex.CtxCache)
 
 	// 设置MQTT客户端
 	SetMQTT(mqtt mqtt.Client)
@@ -107,7 +96,6 @@ type Manager struct {
 	// 连接实例
 	db         *gorm.DB
 	redis      redisClient.UniversalClient
-	cache      cachex.CtxCache
 	smtp       smtp.MailHandler
 	mqtt       mqtt.Client
 	snowflake  *snowflake.Node
@@ -289,7 +277,7 @@ func (m *Manager) initClickHouse(ctx context.Context) error {
 
 // initNats 初始化 NATS 连接
 // NATS 是高性能轻量级消息队列，支持发布/订阅和 JetStream 持久化消息流
-// 默认启用 go-natsx 易用性封装客户端，提供泛型发布/订阅、批量流式消费等高级功能
+// 连接与 JetStream 上下文均由 nats-io/nats.go 官方客户端提供，不经第三方封装
 func (m *Manager) initNats(ctx context.Context) error {
 	if m.cfg == nil || m.cfg.Nats == nil || !m.cfg.Nats.Enabled {
 		m.logger.InfoContext(ctx, "NATS disabled, skipping initialization")
@@ -318,12 +306,6 @@ func (m *Manager) GetRedis() redisClient.UniversalClient {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.redis
-}
-
-func (m *Manager) GetCache() cachex.CtxCache {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.cache
 }
 
 func (m *Manager) GetMQTT() mqtt.Client {
@@ -356,15 +338,6 @@ func (m *Manager) GetNats() *natsclient.NatsConn {
 	return m.nats
 }
 
-func (m *Manager) GetNatsX() *natsx.Client {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.nats != nil {
-		return m.nats.Client
-	}
-	return nil
-}
-
 // GetSMTPClient 获取SMTP客户端（兼容 go-wsc.PoolManager 接口）
 func (m *Manager) GetSMTPClient() interface{} {
 	return m.GetSMTP()
@@ -381,12 +354,6 @@ func (m *Manager) SetRedis(rdb redisClient.UniversalClient) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.redis = rdb
-}
-
-func (m *Manager) SetCache(cache cachex.CtxCache) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.cache = cache
 }
 
 func (m *Manager) SetMQTT(mqtt mqtt.Client) {
@@ -484,11 +451,9 @@ func (m *Manager) Close() error {
 		m.clickhouse = nil
 	}
 
-	// 关闭 NATS 连接（先释放 go-natsx 客户端资源，再关闭底层连接）
+	// 关闭 NATS 连接
+	// JetStream 上下文不持有独立资源，随底层连接一并释放
 	if m.nats != nil {
-		if m.nats.Client != nil {
-			m.nats.Client.Close()
-		}
 		m.nats.Conn.Close()
 		m.nats = nil
 	}
@@ -544,13 +509,9 @@ func (m *Manager) HealthCheck() map[string]bool {
 		}
 	}
 
-	// 检查 NATS 连接状态（通过 go-natsx 客户端或底层连接验证）
+	// 检查 NATS 连接状态（官方客户端的底层连接）
 	if m.nats != nil {
-		if m.nats.Client != nil {
-			status["nats"] = m.nats.Client.IsConnected()
-		} else {
-			status["nats"] = m.nats.Conn.IsConnected()
-		}
+		status["nats"] = m.nats.Conn.IsConnected()
 	}
 
 	return status

@@ -14,7 +14,7 @@ import (
 	"context"
 	"time"
 
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"google.golang.org/grpc"

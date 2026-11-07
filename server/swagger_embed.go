@@ -13,9 +13,10 @@ package server
 
 import (
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // SwaggerFileProvider 提供访问 Swagger 文件的接口

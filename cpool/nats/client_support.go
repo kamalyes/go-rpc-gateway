@@ -1,39 +1,37 @@
+//go:build mq
+
 /*
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2025-11-12 00:00:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2026-04-28 15:18:59
- * @FilePath: \go-rpc-gateway\cpool\nats\client.go
- * @Description: NATS 连接工厂函数
+ * @FilePath: \go-rpc-gateway\cpool\nats\client_support.go
+ * @Description: NATS 连接工厂函数（mq 构建标签）
  * 支持普通连接和 JetStream 持久化消息流两种模式
- * 集成 go-natsx 易用性封装，提供泛型发布/订阅、批量流式消费等高级功能
+ * 只用 nats-io/nats.go 官方客户端，不再经第三方封装
  * 遵循纯工厂函数模式，不维护包级全局状态，由 Manager 统一管理连接生命周期
  *
  * Copyright (c) 2025 by kamalyes, All Rights Reserved.
  */
+
+// client_support 仅在启用 mq 构建标签（-tags mq）时编译，
+// 提供 NATS 真实连接工厂。nats.go 协议实现约 2MB，
+// 未使用消息队列的服务默认不编译进生产二进制
+
 package nats
 
 import (
 	"context"
 	"time"
 
-	queue "github.com/kamalyes/go-config/pkg/queue"
-	"github.com/kamalyes/go-logger"
-	natsx "github.com/kamalyes/go-natsx"
+	queue "github.com/kamalyes/go-rpc-gateway/config/queue"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/nats-io/nats.go"
 )
 
-// NatsConn 封装 NATS 连接及其关联资源
-// 将底层连接、JetStream 上下文和 go-natsx 客户端绑定在一起，避免分散管理
-type NatsConn struct {
-	Conn      *nats.Conn            // NATS 底层连接实例
-	JetStream nats.JetStreamContext // JetStream 上下文（启用 JetStream 时非 nil）
-	Client    *natsx.Client         // go-natsx 易用性封装客户端（启用时非 nil）
-}
-
 // NewNats 创建 NATS 连接
 // 纯工厂函数，每次调用创建新连接，由调用方管理连接生命周期
-// 支持通过函数式选项配置 JetStream、go-natsx 客户端、WorkerPool 等
+// 连接与 JetStream 都由 nats-io/nats.go 官方客户端提供
 // 参数:
 //   - ctx: 上下文，用于超时控制和取消
 //   - log: 日志记录器
@@ -56,22 +54,14 @@ func NewNats(ctx context.Context, log logger.ILogger, opts *queue.Nats) *NatsCon
 
 	result := &NatsConn{Conn: nc}
 
-	client, err := natsx.NewClient(nc, log)
-	if err != nil {
-		log.ErrorContextKV(ctx, "NATS go-natsx client creation failed", "error", err)
-		nc.Close()
-		return nil
-	}
-	result.Client = client
-
-	// 如果配置了 JetStream，通过 go-natsx 客户端启用
+	// JetStream 上下文直接取自官方客户端的 nc.JetStream()
 	if opts.JetStream {
-		if err := client.EnableJetStream(); err != nil {
+		js, err := nc.JetStream()
+		if err != nil {
 			log.ErrorContextKV(ctx, "NATS JetStream initialization failed", "error", err)
 			nc.Close()
 			return nil
 		}
-		js := client.JetStream()
 		result.JetStream = js
 
 		// 流名由业务建流时决策；此处上报基础设施级运维参数（业务 AddStream 时取用）
@@ -82,10 +72,11 @@ func NewNats(ctx context.Context, log logger.ILogger, opts *queue.Nats) *NatsCon
 		)
 	}
 
-	// 如果配置了 WorkerPool，初始化全局消费者池
+	// WorkerPool 原先由第三方封装提供，官方客户端没有对等物
+	// 配置项仍然存在（config/queue/nats.go 的 WithWorkerPoolSize 等），所以这里显式告警
+	// 而不是静默忽略——否则配过这两项的服务会以为消费者池还在工作
 	if opts.WorkerPoolSize > 0 {
-		client.InitWorkerPool(opts.WorkerPoolSize, opts.WorkerQueueSize)
-		log.InfoContextKV(ctx, "NATS WorkerPool initialized",
+		log.WarnContextKV(ctx, "NATS WorkerPool is no longer available: the official client has no equivalent, setting ignored",
 			"workers", opts.WorkerPoolSize,
 			"queueSize", opts.WorkerQueueSize,
 		)

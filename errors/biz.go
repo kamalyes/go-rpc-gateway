@@ -20,7 +20,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	goi18n "github.com/kamalyes/go-i18n"
+	goi18n "github.com/kamalyes/go-toolbox/pkg/i18n"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

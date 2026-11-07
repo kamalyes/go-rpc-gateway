@@ -13,7 +13,7 @@ package core
 import (
 	"testing"
 
-	"github.com/kamalyes/go-config/pkg/monitoring"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -49,7 +49,7 @@ func TestSmartPathNormalizer_ContentDetection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			n := newSmartPathNormalizer(monitoring.DefaultStaticPaths())
+			n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 			result := n.Normalize(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -59,7 +59,7 @@ func TestSmartPathNormalizer_ContentDetection(t *testing.T) {
 // TestSmartPathNormalizer_PrefixLearning 测试前缀学习（有状态，逐段学习）
 // 验证注释中描述的 bucket 学习流程
 func TestSmartPathNormalizer_PrefixLearning(t *testing.T) {
-	n := newSmartPathNormalizer(monitoring.DefaultStaticPaths())
+	n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 
 	steps := []struct {
 		input    string
@@ -96,7 +96,7 @@ func TestSmartPathNormalizer_PrefixLearning(t *testing.T) {
 // TestSmartPathNormalizer_ResourceCollapse 测试多资源名在同一位置的学习坍缩
 // 不同资源名出现在同一位置时，学习会将该位置标记为动态
 func TestSmartPathNormalizer_ResourceCollapse(t *testing.T) {
-	n := newSmartPathNormalizer(monitoring.DefaultStaticPaths())
+	n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 
 	steps := []struct {
 		input    string
@@ -141,7 +141,7 @@ func TestSmartPathNormalizer_StaticAndQuery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			n := newSmartPathNormalizer(monitoring.DefaultStaticPaths())
+			n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 			result := n.Normalize(tt.path)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -151,7 +151,7 @@ func TestSmartPathNormalizer_StaticAndQuery(t *testing.T) {
 // TestSmartPathNormalizer_Cache 测试缓存和LRU淘汰
 func TestSmartPathNormalizer_Cache(t *testing.T) {
 	t.Run("缓存命中", func(t *testing.T) {
-		n := newSmartPathNormalizer(monitoring.DefaultStaticPaths())
+		n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 		path := "/api/user/123"
 
 		n.Normalize(path)
@@ -163,7 +163,7 @@ func TestSmartPathNormalizer_Cache(t *testing.T) {
 	})
 
 	t.Run("LRU淘汰", func(t *testing.T) {
-		n := newSmartPathNormalizer(monitoring.DefaultStaticPaths())
+		n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 		n.maxCache = 3
 
 		n.Normalize("/api/test/a")
@@ -178,7 +178,7 @@ func TestSmartPathNormalizer_Cache(t *testing.T) {
 
 // TestSmartPathNormalizer_DifferentPrefixes 测试不同前缀独立学习（版本前缀保留）
 func TestSmartPathNormalizer_DifferentPrefixes(t *testing.T) {
-	n := newSmartPathNormalizer(monitoring.DefaultStaticPaths())
+	n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 
 	steps := []struct {
 		input    string
@@ -199,7 +199,7 @@ func TestSmartPathNormalizer_DifferentPrefixes(t *testing.T) {
 
 // TestSmartPathNormalizer_ConcurrentAccess 测试并发安全
 func TestSmartPathNormalizer_ConcurrentAccess(t *testing.T) {
-	n := newSmartPathNormalizer(monitoring.DefaultStaticPaths())
+	n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 	n.Normalize("/api/resource/1")
 	n.Normalize("/api/resource/2")
 
@@ -220,7 +220,7 @@ func TestSmartPathNormalizer_ConcurrentAccess(t *testing.T) {
 
 // TestSmartPathNormalizer_SingletonScenario 测试多资源路径（内容检测+学习混合）
 func TestSmartPathNormalizer_SingletonScenario(t *testing.T) {
-	n := newSmartPathNormalizer(monitoring.DefaultStaticPaths())
+	n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 
 	steps := []struct {
 		input    string
@@ -261,7 +261,7 @@ func TestSmartPathNormalizer_SingletonScenario(t *testing.T) {
 
 // BenchmarkSmartPathNormalizer_Normalize 性能基准测试
 func BenchmarkSmartPathNormalizer_Normalize(b *testing.B) {
-	n := newSmartPathNormalizer(monitoring.DefaultStaticPaths())
+	n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 	n.Normalize("/api/user/1") // 预热缓存
 
 	b.ResetTimer()
@@ -272,7 +272,7 @@ func BenchmarkSmartPathNormalizer_Normalize(b *testing.B) {
 
 // BenchmarkSmartPathNormalizer_CacheHit 缓存命中性能测试
 func BenchmarkSmartPathNormalizer_CacheHit(b *testing.B) {
-	n := newSmartPathNormalizer(monitoring.DefaultStaticPaths())
+	n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 	path := "/api/user/123"
 	n.Normalize(path) // 预热缓存
 
@@ -284,7 +284,7 @@ func BenchmarkSmartPathNormalizer_CacheHit(b *testing.B) {
 
 // BenchmarkSmartPathNormalizer_NewPath 新路径性能测试
 func BenchmarkSmartPathNormalizer_NewPath(b *testing.B) {
-	n := newSmartPathNormalizer(monitoring.DefaultStaticPaths())
+	n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 	n.Normalize("/api/user/1") // 预热
 
 	b.ResetTimer()

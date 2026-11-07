@@ -3,7 +3,7 @@
  * @Date: 2026-11-03 18:02:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2026-11-03 18:22:00
- * @FilePath: \\go-rpc-gateway\\middleware\\security\\cors_test.go
+ * @FilePath: \go-rpc-gateway\middleware\security\cors_test.go
  * @Description: CORS 中间件测试 - 非 CORS 请求零开销、预检与真实请求的头部划分、Vary 声明
  *
  * Copyright (c) 2026 by kamalyes, All Rights Reserved.
@@ -16,20 +16,20 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/kamalyes/go-config/pkg/cors"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/stretchr/testify/assert"
 )
 
-func corsHandler(t *testing.T, cfg *cors.Cors) http.Handler {
+func corsHandler(t *testing.T, cfg *gcmiddleware.Cors) http.Handler {
 	t.Helper()
 	return CORSMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 }
 
-func corsConfig(origins []string, credentials bool) *cors.Cors {
-	c := cors.Default()
+func corsConfig(origins []string, credentials bool) *gcmiddleware.Cors {
+	c := gcmiddleware.DefaultCors()
 	c.AllowedOrigins = origins
 	c.AllowCredentials = credentials
 	c.MaxAge = "600"

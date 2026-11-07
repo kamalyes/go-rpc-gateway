@@ -1,0 +1,61 @@
+// swagger模块配置文件
+// 模块名称: swagger
+// 包名: swagger  
+// 描述: Swagger API文档
+// 生成时间: 2026-03-25 22:19:02
+// 注意: 此文件由配置生成器自动生成
+
+{
+  "moduleName": "swagger",
+  "enabled": false,
+  "jsonPath": "/swagger/doc.json",
+  "uiPath": "/swagger",
+  "yamlPath": "/swagger/doc.yaml",
+  "specPath": "./docs/swagger.yaml",
+  "title": "API Documentation",
+  "description": "API Documentation powered by Swagger UI",
+  "version": "1.0.0",
+  "contact": {
+    "name": "API Support",
+    "url": "https://example.com/support",
+    "email": "support@example.com"
+  },
+  "license": {
+    "name": "MIT",
+    "url": "https://opensource.org/licenses/MIT"
+  },
+  "auth": {
+    "enabled": false,
+    "type": "NONE",
+    "username": "",
+    "password": "",
+    "token": "",
+    "headerName": "",
+    "headerValue": ""
+  },
+  "aggregate": {
+    "enabled": false,
+    "mode": "merge",
+    "services": [],
+    "documents": [],
+    "uiLayout": "tabs",
+    "sharedDefinitionPrefixes": [
+      "common",
+      "rpcStatus",
+      "protobuf",
+      "google",
+      "googleapis",
+      "protoc"
+    ]
+  },
+  "hotReload": false,
+  "cdnVersion": "5.30.2",
+  "cdnBaseURL": "https://unpkg.com/swagger-ui-dist@5.30.2",
+  "cdnCSSURL": "https://unpkg.com/swagger-ui-dist@5.30.2/swagger-ui.css",
+  "cdnBundleJS": "https://unpkg.com/swagger-ui-dist@5.30.2/swagger-ui-bundle.js",
+  "cdnPresetJS": "https://unpkg.com/swagger-ui-dist@5.30.2/swagger-ui-standalone-preset.js",
+  "cdnFavicon32": "https://unpkg.com/swagger-ui-dist@5.30.2/favicon-32x32.png",
+  "cdnFavicon16": "https://unpkg.com/swagger-ui-dist@5.30.2/favicon-16x16.png",
+  "useCDN": true,
+  "cdnFallbackURL": "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.30.2"
+}

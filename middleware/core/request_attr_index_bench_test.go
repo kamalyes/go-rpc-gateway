@@ -3,7 +3,7 @@
  * @Date: 2026-11-03 16:02:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2026-11-03 16:18:00
- * @FilePath: \\go-rpc-gateway\\middleware\\core\\request_attr_index_bench_test.go
+ * @FilePath: \go-rpc-gateway\middleware\core\request_attr_index_bench_test.go
  * @Description: 请求属性提取三种做法的 A/B 基准 - 逐属性提取、复用提取器、反转索引
  *
  * Copyright (c) 2026 by kamalyes, All Rights Reserved.
@@ -17,8 +17,8 @@ import (
 	"reflect"
 	"testing"
 
-	gccommon "github.com/kamalyes/go-config/pkg/common"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gccommon "github.com/kamalyes/go-rpc-gateway/config/core"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 )
 
 // abSourceLists 取默认配置里的 41 份来源清单

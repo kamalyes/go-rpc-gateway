@@ -3,7 +3,7 @@
  * @Date: 2026-11-03 17:02:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2026-11-03 17:20:00
- * @FilePath: \\go-rpc-gateway\\middleware\\observability\\logging_bodycap_test.go
+ * @FilePath: \go-rpc-gateway\middleware\observability\logging_bodycap_test.go
  * @Description: 请求与响应体捕获的边界测试 - 捕获有上限而 handler 仍见完整请求体
  *
  * Copyright (c) 2026 by kamalyes, All Rights Reserved.
@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
 	"github.com/stretchr/testify/assert"

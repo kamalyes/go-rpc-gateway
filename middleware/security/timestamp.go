@@ -15,12 +15,12 @@ import (
 	"strconv"
 	"time"
 
-	validator "github.com/kamalyes/go-argus"
-	"github.com/kamalyes/go-config/pkg/signature"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
 	"github.com/kamalyes/go-rpc-gateway/response"
+	validator "github.com/kamalyes/go-toolbox/pkg/argus"
 )
 
 // TimestampMiddleware 时间戳验证中间件
@@ -32,7 +32,7 @@ import (
 // 使用场景：
 // - 可以单独使用，只验证时间窗口
 // - 通常与签名验证中间件配合使用
-func TimestampMiddleware(config *signature.Signature) core.HTTPMiddleware {
+func TimestampMiddleware(config *gcmiddleware.Signature) core.HTTPMiddleware {
 	if !config.Enabled {
 		return core.NoopMiddleware
 	}

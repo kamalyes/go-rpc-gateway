@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 )
 
 // legacyShouldSkipGzip 是改造前那版实现的语义，逐字保留，只作为等价性比对的基准

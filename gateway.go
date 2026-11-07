@@ -25,8 +25,8 @@ import (
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	goconfig "github.com/kamalyes/go-config"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	"github.com/kamalyes/go-rpc-gateway/config"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
 	grpcpool "github.com/kamalyes/go-rpc-gateway/cpool/grpc"
 	"github.com/kamalyes/go-rpc-gateway/errors"
@@ -42,7 +42,7 @@ import (
 // Gateway 是主要的网关服务器
 type Gateway struct {
 	*server.Server
-	configManager *goconfig.IntegratedConfigManager
+	configManager *config.IntegratedConfigManager
 	gatewayConfig *gwconfig.Gateway
 	ctx           context.Context // Gateway 上下文，用于日志和其他操作
 
@@ -63,11 +63,11 @@ type Gateway struct {
 type GatewayBuilder struct {
 	configPath             string
 	searchPath             string
-	environment            goconfig.EnvironmentType
+	environment            config.EnvironmentType
 	configPrefix           string
 	pattern                string
-	hotReloadConfig        *goconfig.HotReloadConfig
-	contextOptions         *goconfig.ContextKeyOptions
+	hotReloadConfig        *config.HotReloadConfig
+	contextOptions         *config.ContextKeyOptions
 	autoDiscovery          bool
 	usePattern             bool
 	useCustomPrefix        bool
@@ -113,11 +113,11 @@ type proxyHandlerRegistration struct {
 //	gateway, err := NewGateway().
 //	  WithContext(ctx).
 //	  WithConfigPath("./config.yaml").
-//	  WithEnvironment(goconfig.EnvProduction).
+//	  WithEnvironment(config.EnvProduction).
 //	  BuildAndStart()
 func NewGateway() *GatewayBuilder {
 	return &GatewayBuilder{
-		environment: goconfig.GetEnvironment(),
+		environment: config.GetEnvironment(),
 		ctx:         context.Background(),
 	}
 }
@@ -136,7 +136,7 @@ func (b *GatewayBuilder) WithSearchPath(path string) *GatewayBuilder {
 }
 
 // WithEnvironment 设置环境
-func (b *GatewayBuilder) WithEnvironment(env goconfig.EnvironmentType) *GatewayBuilder {
+func (b *GatewayBuilder) WithEnvironment(env config.EnvironmentType) *GatewayBuilder {
 	b.environment = env
 	return b
 }
@@ -156,11 +156,11 @@ func (b *GatewayBuilder) WithPattern(pattern string) *GatewayBuilder {
 }
 
 // WithHotReload 启用热更新 (传nil使用默认配置)
-func (b *GatewayBuilder) WithHotReload(config *goconfig.HotReloadConfig) *GatewayBuilder {
-	if config == nil {
-		config = goconfig.DefaultHotReloadConfig()
+func (b *GatewayBuilder) WithHotReload(reloadCfg *config.HotReloadConfig) *GatewayBuilder {
+	if reloadCfg == nil {
+		reloadCfg = config.DefaultHotReloadConfig()
 	}
-	b.hotReloadConfig = config
+	b.hotReloadConfig = reloadCfg
 	return b
 }
 
@@ -173,7 +173,7 @@ func (b *GatewayBuilder) WithContext(ctx context.Context) *GatewayBuilder {
 }
 
 // WithContextOptions 设置上下文选项
-func (b *GatewayBuilder) WithContextOptions(options *goconfig.ContextKeyOptions) *GatewayBuilder {
+func (b *GatewayBuilder) WithContextOptions(options *config.ContextKeyOptions) *GatewayBuilder {
 	b.contextOptions = options
 	return b
 }
@@ -199,16 +199,16 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 
 	// 创建配置实例：先放入默认值，再让配置文件覆盖
 	// 这样嵌套的数据库配置不会在后续初始化时退回到框架默认库名
-	config := gwconfig.Default()
+	gwCfg := gwconfig.Default()
 
 	// 使用go-config创建并启动配置管理器
-	var manager *goconfig.IntegratedConfigManager
+	var manager *config.IntegratedConfigManager
 	var err error
 
 	switch {
 	case b.usePattern:
 		// 使用模式匹配
-		manager, err = goconfig.NewManager(config).
+		manager, err = config.NewManager(gwCfg).
 			WithSearchPath(b.searchPath).
 			WithPattern(b.pattern).
 			WithEnvironment(b.environment).
@@ -218,7 +218,7 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 
 	case b.useCustomPrefix:
 		// 使用自定义前缀发现
-		manager, err = goconfig.NewManager(config).
+		manager, err = config.NewManager(gwCfg).
 			WithSearchPath(b.searchPath).
 			WithPrefix(b.configPrefix).
 			WithEnvironment(b.environment).
@@ -228,7 +228,7 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 
 	case b.autoDiscovery:
 		// 自动发现
-		manager, err = goconfig.NewManager(config).
+		manager, err = config.NewManager(gwCfg).
 			WithSearchPath(b.searchPath).
 			WithEnvironment(b.environment).
 			WithHotReload(b.hotReloadConfig).
@@ -237,7 +237,7 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 
 	case b.configPath != "":
 		// 直接使用指定路径
-		manager, err = goconfig.NewManager(config).
+		manager, err = config.NewManager(gwCfg).
 			WithConfigPath(b.configPath).
 			WithEnvironment(b.environment).
 			WithHotReload(b.hotReloadConfig).
@@ -254,11 +254,11 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 
 	// go-config 初始加载使用 viper 默认反序列化；这里再走一次带弱类型和
 	// kebab-case 兼容的反序列化，确保 db-name、max-open-conns 等字段完整覆盖默认值
-	if err := goconfig.UnmarshalWithFlexibleNaming(manager.GetViper(), config); err != nil {
+	if err := config.UnmarshalWithFlexibleNaming(manager.GetViper(), gwCfg); err != nil {
 		return nil, errors.Wrap(err, errors.ErrCodeInvalidConfiguration)
 	}
 
-	if err := b.initializeGlobalState(manager, &config); err != nil {
+	if err := b.initializeGlobalState(manager, &gwCfg); err != nil {
 		return nil, errors.Wrap(err, errors.ErrCodeInitializationError)
 	}
 
@@ -275,7 +275,7 @@ func (b *GatewayBuilder) Build() (*Gateway, error) {
 	gateway := &Gateway{
 		Server:        srv,
 		configManager: manager,
-		gatewayConfig: config,
+		gatewayConfig: gwCfg,
 		ctx:           b.ctx,
 	}
 
@@ -341,7 +341,7 @@ func refreshGatewayDerivedFields(config *gwconfig.Gateway) {
 }
 
 // initializeGlobalState 初始化全局状态
-func (b *GatewayBuilder) initializeGlobalState(manager *goconfig.IntegratedConfigManager, config **gwconfig.Gateway) error {
+func (b *GatewayBuilder) initializeGlobalState(manager *config.IntegratedConfigManager, config **gwconfig.Gateway) error {
 	// 使用 safe.MergeWithDefaults 合并默认配置
 	*config = mergeGatewayConfigWithDefaults(*config)
 
@@ -366,9 +366,9 @@ func (b *GatewayBuilder) initializeGlobalState(manager *goconfig.IntegratedConfi
 }
 
 // registerGlobalConfigCallbacks 注册全局配置变更回调
-func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.IntegratedConfigManager) error {
+func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *config.IntegratedConfigManager) error {
 	// 注册配置变更回调
-	err := manager.RegisterConfigCallback(func(ctx context.Context, event goconfig.CallbackEvent) error {
+	err := manager.RegisterConfigCallback(func(ctx context.Context, event config.CallbackEvent) error {
 		if newConfig, ok := event.NewValue.(*gwconfig.Gateway); ok {
 			// 合并默认配置
 			newConfig = mergeGatewayConfigWithDefaults(newConfig)
@@ -384,9 +384,9 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 			global.LOGGER.InfoContext(b.Context(), "🔄 配置热更新完成")
 		}
 		return nil
-	}, goconfig.CallbackOptions{
+	}, config.CallbackOptions{
 		ID:       "gateway_global_config_handler",
-		Types:    []goconfig.CallbackType{goconfig.CallbackTypeConfigChanged},
+		Types:    []config.CallbackType{config.CallbackTypeConfigChanged},
 		Priority: -100, // 高优先级（负数表示优先）
 		Async:    false,
 		Timeout:  5 * time.Second,
@@ -398,7 +398,7 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *goconfig.Integra
 
 	// 注册环境变更回调
 	err = manager.RegisterEnvironmentCallback("gateway_global_env_handler",
-		func(oldEnv, newEnv goconfig.EnvironmentType) error {
+		func(oldEnv, newEnv config.EnvironmentType) error {
 			global.LOGGER.InfoContext(b.Context(), "🌍 环境变更: %s -> %s", oldEnv, newEnv)
 			return nil
 		}, -100, false) // 高优先级
@@ -948,7 +948,7 @@ func (g *Gateway) RegisterConfigCallbacks() {
 	}
 
 	// 注册配置变更回调
-	g.configManager.RegisterConfigCallback(func(ctx context.Context, event goconfig.CallbackEvent) error {
+	g.configManager.RegisterConfigCallback(func(ctx context.Context, event config.CallbackEvent) error {
 		if newConfig, ok := event.NewValue.(*gwconfig.Gateway); ok {
 			cg := global.LOGGER.NewConsoleGroup()
 			cg.Info("%s", errors.FormatConfigUpdateInfo(newConfig.Name))
@@ -958,16 +958,16 @@ func (g *Gateway) RegisterConfigCallbacks() {
 			}
 		}
 		return nil
-	}, goconfig.CallbackOptions{
+	}, config.CallbackOptions{
 		ID:       "gateway_config_handler",
-		Types:    []goconfig.CallbackType{goconfig.CallbackTypeConfigChanged},
+		Types:    []config.CallbackType{config.CallbackTypeConfigChanged},
 		Priority: -100, // 高优先级
 		Async:    false,
 		Timeout:  5 * time.Second,
 	})
 
 	// 注册环境变更回调
-	if err := g.configManager.RegisterConfigCallback(func(ctx context.Context, event goconfig.CallbackEvent) error {
+	if err := g.configManager.RegisterConfigCallback(func(ctx context.Context, event config.CallbackEvent) error {
 		newConfig, ok := event.NewValue.(*gwconfig.Gateway)
 		if !ok || newConfig == nil {
 			return nil
@@ -975,9 +975,9 @@ func (g *Gateway) RegisterConfigCallbacks() {
 
 		newConfig = mergeGatewayConfigWithDefaults(newConfig)
 		return g.applyReloadedConfig(ctx, newConfig)
-	}, goconfig.CallbackOptions{
+	}, config.CallbackOptions{
 		ID:       "gateway_runtime_config_handler",
-		Types:    []goconfig.CallbackType{goconfig.CallbackTypeConfigChanged},
+		Types:    []config.CallbackType{config.CallbackTypeConfigChanged},
 		Priority: -90,
 		Async:    false,
 		Timeout:  30 * time.Second,
@@ -985,7 +985,7 @@ func (g *Gateway) RegisterConfigCallbacks() {
 		global.LOGGER.WarnContext(g.Context(), "register gateway runtime config callback failed: %v", err)
 	}
 
-	g.configManager.RegisterEnvironmentCallback("gateway_runtime_env_handler", func(oldEnv, newEnv goconfig.EnvironmentType) error {
+	g.configManager.RegisterEnvironmentCallback("gateway_runtime_env_handler", func(oldEnv, newEnv config.EnvironmentType) error {
 		global.LOGGER.NewConsoleGroup().Info("%s", errors.FormatEnvironmentChangeInfo(string(oldEnv), string(newEnv)))
 		return nil
 	}, -100, false) // 高优先级
@@ -1108,34 +1108,6 @@ func (g *Gateway) GetDB() *gorm.DB {
 	return nil
 }
 
-// InitDatabaseModels 初始化数据库模型
-// 使用示例:
-//
-//	err := gateway.InitDatabaseModels(
-//	    &models.UserModel{},
-//	    &models.OrderModel{},
-//	)
-func (g *Gateway) InitDatabaseModels(models ...interface{}) error {
-	db := g.GetDB()
-	if db == nil {
-		return errors.NewError(errors.ErrCodeInvalidConfiguration, "数据库连接未初始化，请确保在配置中启用了数据库")
-	}
-
-	if len(models) == 0 {
-		global.LOGGER.WarnContext(g.Context(), "没有提供任何模型进行迁移")
-		return nil
-	}
-
-	// 使用带 trace_id 的 context 执行自动迁移
-	ctx := g.Context()
-	if err := db.WithContext(ctx).AutoMigrate(models...); err != nil {
-		return errors.NewError(errors.ErrCodeOperationFailed, errors.FormatError("数据库模型迁移失败: %v", err))
-	}
-
-	global.LOGGER.InfoContext(ctx, "数据库模型迁移完成: models_count=%d", len(models))
-	return nil
-}
-
 // GetRedis 获取Redis客户端
 func (g *Gateway) GetRedis() redis.UniversalClient {
 	if poolManager := g.GetPoolManager(); poolManager != nil {
@@ -1174,7 +1146,7 @@ func QuickStart(configPath ...string) error {
 	gw, err := NewGateway().
 		WithContext(context.Background()).
 		WithSearchPath(path).
-		WithEnvironment(goconfig.GetEnvironment()).
+		WithEnvironment(config.GetEnvironment()).
 		WithHotReload(nil).
 		BuildAndStart()
 
@@ -1191,7 +1163,7 @@ func QuickStartWithConfigFile(configFilePath string) error {
 	gw, err := NewGateway().
 		WithContext(context.Background()).
 		WithConfigPath(configFilePath).
-		WithEnvironment(goconfig.GetEnvironment()).
+		WithEnvironment(config.GetEnvironment()).
 		WithHotReload(nil).
 		BuildAndStart()
 
@@ -1208,7 +1180,7 @@ func QuickStartWithConfigFilePrefix(configFilePath string, prefix string) error 
 		WithContext(context.Background()).
 		WithConfigPath(configFilePath).
 		WithPrefix(prefix).
-		WithEnvironment(goconfig.GetEnvironment()).
+		WithEnvironment(config.GetEnvironment()).
 		WithHotReload(nil).
 		BuildAndStart()
 
@@ -1266,22 +1238,4 @@ func (g *Gateway) setupGracefulShutdown() {
 
 		os.Exit(0)
 	}()
-}
-
-// ===============================================================================
-// WebSocket 相关便捷方法
-// ===============================================================================
-
-// GetWebSocketService 获取 WebSocket 服务实例
-func (g *Gateway) GetWebSocketService() *server.WebSocketService {
-	if g.Server == nil {
-		return nil
-	}
-	return g.Server.GetWebSocketService()
-}
-
-// IsWebSocketEnabled 检查 WebSocket 是否启用
-func (g *Gateway) IsWebSocketEnabled() bool {
-	wsSvc := g.GetWebSocketService()
-	return wsSvc != nil && wsSvc.IsRunning()
 }

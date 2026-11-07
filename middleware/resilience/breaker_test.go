@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	breakerconfig "github.com/kamalyes/go-config/pkg/breaker"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -28,7 +28,7 @@ import (
 // newTestBreakerManager 创建测试用熔断器管理器
 // failureThreshold=2: 2 次失败触发熔断；volumeThreshold=0: 无最小请求量要求
 func newTestBreakerManager() *BreakerManager {
-	return NewBreakerManager(&breakerconfig.CircuitBreaker{
+	return NewBreakerManager(&gcmiddleware.CircuitBreaker{
 		Enabled:          true,
 		FailureThreshold: 2,
 		SuccessThreshold: 1,
@@ -143,7 +143,7 @@ func TestBreakerHTTPMiddleware_BreakerOpen(t *testing.T) {
 }
 
 func TestBreakerHTTPMiddleware_ExcludePath(t *testing.T) {
-	manager := NewBreakerManager(&breakerconfig.CircuitBreaker{
+	manager := NewBreakerManager(&gcmiddleware.CircuitBreaker{
 		Enabled:          true,
 		FailureThreshold: 2,
 		SuccessThreshold: 1,
@@ -223,7 +223,7 @@ const testGRPCMethod = "/user.v1.UserService/GetUser"
 // newTestGRPCBreakerManager 创建测试用熔断器管理器（保护路径按 gRPC 全限定方法前缀配置）
 // failureThreshold=2: 2 次失败触发熔断；volumeThreshold=0: 无最小请求量要求
 func newTestGRPCBreakerManager(timeout time.Duration) *BreakerManager {
-	return NewBreakerManager(&breakerconfig.CircuitBreaker{
+	return NewBreakerManager(&gcmiddleware.CircuitBreaker{
 		Enabled:          true,
 		FailureThreshold: 2,
 		SuccessThreshold: 1,
@@ -599,7 +599,7 @@ func TestStreamServerBreakerInterceptor_ClientErrorKeepsBreakerClosed(t *testing
 }
 
 func TestBreakerExcludeMethod_GRPC(t *testing.T) {
-	manager := NewBreakerManager(&breakerconfig.CircuitBreaker{
+	manager := NewBreakerManager(&gcmiddleware.CircuitBreaker{
 		Enabled:          true,
 		FailureThreshold: 2,
 		SuccessThreshold: 1,
