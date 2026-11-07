@@ -305,31 +305,43 @@ func fieldNames(param string, namer *fieldNamer) string {
 
 // ==================== 限制 ====================
 
-// argusFormatLabels 格式类规则 → 中文说明
+// argusFormatLabels 无参格式类规则 → 中文说明
 //
 // 只给名字（「邮箱」而不是 email）：这一列是给人扫读的，规则原文在 proto 里
-// 没收录的规则由 argusConstraints 原样印成行内代码，不会被悄悄丢掉
+// 这张表不是照 go-playground/validator 抄的——argus 自带一批它没有的规则
+// （cn_phone / cn_idcard / strong_password / 图片格式等），漏掉就等于把真实约束藏起来
+// argus_test.go 里有一个用例拿 argus 的注册表逐条对账，新增规则不会被悄悄漏掉
 //
-// [EN] Labels only, so the column stays scannable; the raw rule lives in the proto. Rules that
-// are not in this table are printed verbatim as inline code rather than silently dropped.
+// [EN] Labels only, so the column stays scannable; the raw rule lives in the proto.
+//
+// This table is not copied from go-playground/validator: argus ships a batch of rules it does
+// not have (cn_phone, cn_idcard, strong_password, the image formats), and leaving them out hides
+// real constraints. A test in argus_test.go reconciles this file against argus's own registry
+// rule by rule, so a newly added rule cannot slip through unnoticed.
 var argusFormatLabels = map[string]string{
 	"email":             "邮箱",
 	"e164":              "E.164 手机号",
+	"cn_phone":          "中国大陆手机号",
+	"cn_idcard":         "中国大陆身份证号（15 或 18 位）",
+	"cn_idcard_strict":  "中国大陆身份证号（含校验位）",
 	"url":               "URL",
 	"uri":               "URI",
 	"http_url":          "HTTP URL",
 	"https_url":         "HTTPS URL",
 	"url_encoded":       "URL 编码",
 	"json":              "JSON",
-	"jwt":               "JWT",
 	"uuid":              "UUID",
 	"uuid3":             "UUID v3",
 	"uuid4":             "UUID v4",
 	"uuid5":             "UUID v5",
+	"uuid_rfc4122":      "UUID（RFC 4122）",
+	"uuid3_rfc4122":     "UUID v3（RFC 4122）",
+	"uuid4_rfc4122":     "UUID v4（RFC 4122）",
+	"uuid5_rfc4122":     "UUID v5（RFC 4122）",
 	"base32":            "Base32",
 	"base64":            "Base64",
 	"base64url":         "Base64 URL",
-	"base64rawurl":      "Base64 RawURL",
+	"base64rawurl":      "Base64 RawURL（无填充）",
 	"hexadecimal":       "十六进制",
 	"hexcolor":          "十六进制颜色",
 	"rgb":               "RGB 颜色",
@@ -345,7 +357,7 @@ var argusFormatLabels = map[string]string{
 	"cidrv6":            "IPv6 CIDR",
 	"mac":               "MAC 地址",
 	"hostname":          "主机名",
-	"hostname_rfc1123":  "主机名",
+	"hostname_rfc1123":  "主机名（RFC 1123）",
 	"hostname_port":     "主机名:端口",
 	"fqdn":              "FQDN",
 	"port":              "端口",
@@ -359,11 +371,11 @@ var argusFormatLabels = map[string]string{
 	"isbn10":            "ISBN-10",
 	"isbn13":            "ISBN-13",
 	"issn":              "ISSN",
-	"bic":               "BIC",
+	"bic":               "BIC/SWIFT",
 	"eth_addr":          "以太坊地址",
 	"btc_addr":          "比特币地址",
 	"datauri":           "Data URI",
-	"html":              "HTML",
+	"html":              "HTML 标签",
 	"html_encoded":      "HTML 编码",
 	"latitude":          "纬度",
 	"longitude":         "经度",
@@ -382,17 +394,57 @@ var argusFormatLabels = map[string]string{
 	"multibyte":         "含多字节字符",
 	"lowercase":         "全小写",
 	"uppercase":         "全大写",
+	"upper_alpha":       "纯大写字母",
+	"lower_alpha":       "纯小写字母",
+	"word_chars":        "仅字母、数字与下划线",
+	"digits":            "纯数字",
+	"int_or_float":      "整数或最多 2 位小数",
+	"integer":           "整数",
 	"boolean":           "布尔值",
 	"number":            "数字",
 	"numeric":           "数值",
-	"dns_rfc1035_label": "DNS 标签",
+	"strong_password":   "强密码（8 位以上，含大小写字母、数字与特殊字符）",
+	"dns_rfc1035_label": "DNS 标签（RFC 1035）",
+}
+
+// argusPlainLabels 本身就是一句话的规则：不加「格式」前缀，直接当限制写
+var argusPlainLabels = map[string]string{
+	"has_special":     "须含特殊字符",
+	"has_double_byte": "须含双字节字符",
+	"empty_line":      "须为空白行",
+	"unique":          "元素不可重复",
+	"dive":            "逐元素校验",
+}
+
+// argusImageLabels 图片格式规则 → 中文说明
+//
+// 这组规则校验的是字段的字节内容（PNG 还会查 IEND 尾块完整性），OpenAPI 侧只能看到
+// type: string / format: byte，完全表达不了
+//
+// [EN] These check the field's raw bytes — the PNG rule even verifies the trailing IEND chunk —
+// which OpenAPI, seeing only type: string with format: byte, cannot express at all.
+var argusImageLabels = map[string]string{
+	"png":  "PNG",
+	"jpg":  "JPEG",
+	"jpeg": "JPEG",
+	"gif":  "GIF",
+	"webp": "WebP",
+	"bmp":  "BMP",
+	"tiff": "TIFF",
+	"ico":  "ICO 图标",
+	"avif": "AVIF",
+	"heic": "HEIC/HEIF",
+	"svg":  "SVG",
 }
 
 // argusCrossFieldLabels 跨字段比较规则 → 关系说明
 //
 // 这是 argus 另一组 OpenAPI 完全没有对应物的属性：约束挂在「另一个字段的取值」上
+// cs 系列（eqcsfield 等）比的是跨结构体的字段，句式一样，差别只在查找路径
+//
 // [EN] Another group of argus rules OpenAPI has no counterpart for: the constraint hangs off
-// another field's value.
+// another field's value. The cs variants (eqcsfield and friends) compare against a field in
+// another struct; the sentence is the same and only the lookup path differs.
 var argusCrossFieldLabels = map[string]string{
 	"eqfield":     "须等于",
 	"nefield":     "须不等于",
@@ -406,16 +458,163 @@ var argusCrossFieldLabels = map[string]string{
 	"gtecsfield":  "须不小于",
 	"ltcsfield":   "须小于",
 	"ltecsfield":  "须不大于",
-	"fieldlen":    "长度须等于",
 	"afterfield":  "须晚于",
 	"beforefield": "须早于",
 }
 
-// argusSilentRules 不进「限制」列的规则：它们只影响校验流程或已在别的列体现
+// argusFieldLenOps fieldlen 的比较符参数 → 关系说明
+//
+// fieldlen 的参数是 `FieldName` 或 `op:FieldName`（op 取 eq/ne/gt/gte/lt/lte，默认 eq），
+// 比的是两个字段的长度。不解析这个前缀，`gt:Tags` 会被说成「长度须等于 tags」——正好说反
+//
+// [EN] fieldlen takes `FieldName` or `op:FieldName` (op one of eq/ne/gt/gte/lt/lte, eq by
+// default) and compares the two fields' lengths. Without parsing that prefix, `gt:Tags` reads as
+// "length must equal tags" — the exact opposite.
+var argusFieldLenOps = map[string]string{
+	"eq":  "须等于",
+	"ne":  "须不等于",
+	"gt":  "须大于",
+	"gte": "须不小于",
+	"lt":  "须小于",
+	"lte": "须不大于",
+}
+
+// argusBoundRules 由 argusConstraints 合并成区间的规则，不单独渲染
+var argusBoundRules = map[string]struct{}{
+	"gte": {}, "lte": {}, "gt": {}, "lt": {},
+	"min": {}, "max": {}, "len": {},
+}
+
+// argusSilentRules 不进「限制」列的规则：只影响校验流程，或已在别的列体现
+//
+// keys / endkeys 是映射键规则的起止标记，structonly / nostructlevel 控制是否进入结构体，
+// oneof / oneofci 已渲染成「可选值」，required 系列在「必填」列
+//
+// [EN] keys and endkeys delimit map-key rules, structonly and nostructlevel control whether
+// validation descends into a struct, oneof and oneofci are already rendered as allowed values,
+// and the required family lives in the 必填 column.
 var argusSilentRules = map[string]struct{}{
 	"required": {}, "omitempty": {}, "omitzero": {}, "omitnil": {},
 	"isdefault": {}, "structonly": {}, "nostructlevel": {},
+	"keys": {}, "endkeys": {},
 	"oneof": {}, "oneofci": {},
+}
+
+// argusRuleText 渲染单条限制类规则
+//
+// 返回值的三种组合：
+//   - (text, true)：这条规则就渲染成 text
+//   - ("", true)：认识它，但由别处渲染（必填列 / 可选值 / 区间合并）
+//   - ("", false)：本文件不认识，交给调用方原样印出来
+//
+// 规则名只在这里判一次，argusRuleKnown 与对账测试都走同一条路径，不另留一份清单
+//
+// [EN] Rule names are matched in exactly one place: argusRuleKnown and the reconciliation test
+// both go through this function rather than keeping a second list that could drift.
+func argusRuleText(rule validateRule, namer *fieldNamer) (string, bool) {
+	if _, ok := argusSilentRules[rule.name]; ok {
+		return "", true
+	}
+	if _, ok := argusBoundRules[rule.name]; ok {
+		return "", true
+	}
+	if _, ok := requiredConditionRules[rule.name]; ok {
+		return "", true // 条件必填单独渲染成「必填条件」
+	}
+	if strings.HasPrefix(rule.name, "excluded_") {
+		return "", true // 条件禁传同上
+	}
+
+	if label, ok := argusPlainLabels[rule.name]; ok {
+		return label, true
+	}
+	if label, ok := argusCrossFieldLabels[rule.name]; ok {
+		return label + " " + markdownCode(namer.display(rule.param)), true
+	}
+	if label, ok := argusImageLabels[rule.name]; ok {
+		return "图片格式 " + label, true
+	}
+	if label, ok := argusFormatLabels[rule.name]; ok {
+		return "格式 " + label, true
+	}
+
+	switch rule.name {
+	case "eq", "eq_ignore_case":
+		return "须等于 " + markdownCode(rule.param), true
+	case "ne", "ne_ignore_case":
+		return "不得等于 " + markdownCode(rule.param), true
+	case "noneof", "noneofci":
+		return "不得为 " + joinCode(strings.Fields(rule.param)), true
+	case "contains":
+		return "须包含 " + markdownCode(rule.param), true
+	case "containsany":
+		return "须含任一字符 " + markdownCode(rule.param), true
+	case "containsrune":
+		return "须包含字符 " + markdownCode(rule.param), true
+	case "excludes":
+		return "不得包含 " + markdownCode(rule.param), true
+	case "excludesall":
+		return "不得含任一字符 " + markdownCode(rule.param), true
+	case "excludesrune":
+		return "不得包含字符 " + markdownCode(rule.param), true
+	case "startswith":
+		return "须以 " + markdownCode(rule.param) + " 开头", true
+	case "endswith":
+		return "须以 " + markdownCode(rule.param) + " 结尾", true
+	case "startsnotwith":
+		return "不得以 " + markdownCode(rule.param) + " 开头", true
+	case "endsnotwith":
+		return "不得以 " + markdownCode(rule.param) + " 结尾", true
+	case "datetime":
+		return "时间格式 " + markdownCode(rule.param), true
+	case "after":
+		return "须晚于 " + markdownCode(rule.param), true
+	case "before":
+		return "须早于 " + markdownCode(rule.param), true
+	case "fieldcontains":
+		return "须包含字段 " + markdownCode(namer.display(rule.param)) + " 的值", true
+	case "fieldexcludes":
+		return "不得包含字段 " + markdownCode(namer.display(rule.param)) + " 的值", true
+	case "fieldlen":
+		return fieldLenText(rule.param, namer), true
+	case "image":
+		// 参数是空格分隔的格式白名单，不传则接受任意支持的格式
+		if formats := strings.Fields(rule.param); len(formats) > 0 {
+			return "图片格式 " + joinCode(formats), true
+		}
+		return "须为图片", true
+	case "range":
+		// range=Start|End：参数本身用 | 分隔（逗号会被当规则分隔符）
+		if bounds := strings.SplitN(rule.param, "|", 2); len(bounds) == 2 {
+			return "须落在 " + markdownCode(namer.display(bounds[0])) +
+				" ~ " + markdownCode(namer.display(bounds[1])) + " 之间", true
+		}
+		return "区间 " + markdownCode(rule.param), true
+	}
+	return "", false
+}
+
+// fieldLenText 渲染 fieldlen：长度与另一个字段的长度比较
+func fieldLenText(param string, namer *fieldNamer) string {
+	op, target := "eq", param
+	if idx := strings.Index(param, ":"); idx >= 0 {
+		if _, ok := argusFieldLenOps[param[:idx]]; ok {
+			op, target = param[:idx], param[idx+1:]
+		}
+	}
+	return "长度" + argusFieldLenOps[op] + " " + markdownCode(namer.display(target)) + " 的长度"
+}
+
+// argusRuleKnown 这条规则名是否有专门的渲染
+//
+// 只给对账测试用：拿 argus 的注册表逐条问过来，没人认的规则会让测试红掉，
+// 而不是在文档里悄悄退化成一段标签原文
+//
+// [EN] For the reconciliation test only: every name in argus's registry is asked here, so a rule
+// nobody renders turns the test red instead of quietly degrading into raw tag text in the docs.
+func argusRuleKnown(name string) bool {
+	_, known := argusRuleText(validateRule{name: name, param: "Placeholder"}, nil)
+	return known
 }
 
 // argusConstraints 把限制类规则渲染成「限制」列的条目
@@ -436,80 +635,32 @@ func argusConstraints(tag argusTag, scope string) []string {
 	)
 
 	for _, rule := range tag.rules {
-		if _, silent := argusSilentRules[rule.name]; silent {
-			continue
-		}
-		if _, conditional := requiredConditionRules[rule.name]; conditional {
-			continue // 条件必填单独渲染成「必填条件」
-		}
-		if strings.HasPrefix(rule.name, "excluded_") {
-			continue
-		}
-
 		switch rule.name {
 		case "gte", "min":
 			minIncl = rule.param
+			continue
 		case "lte", "max":
 			maxIncl = rule.param
+			continue
 		case "gt":
 			minExcl = rule.param
+			continue
 		case "lt":
 			maxExcl = rule.param
+			continue
 		case "len":
 			exact, hasExact = rule.param, true
-		case "eq", "eq_ignore_case":
-			items = append(items, "须等于 "+markdownCode(rule.param))
-		case "ne", "ne_ignore_case":
-			items = append(items, "不得等于 "+markdownCode(rule.param))
-		case "noneof", "noneofci":
-			items = append(items, "不得为 "+joinCode(strings.Fields(rule.param)))
-		case "unique":
-			items = append(items, "元素不可重复")
-		case "dive":
-			items = append(items, "逐元素校验")
-		case "contains":
-			items = append(items, "须包含 "+markdownCode(rule.param))
-		case "containsany":
-			items = append(items, "须含任一字符 "+markdownCode(rule.param))
-		case "excludes":
-			items = append(items, "不得包含 "+markdownCode(rule.param))
-		case "excludesall":
-			items = append(items, "不得含任一字符 "+markdownCode(rule.param))
-		case "startswith":
-			items = append(items, "须以 "+markdownCode(rule.param)+" 开头")
-		case "endswith":
-			items = append(items, "须以 "+markdownCode(rule.param)+" 结尾")
-		case "startsnotwith":
-			items = append(items, "不得以 "+markdownCode(rule.param)+" 开头")
-		case "endsnotwith":
-			items = append(items, "不得以 "+markdownCode(rule.param)+" 结尾")
-		case "datetime":
-			items = append(items, "时间格式 "+markdownCode(rule.param))
-		case "after":
-			items = append(items, "须晚于 "+markdownCode(rule.param))
-		case "before":
-			items = append(items, "须早于 "+markdownCode(rule.param))
-		case "range":
-			// range=Start|End：参数本身用 | 分隔，照 argus 的口径解析
-			bounds := strings.SplitN(rule.param, "|", 2)
-			if len(bounds) == 2 {
-				items = append(items, "须落在 "+markdownCode(tag.namer.display(bounds[0]))+
-					" ~ "+markdownCode(tag.namer.display(bounds[1]))+" 之间")
-			} else {
-				items = append(items, "区间 "+markdownCode(rule.param))
-			}
-		default:
-			if label, ok := argusCrossFieldLabels[rule.name]; ok {
-				items = append(items, label+" "+markdownCode(tag.namer.display(rule.param)))
-				continue
-			}
-			if label, ok := argusFormatLabels[rule.name]; ok {
-				items = append(items, "格式 "+label)
-				continue
-			}
+			continue
+		}
+
+		text, known := argusRuleText(rule, tag.namer)
+		switch {
+		case !known:
 			// 没收录的规则原样印出来，宁可丑一点也不要让一条真实约束消失
 			// [EN] Unknown rules are printed verbatim: better ugly than a real constraint vanishing.
 			items = append(items, markdownCode(ruleText(rule)))
+		case text != "":
+			items = append(items, text)
 		}
 	}
 

@@ -17,6 +17,8 @@ import (
 	"testing"
 
 	constants "github.com/kamalyes/go-rpc-gateway/middleware/swagger/constants"
+	argusconst "github.com/kamalyes/go-toolbox/pkg/argus/constants"
+	argusrule "github.com/kamalyes/go-toolbox/pkg/argus/rule"
 )
 
 // newTrialSettingsSpec 按 protoc-gen-openapiv2 的真实产物构建规范
@@ -391,6 +393,169 @@ func TestOpenAPIConstraintsStillUsedWithoutTag(t *testing.T) {
 	} {
 		if !strings.Contains(description, want) {
 			t.Errorf("OpenAPI 原生约束丢失 %q:\n%s", want, description)
+		}
+	}
+}
+
+// argusCrossFieldTagNames evalDispatchTable（argus 内部的未导出表）里需要跨字段访问的规则
+//
+// 为什么要在这里重列一遍：这张表在 argus 里是未导出的，拿不到它的 key而写成
+// argusconst.RuleXxx 常量而不是字符串字面量，argus 改了名这里就编译不过——
+// 不会出现「argus 把 cn_phone 改了名、文档还在按老名字渲染」这种静默失配
+//
+// [EN] This list exists because argus keeps that dispatch table unexported, so its keys cannot
+// be read. Writing argusconst.RuleXxx constants instead of string literals means a rename in
+// argus breaks compilation here, rather than silently leaving the docs rendering an old name.
+var argusCrossFieldTagNames = []string{
+	argusconst.RuleRequiredIf, argusconst.RuleRequiredUnless,
+	argusconst.RuleRequiredWith, argusconst.RuleRequiredWithAll,
+	argusconst.RuleRequiredWithout, argusconst.RuleRequiredWithoutAll,
+	argusconst.RuleExcludedIf, argusconst.RuleExcludedUnless,
+	argusconst.RuleExcludedWith, argusconst.RuleExcludedWithAll,
+	argusconst.RuleExcludedWithout, argusconst.RuleExcludedWithoutAll,
+	argusconst.RuleEqField, argusconst.RuleNeField,
+	argusconst.RuleGTField, argusconst.RuleGTEField,
+	argusconst.RuleLTField, argusconst.RuleLTEField,
+	argusconst.RuleAfterField, argusconst.RuleBeforeField,
+	argusconst.RuleEqCSField, argusconst.RuleNeCSField,
+	argusconst.RuleGTCSField, argusconst.RuleGTECSField,
+	argusconst.RuleLTCSField, argusconst.RuleLTECSField,
+	argusconst.RuleFieldContains, argusconst.RuleFieldExcludes,
+	argusconst.RuleFieldLen,
+	argusconst.RuleAfter, argusconst.RuleBefore, argusconst.RuleRange,
+	argusconst.RuleOneOf, argusconst.RuleOneOfCI,
+	argusconst.RuleNoneOf, argusconst.RuleNoneOfCI,
+}
+
+// argusStructuralTagNames 只控制校验流程、不进规则分派表的标签
+var argusStructuralTagNames = []string{
+	argusconst.RuleDive, argusconst.RuleKeys, argusconst.RuleEndKeys,
+	argusconst.RuleStructOnly, argusconst.RuleNoStructLevel,
+	argusconst.RuleOmitEmpty, argusconst.RuleOmitZero, argusconst.RuleOmitNil,
+}
+
+// TestArgusRuleTableCoversRegistry 规则表要跟 argus 的注册表对得上，一条不漏
+//
+// 为什么要这个用例：规则表是手写的中文说明，而 argus 的规则是 go-toolbox 那边加的
+// 漏一条的后果不是报错，是文档里悄悄多出一段标签原文（fallback），没人会注意到
+//
+// 回归点：第一版表照着 go-playground/validator 的印象写，结果漏了 35 条——argus 独有的
+// cn_phone / cn_idcard / strong_password / digits / int_or_float / word_chars 和 12 条图片
+// 格式全不在表里，还凭印象写了一个 argus 根本没有的 jwt
+//
+// [EN] The label table is hand-written Chinese prose while the rules themselves are added over
+// in go-toolbox. Missing one does not raise an error: it quietly leaves a stretch of raw tag text
+// in the documentation, where nobody notices.
+//
+// Regression: the first version of this table was written from memory of go-playground/validator
+// and missed 35 rules — all of argus's own cn_phone, cn_idcard, strong_password, digits,
+// int_or_float and word_chars, plus twelve image formats — while inventing a jwt rule that argus
+// does not have.
+func TestArgusRuleTableCoversRegistry(t *testing.T) {
+	names := make([]string, 0, len(argusrule.BuiltinRules)+len(argusCrossFieldTagNames))
+	for name := range argusrule.BuiltinRules {
+		names = append(names, name)
+	}
+	names = append(names, argusCrossFieldTagNames...)
+	names = append(names, argusStructuralTagNames...)
+
+	if len(argusrule.BuiltinRules) == 0 {
+		t.Fatal("argus 的 BuiltinRules 是空的，对账用例失去意义")
+	}
+
+	missing := make([]string, 0)
+	for _, name := range names {
+		if name == argusconst.RuleEmpty {
+			continue
+		}
+		if !argusRuleKnown(name) {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("这些 argus 规则在 middleware/swagger/argus.go 里没有渲染，会退化成标签原文:\n  %s",
+			strings.Join(missing, "\n  "))
+	}
+}
+
+// TestArgusRuleTableHasNoPhantomRules 反向对账：表里不能有 argus 不认识的规则名
+//
+// 写一条 argus 没有的规则（第一版的 jwt 就是），它永远不会被命中，是纯粹的误导
+func TestArgusRuleTableHasNoPhantomRules(t *testing.T) {
+	real := make(map[string]struct{}, len(argusrule.BuiltinRules)+64)
+	for name := range argusrule.BuiltinRules {
+		real[name] = struct{}{}
+	}
+	for _, name := range argusCrossFieldTagNames {
+		real[name] = struct{}{}
+	}
+	for _, name := range argusStructuralTagNames {
+		real[name] = struct{}{}
+	}
+	real[argusconst.RuleRequired] = struct{}{}
+	real[argusconst.RuleIsDefault] = struct{}{}
+
+	tables := map[string][]string{
+		"argusFormatLabels":     keysOf(argusFormatLabels),
+		"argusPlainLabels":      keysOf(argusPlainLabels),
+		"argusImageLabels":      keysOf(argusImageLabels),
+		"argusCrossFieldLabels": keysOf(argusCrossFieldLabels),
+	}
+	for table, keys := range tables {
+		for _, key := range keys {
+			if _, ok := real[key]; !ok {
+				t.Errorf("%s 里的 %q 不是 argus 的规则，永远不会被命中", table, key)
+			}
+		}
+	}
+}
+
+func keysOf(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// TestArgusSpecificRulesRendered argus 独有的那几类属性要真的渲染出中文，不是落到 fallback
+//
+// 这些是 go-playground/validator 没有、OpenAPI 更没有的：中国手机号与身份证、强密码、
+// 按字节内容判定的图片格式（PNG 还查 IEND 尾块）
+func TestArgusSpecificRulesRendered(t *testing.T) {
+	namer := newFieldNamer([]string{"avatar", "tags"})
+
+	cases := map[string]string{
+		"cn_phone":           "格式 中国大陆手机号",
+		"cn_idcard":          "格式 中国大陆身份证号（15 或 18 位）",
+		"cn_idcard_strict":   "格式 中国大陆身份证号（含校验位）",
+		"strong_password":    "格式 强密码（8 位以上，含大小写字母、数字与特殊字符）",
+		"digits":             "格式 纯数字",
+		"int_or_float":       "格式 整数或最多 2 位小数",
+		"word_chars":         "格式 仅字母、数字与下划线",
+		"has_special":        "须含特殊字符",
+		"has_double_byte":    "须含双字节字符",
+		"empty_line":         "须为空白行",
+		"png":                "图片格式 PNG",
+		"heic":               "图片格式 HEIC/HEIF",
+		"svg":                "图片格式 SVG",
+		"image":              "须为图片",
+		"image=png jpg":      "图片格式 <code>png</code>、<code>jpg</code>",
+		"containsrune=¥":     "须包含字符 <code>¥</code>",
+		"excludesrune=@":     "不得包含字符 <code>@</code>",
+		"fieldcontains=Tags": "须包含字段 <code>tags</code> 的值",
+		"fieldexcludes=Tags": "不得包含字段 <code>tags</code> 的值",
+		// fieldlen 的 op: 前缀不解析就正好说反
+		"fieldlen=Tags":     "长度须等于 <code>tags</code> 的长度",
+		"fieldlen=gt:Tags":  "长度须大于 <code>tags</code> 的长度",
+		"fieldlen=lte:Tags": "长度须不大于 <code>tags</code> 的长度",
+	}
+
+	for tagText, want := range cases {
+		tag := argusTag{rules: parseValidateTag(tagText), namer: namer}
+		got := strings.Join(argusConstraints(tag, "长度"), "；")
+		if got != want {
+			t.Errorf("%s → %q, want %q", tagText, got, want)
 		}
 	}
 }
