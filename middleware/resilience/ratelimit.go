@@ -20,13 +20,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	validator "github.com/kamalyes/go-argus"
-	"github.com/kamalyes/go-config/pkg/ratelimit"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
 	"github.com/kamalyes/go-rpc-gateway/middleware/observability"
 	"github.com/kamalyes/go-rpc-gateway/response"
+	validator "github.com/kamalyes/go-toolbox/pkg/argus"
 	"github.com/kamalyes/go-toolbox/pkg/matcher"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
@@ -57,14 +57,14 @@ const (
 
 // RateLimiter 限流器接口
 type RateLimiter interface {
-	Allow(ctx context.Context, key string, rule *ratelimit.LimitRule) (bool, error)
+	Allow(ctx context.Context, key string, rule *gcmiddleware.LimitRule) (bool, error)
 	Reset(ctx context.Context, key string) error
 }
 
 // TokenBucketLimiter 令牌桶限流器（使用atomic保证高性能）
 type TokenBucketLimiter struct {
 	limiters   sync.Map // key: string, value: *atomicTokenBucket
-	globalRule *ratelimit.LimitRule
+	globalRule *gcmiddleware.LimitRule
 
 	// ruleSuffix 缓存每条规则的 key 后缀，键是规则指针
 	//
@@ -74,11 +74,11 @@ type TokenBucketLimiter struct {
 	// [EN] The bucket key has to carry the rule's parameters, or a caller whose limit changed
 	// would keep its old bucket, but that suffix depends only on the rule, which is stable for
 	// the life of the process, so there is no reason to format and concatenate it per request
-	ruleSuffix sync.Map // key: *ratelimit.LimitRule, value: string
+	ruleSuffix sync.Map // key: *gcmiddleware.LimitRule, value: string
 }
 
 // bucketKeySuffix 取规则对应的 key 后缀，首次计算后缓存
-func (t *TokenBucketLimiter) bucketKeySuffix(rule *ratelimit.LimitRule) string {
+func (t *TokenBucketLimiter) bucketKeySuffix(rule *gcmiddleware.LimitRule) string {
 	if v, ok := t.ruleSuffix.Load(rule); ok {
 		return v.(string)
 	}
@@ -96,8 +96,8 @@ type atomicTokenBucket struct {
 }
 
 // NewTokenBucketLimiter 创建令牌桶限流器
-func NewTokenBucketLimiter(cfg *ratelimit.RateLimit) *TokenBucketLimiter {
-	var globalRule *ratelimit.LimitRule
+func NewTokenBucketLimiter(cfg *gcmiddleware.RateLimit) *TokenBucketLimiter {
+	var globalRule *gcmiddleware.LimitRule
 	if cfg != nil && cfg.GlobalLimit != nil {
 		globalRule = cfg.GlobalLimit
 	}
@@ -107,7 +107,7 @@ func NewTokenBucketLimiter(cfg *ratelimit.RateLimit) *TokenBucketLimiter {
 }
 
 // Allow 检查是否允许请求（无锁原子操作）
-func (t *TokenBucketLimiter) Allow(ctx context.Context, key string, rule *ratelimit.LimitRule) (bool, error) {
+func (t *TokenBucketLimiter) Allow(ctx context.Context, key string, rule *gcmiddleware.LimitRule) (bool, error) {
 	// 如果没有提供规则，使用全局配置
 	if rule == nil {
 		rule = t.globalRule
@@ -211,18 +211,18 @@ func (t *TokenBucketLimiter) Reset(ctx context.Context, key string) error {
 
 // SlidingWindowLimiter 滑动窗口限流器（Redis实现）
 type SlidingWindowLimiter struct {
-	config *ratelimit.RateLimit
+	config *gcmiddleware.RateLimit
 }
 
 // NewSlidingWindowLimiter 创建滑动窗口限流器
-func NewSlidingWindowLimiter(config *ratelimit.RateLimit) *SlidingWindowLimiter {
+func NewSlidingWindowLimiter(config *gcmiddleware.RateLimit) *SlidingWindowLimiter {
 	return &SlidingWindowLimiter{
 		config: config,
 	}
 }
 
 // Allow 检查是否允许请求（使用Lua脚本保证原子性）
-func (s *SlidingWindowLimiter) Allow(ctx context.Context, key string, rule *ratelimit.LimitRule) (bool, error) {
+func (s *SlidingWindowLimiter) Allow(ctx context.Context, key string, rule *gcmiddleware.LimitRule) (bool, error) {
 	if global.REDIS == nil {
 		return false, fmt.Errorf("redis not available for sliding window limiter")
 	}
@@ -356,7 +356,7 @@ func (s *SlidingWindowLimiter) Reset(ctx context.Context, key string) error {
 
 // FixedWindowLimiter 固定窗口限流器（使用atomic保证高性能）
 type FixedWindowLimiter struct {
-	config   *ratelimit.RateLimit
+	config   *gcmiddleware.RateLimit
 	counters sync.Map // key: string, value: *atomicCounter
 	stopChan chan struct{}
 	once     sync.Once
@@ -365,11 +365,11 @@ type FixedWindowLimiter struct {
 	// 这里还多省一次 Duration.String()，它每次都要分配
 	// [EN] Same reasoning as in TokenBucketLimiter, and it additionally avoids
 	// Duration.String(), which allocates on every call
-	ruleSuffix sync.Map // key: *ratelimit.LimitRule, value: string
+	ruleSuffix sync.Map // key: *gcmiddleware.LimitRule, value: string
 }
 
 // counterKeySuffix 取规则对应的 key 后缀，首次计算后缓存
-func (f *FixedWindowLimiter) counterKeySuffix(rule *ratelimit.LimitRule) string {
+func (f *FixedWindowLimiter) counterKeySuffix(rule *gcmiddleware.LimitRule) string {
 	if v, ok := f.ruleSuffix.Load(rule); ok {
 		return v.(string)
 	}
@@ -385,7 +385,7 @@ type atomicCounter struct {
 }
 
 // NewFixedWindowLimiter 创建固定窗口限流器
-func NewFixedWindowLimiter(config *ratelimit.RateLimit) *FixedWindowLimiter {
+func NewFixedWindowLimiter(config *gcmiddleware.RateLimit) *FixedWindowLimiter {
 	limiter := &FixedWindowLimiter{
 		config:   config,
 		stopChan: make(chan struct{}),
@@ -398,7 +398,7 @@ func NewFixedWindowLimiter(config *ratelimit.RateLimit) *FixedWindowLimiter {
 }
 
 // Allow 检查是否允许请求（使用atomic）
-func (f *FixedWindowLimiter) Allow(ctx context.Context, key string, rule *ratelimit.LimitRule) (bool, error) {
+func (f *FixedWindowLimiter) Allow(ctx context.Context, key string, rule *gcmiddleware.LimitRule) (bool, error) {
 	// 生成包含规则参数的唯一key；后缀按规则缓存，每个请求只付一次拼接
 	counterKey := key + f.counterKeySuffix(rule)
 
@@ -485,17 +485,17 @@ func (f *FixedWindowLimiter) Stop() {
 }
 
 type rateLimiterSet struct {
-	config   *ratelimit.RateLimit
+	config   *gcmiddleware.RateLimit
 	mu       sync.RWMutex
-	limiters map[ratelimit.Strategy]RateLimiter
+	limiters map[gcmiddleware.Strategy]RateLimiter
 }
 
-func newRateLimiterSet(config *ratelimit.RateLimit, defaultLimiter RateLimiter) *rateLimiterSet {
-	config = mathx.IF(config == nil, ratelimit.Default(), config)
+func newRateLimiterSet(config *gcmiddleware.RateLimit, defaultLimiter RateLimiter) *rateLimiterSet {
+	config = mathx.IF(config == nil, gcmiddleware.DefaultRateLimit(), config)
 
 	set := &rateLimiterSet{
 		config:   config,
-		limiters: make(map[ratelimit.Strategy]RateLimiter, 3),
+		limiters: make(map[gcmiddleware.Strategy]RateLimiter, 3),
 	}
 
 	if defaultLimiter != nil {
@@ -505,7 +505,7 @@ func newRateLimiterSet(config *ratelimit.RateLimit, defaultLimiter RateLimiter) 
 	return set
 }
 
-func (s *rateLimiterSet) get(strategy ratelimit.Strategy) RateLimiter {
+func (s *rateLimiterSet) get(strategy gcmiddleware.Strategy) RateLimiter {
 	resolved := resolveRateLimiterStrategy(strategy)
 
 	s.mu.RLock()
@@ -530,32 +530,32 @@ func (s *rateLimiterSet) get(strategy ratelimit.Strategy) RateLimiter {
 	return limiter
 }
 
-func resolveRateLimiterStrategy(strategy ratelimit.Strategy) ratelimit.Strategy {
+func resolveRateLimiterStrategy(strategy gcmiddleware.Strategy) gcmiddleware.Strategy {
 	switch strategy {
-	case ratelimit.StrategySlidingWindow:
+	case gcmiddleware.StrategySlidingWindow:
 		if global.REDIS == nil {
 			global.LOGGER.Warn("Redis不可用,限流器降级为令牌桶模式")
-			return ratelimit.StrategyTokenBucket
+			return gcmiddleware.StrategyTokenBucket
 		}
-		return ratelimit.StrategySlidingWindow
-	case ratelimit.StrategyFixedWindow:
-		return ratelimit.StrategyFixedWindow
-	case ratelimit.StrategyTokenBucket:
+		return gcmiddleware.StrategySlidingWindow
+	case gcmiddleware.StrategyFixedWindow:
+		return gcmiddleware.StrategyFixedWindow
+	case gcmiddleware.StrategyTokenBucket:
 		fallthrough
 	default:
-		return ratelimit.StrategyTokenBucket
+		return gcmiddleware.StrategyTokenBucket
 	}
 }
 
-func newRateLimiter(config *ratelimit.RateLimit, strategy ratelimit.Strategy) RateLimiter {
-	config = mathx.IF(config == nil, ratelimit.Default(), config)
+func newRateLimiter(config *gcmiddleware.RateLimit, strategy gcmiddleware.Strategy) RateLimiter {
+	config = mathx.IF(config == nil, gcmiddleware.DefaultRateLimit(), config)
 
 	switch resolveRateLimiterStrategy(strategy) {
-	case ratelimit.StrategySlidingWindow:
+	case gcmiddleware.StrategySlidingWindow:
 		return NewSlidingWindowLimiter(config)
-	case ratelimit.StrategyFixedWindow:
+	case gcmiddleware.StrategyFixedWindow:
 		return NewFixedWindowLimiter(config)
-	case ratelimit.StrategyTokenBucket:
+	case gcmiddleware.StrategyTokenBucket:
 		fallthrough
 	default:
 		return NewTokenBucketLimiter(config)
@@ -563,15 +563,15 @@ func newRateLimiter(config *ratelimit.RateLimit, strategy ratelimit.Strategy) Ra
 }
 
 type rateLimitMiddleware struct {
-	config          *ratelimit.RateLimit
+	config          *gcmiddleware.RateLimit
 	limiter         RateLimiter
 	limiters        *rateLimiterSet
 	dynamicProvider core.DynamicRateLimitProvider
 	metricsManager  *observability.MetricsManager // 监控管理器（用于记录限流拒绝指标）
 }
 
-func newRateLimitMiddleware(config *ratelimit.RateLimit, defaultLimiter RateLimiter, provider core.DynamicRateLimitProvider, mm *observability.MetricsManager) *rateLimitMiddleware {
-	config = mathx.IF(config == nil, ratelimit.Default(), config)
+func newRateLimitMiddleware(config *gcmiddleware.RateLimit, defaultLimiter RateLimiter, provider core.DynamicRateLimitProvider, mm *observability.MetricsManager) *rateLimitMiddleware {
+	config = mathx.IF(config == nil, gcmiddleware.DefaultRateLimit(), config)
 
 	limiters := newRateLimiterSet(config, defaultLimiter)
 	limiter := defaultLimiter
@@ -691,13 +691,13 @@ func (e *rateLimitMiddleware) normalizeDecisions(r *http.Request, decisions []co
 
 // getRuleAndKey 获取限流规则和key（HTTP 入口）
 // 优先级: 白名单 > 黑名单 > 限流规则
-func (e *rateLimitMiddleware) getRuleAndKey(r *http.Request) (*ratelimit.LimitRule, string) {
+func (e *rateLimitMiddleware) getRuleAndKey(r *http.Request) (*gcmiddleware.LimitRule, string) {
 	return e.resolveRuleAndKey(r.Context(), r.URL.Path, r.Method, netx.GetClientIP(r), core.GetRequestCommonMeta(r.Context()).UserID)
 }
 
 // resolveRuleAndKey 限流规则解析核心（HTTP 与 gRPC 共用）
 // 优先级: 路由白名单 > 路由黑名单 > 路由限流 > IP规则 > 用户规则 > 全局规则
-func (e *rateLimitMiddleware) resolveRuleAndKey(ctx context.Context, path, method, clientIP, userID string) (*ratelimit.LimitRule, string) {
+func (e *rateLimitMiddleware) resolveRuleAndKey(ctx context.Context, path, method, clientIP, userID string) (*gcmiddleware.LimitRule, string) {
 	// 第一轮: 优先检查白名单和黑名单(最高优先级)
 	for _, routeLimit := range e.config.Routes {
 		// 路径和方法匹配
@@ -712,7 +712,7 @@ func (e *rateLimitMiddleware) resolveRuleAndKey(ctx context.Context, path, metho
 
 		// 2. 黑名单 - 第二优先级,严格限流(仅当黑名单非空时检查)
 		if len(routeLimit.Blacklist) > 0 && validator.IsIPBlocked(clientIP, routeLimit.Blacklist) {
-			return &ratelimit.LimitRule{
+			return &gcmiddleware.LimitRule{
 				RequestsPerSecond: 1,
 				BurstSize:         1,
 				WindowSize:        time.Minute,
@@ -770,7 +770,7 @@ func (e *rateLimitMiddleware) resolveRuleAndKey(ctx context.Context, path, metho
 	return nil, ""
 }
 
-func (e *rateLimitMiddleware) getLimiter(strategy ratelimit.Strategy) RateLimiter {
+func (e *rateLimitMiddleware) getLimiter(strategy gcmiddleware.Strategy) RateLimiter {
 	if limiter := e.limiters.get(strategy); limiter != nil {
 		return limiter
 	}
@@ -778,20 +778,20 @@ func (e *rateLimitMiddleware) getLimiter(strategy ratelimit.Strategy) RateLimite
 }
 
 // generateKey 生成限流key（HTTP 入口）
-func (e *rateLimitMiddleware) generateKey(r *http.Request, scope ratelimit.Scope) string {
+func (e *rateLimitMiddleware) generateKey(r *http.Request, scope gcmiddleware.Scope) string {
 	return e.generateKeyForScope(scope, netx.GetClientIP(r), core.GetRequestCommonMeta(r.Context()).UserID, r.Method, r.URL.Path)
 }
 
 // generateKeyForScope 按作用域生成限流key（HTTP 与 gRPC 共用）
-func (e *rateLimitMiddleware) generateKeyForScope(scope ratelimit.Scope, clientIP, userID, method, path string) string {
+func (e *rateLimitMiddleware) generateKeyForScope(scope gcmiddleware.Scope, clientIP, userID, method, path string) string {
 	switch scope {
-	case ratelimit.ScopeGlobal:
+	case gcmiddleware.ScopeGlobal:
 		return keyGlobal
-	case ratelimit.ScopePerIP:
+	case gcmiddleware.ScopePerIP:
 		return "ip:" + clientIP
-	case ratelimit.ScopePerUser:
+	case gcmiddleware.ScopePerUser:
 		return "user:" + userID
-	case ratelimit.ScopePerRoute:
+	case gcmiddleware.ScopePerRoute:
 		return "route:" + method + ":" + path
 	default:
 		return keyGlobal
@@ -799,7 +799,7 @@ func (e *rateLimitMiddleware) generateKeyForScope(scope ratelimit.Scope, clientI
 }
 
 // matchUser 匹配用户（使用通配符匹配）
-func (e *rateLimitMiddleware) matchUser(rule ratelimit.UserRule, userID string) bool {
+func (e *rateLimitMiddleware) matchUser(rule gcmiddleware.UserRule, userID string) bool {
 	// 空或通配符，匹配所有
 	if rule.UserID == "" || rule.UserID == keyWildcard {
 		return true
@@ -810,12 +810,12 @@ func (e *rateLimitMiddleware) matchUser(rule ratelimit.UserRule, userID string) 
 }
 
 // RateLimitMiddleware 限流中间件
-func RateLimitMiddleware(config *ratelimit.RateLimit) core.HTTPMiddleware {
+func RateLimitMiddleware(config *gcmiddleware.RateLimit) core.HTTPMiddleware {
 	return newRateLimitMiddleware(config, nil, nil, nil).Middleware()
 }
 
 // RateLimitMiddlewareWithProvider 限流中间件（支持动态规则）
-func RateLimitMiddlewareWithProvider(config *ratelimit.RateLimit, provider core.DynamicRateLimitProvider) core.HTTPMiddleware {
+func RateLimitMiddlewareWithProvider(config *gcmiddleware.RateLimit, provider core.DynamicRateLimitProvider) core.HTTPMiddleware {
 	return newRateLimitMiddleware(config, nil, provider, nil).Middleware()
 }
 
@@ -823,7 +823,7 @@ func RateLimitMiddlewareWithProvider(config *ratelimit.RateLimit, provider core.
 // [EN] RateLimitMiddlewareWithOptions builds the rate limit middleware with a custom limiter, dynamic rules and metrics reporting
 // 供 middleware 根包的 Manager 编排使用，等价于内部 newRateLimitMiddleware(...).Middleware()
 // [EN] Used by the Manager in the middleware root package; equivalent to the internal newRateLimitMiddleware(...).Middleware()
-func RateLimitMiddlewareWithOptions(config *ratelimit.RateLimit, defaultLimiter RateLimiter, provider core.DynamicRateLimitProvider, mm *observability.MetricsManager) core.HTTPMiddleware {
+func RateLimitMiddlewareWithOptions(config *gcmiddleware.RateLimit, defaultLimiter RateLimiter, provider core.DynamicRateLimitProvider, mm *observability.MetricsManager) core.HTTPMiddleware {
 	return newRateLimitMiddleware(config, defaultLimiter, provider, mm).Middleware()
 }
 
@@ -856,7 +856,7 @@ func (e *rateLimitMiddleware) checkGRPCRateLimit(ctx context.Context, fullMethod
 
 // GRPCRateLimitUnaryInterceptor gRPC 一元限流拦截器
 // 复用与 HTTP 相同的限流配置与限流器实例，使 gRPC 方法路径（如 /pkg.Svc/Method）也能命中 routes 规则
-func GRPCRateLimitUnaryInterceptor(config *ratelimit.RateLimit, limiter RateLimiter) grpc.UnaryServerInterceptor {
+func GRPCRateLimitUnaryInterceptor(config *gcmiddleware.RateLimit, limiter RateLimiter) grpc.UnaryServerInterceptor {
 	mw := newRateLimitMiddleware(config, limiter, nil, nil)
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		if err := mw.checkGRPCRateLimit(ctx, info.FullMethod); err != nil {
@@ -867,7 +867,7 @@ func GRPCRateLimitUnaryInterceptor(config *ratelimit.RateLimit, limiter RateLimi
 }
 
 // GRPCRateLimitStreamInterceptor gRPC 流式限流拦截器（在流建立时限流一次）
-func GRPCRateLimitStreamInterceptor(config *ratelimit.RateLimit, limiter RateLimiter) grpc.StreamServerInterceptor {
+func GRPCRateLimitStreamInterceptor(config *gcmiddleware.RateLimit, limiter RateLimiter) grpc.StreamServerInterceptor {
 	mw := newRateLimitMiddleware(config, limiter, nil, nil)
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		if err := mw.checkGRPCRateLimit(ss.Context(), info.FullMethod); err != nil {

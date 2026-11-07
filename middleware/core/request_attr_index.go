@@ -39,8 +39,8 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	gccommon "github.com/kamalyes/go-config/pkg/common"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gccommon "github.com/kamalyes/go-rpc-gateway/config/core"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 )
 
 // attrSpec 把配置里的一份来源清单与 RequestCommonMeta 的一个字段绑在一起

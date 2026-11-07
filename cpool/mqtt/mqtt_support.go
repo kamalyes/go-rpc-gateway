@@ -1,22 +1,30 @@
+//go:build mq
+
 /*
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2023-07-28 00:50:58
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-13 07:49:19
- * @FilePath: \go-rpc-gateway\cpool\mqtt\mqtt.go
- * @Description:
+ * @FilePath: \go-rpc-gateway\cpool\mqtt\mqtt_support.go
+ * @Description: MQTT 客户端工厂（mq 构建标签）
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
  */
+
+// mqtt_support 仅在启用 mq 构建标签（-tags mq）时编译，
+// 提供真实的 paho.mqtt.golang 客户端接入
+// 未使用 MQTT 的服务默认不编译进生产二进制
+
 package mqtt
 
 import (
 	"context"
-	pahoMqtt "github.com/eclipse/paho.mqtt.golang"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	gologger "github.com/kamalyes/go-logger"
-	"github.com/kamalyes/go-rpc-gateway/global"
 	"time"
+
+	pahoMqtt "github.com/eclipse/paho.mqtt.golang"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
+	"github.com/kamalyes/go-rpc-gateway/global"
+	gologger "github.com/kamalyes/go-toolbox/pkg/logger"
 )
 
 // DefaultMqtt 创建默认的mqtt客户端

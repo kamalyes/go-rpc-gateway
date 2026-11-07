@@ -14,7 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kamalyes/go-argus/validate"
+	"github.com/kamalyes/go-toolbox/pkg/argus/validate"
 )
 
 // PathNormalizer 路径规范化器接口

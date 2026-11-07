@@ -13,10 +13,11 @@ package errors
 
 import (
 	"fmt"
+	"net/http"
+
 	commonapis "github.com/kamalyes/go-rpc-gateway/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net/http"
 )
 
 // errorMessages 错误消息映射
@@ -95,8 +96,6 @@ var errorMessages = map[ErrorCode]string{
 	ErrCodeHealthManagerFailed:   "健康检查管理器创建失败",
 	ErrCodeGRPCServerInitFailed:  "gRPC服务器初始化失败",
 	ErrCodeHTTPGatewayInitFailed: "HTTP网关初始化失败",
-	ErrCodeWSCNotEnabled:         "WSC功能未在配置中启用",
-	ErrCodeWSCRouteFailed:        "注册WSC路由失败",
 	ErrCodeUserAuthNotFound:      "未找到用户认证信息",
 	// 服务器和基础设施
 	ErrCodeServerCreationFailed: "创建服务器失败",
@@ -184,8 +183,6 @@ var httpStatusMapping = map[ErrorCode]int{
 	ErrCodeHealthManagerFailed:   http.StatusInternalServerError,
 	ErrCodeGRPCServerInitFailed:  http.StatusInternalServerError,
 	ErrCodeHTTPGatewayInitFailed: http.StatusInternalServerError,
-	ErrCodeWSCNotEnabled:         http.StatusServiceUnavailable,
-	ErrCodeWSCRouteFailed:        http.StatusInternalServerError,
 	ErrCodeUserAuthNotFound:      http.StatusUnauthorized,
 	// 服务器和基础设施
 	ErrCodeServerCreationFailed: http.StatusInternalServerError,
@@ -273,8 +270,6 @@ var statusCodeMapping = map[ErrorCode]commonapis.StatusCode{
 	ErrCodeHealthManagerFailed:   commonapis.StatusCode_Internal,
 	ErrCodeGRPCServerInitFailed:  commonapis.StatusCode_Internal,
 	ErrCodeHTTPGatewayInitFailed: commonapis.StatusCode_Internal,
-	ErrCodeWSCNotEnabled:         commonapis.StatusCode_Unavailable,
-	ErrCodeWSCRouteFailed:        commonapis.StatusCode_Internal,
 	ErrCodeUserAuthNotFound:      commonapis.StatusCode_Unauthenticated,
 	// 服务器和基础设施
 	ErrCodeServerCreationFailed: commonapis.StatusCode_Internal,
@@ -611,8 +606,6 @@ var (
 	ErrHealthManagerFailed   = NewError(ErrCodeHealthManagerFailed, "")
 	ErrGRPCServerInitFailed  = NewError(ErrCodeGRPCServerInitFailed, "")
 	ErrHTTPGatewayInitFailed = NewError(ErrCodeHTTPGatewayInitFailed, "")
-	ErrWSCNotEnabled         = NewError(ErrCodeWSCNotEnabled, "")
-	ErrWSCRouteFailed        = NewError(ErrCodeWSCRouteFailed, "")
 	ErrUserAuthNotFound      = NewError(ErrCodeUserAuthNotFound, "")
 )
 

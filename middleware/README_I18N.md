@@ -135,7 +135,7 @@ i18n 中间件基于 `go-config` 的 `gci18n.I18N` 配置与 `go-i18n` 的 `Mana
 
 ```go
 import (
-    gci18n "github.com/kamalyes/go-config/pkg/i18n"
+    gci18n "github.com/kamalyes/go-rpc-gateway/config/i18n"
     "github.com/kamalyes/go-rpc-gateway/middleware"
 )
 

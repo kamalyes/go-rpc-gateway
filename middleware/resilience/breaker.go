@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	breakerconfig "github.com/kamalyes/go-config/pkg/breaker"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
@@ -251,13 +251,13 @@ func (b *Breaker) Reset() {
 type BreakerManager struct {
 	mu             sync.RWMutex
 	breakers       map[string]*Breaker
-	config         *breakerconfig.CircuitBreaker
+	config         *gcmiddleware.CircuitBreaker
 	excludePathSet map[string]struct{} // 排除路径集合，O(1) 查找替代线性扫描
 }
 
 // NewBreakerManager 创建断路器管理器（直接接收 go-config 配置对象）
-func NewBreakerManager(cfg *breakerconfig.CircuitBreaker) *BreakerManager {
-	cfg = mathx.IF(cfg == nil, breakerconfig.Default(), cfg)
+func NewBreakerManager(cfg *gcmiddleware.CircuitBreaker) *BreakerManager {
+	cfg = mathx.IF(cfg == nil, gcmiddleware.DefaultCircuitBreaker(), cfg)
 	// 预构建排除路径集合，热路径 O(1) 查找
 	excludeSet := make(map[string]struct{}, len(cfg.ExcludePaths))
 	for _, p := range cfg.ExcludePaths {

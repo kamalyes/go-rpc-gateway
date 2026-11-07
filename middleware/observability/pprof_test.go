@@ -17,13 +17,13 @@ import (
 	"testing"
 	"time"
 
-	gopprof "github.com/kamalyes/go-config/pkg/pprof"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/stretchr/testify/assert"
 )
 
 // TestStartPProfServer_WithAuth 测试带认证的服务器
 func TestStartPProfServer_WithAuth(t *testing.T) {
-	cfg := gopprof.Default().
+	cfg := gcmiddleware.DefaultPProf().
 		Enable().
 		WithPort(16061).
 		WithPathPrefix("/debug/pprof").
@@ -31,7 +31,7 @@ func TestStartPProfServer_WithAuth(t *testing.T) {
 
 	// 确保认证配置正确设置
 	if cfg.Authentication == nil {
-		cfg.Authentication = &gopprof.AuthConfig{}
+		cfg.Authentication = &gcmiddleware.AuthConfig{}
 	}
 	cfg.Authentication.Enabled = true
 	cfg.Authentication.RequireAuth = true
@@ -72,7 +72,7 @@ func TestStartPProfServer_WithAuth(t *testing.T) {
 
 // TestStartPProfServer_WithIPWhitelist 测试IP白名单
 func TestStartPProfServer_WithIPWhitelist(t *testing.T) {
-	cfg := gopprof.Default().
+	cfg := gcmiddleware.DefaultPProf().
 		Enable().
 		WithPort(16062).
 		WithPathPrefix("/debug/pprof").
@@ -101,7 +101,7 @@ func TestStartPProfServer_WithIPWhitelist(t *testing.T) {
 
 // TestStartPProfServer_ProfilesEnabled 测试Profile启用控制
 func TestStartPProfServer_ProfilesEnabled(t *testing.T) {
-	cfg := gopprof.Default().
+	cfg := gcmiddleware.DefaultPProf().
 		Enable().
 		WithPort(16063).
 		WithPathPrefix("/debug/pprof").
@@ -109,7 +109,7 @@ func TestStartPProfServer_ProfilesEnabled(t *testing.T) {
 
 	// 确保配置正确设置
 	if cfg.EnableProfiles == nil {
-		cfg.EnableProfiles = &gopprof.ProfilesConfig{}
+		cfg.EnableProfiles = &gcmiddleware.ProfilesConfig{}
 	}
 	cfg.EnableProfiles.CPU = true
 	cfg.EnableProfiles.Heap = false
@@ -153,15 +153,15 @@ func TestStartPProfServer_ProfilesEnabled(t *testing.T) {
 func TestAuthenticateRequest(t *testing.T) {
 	tests := []struct {
 		name     string
-		cfg      *gopprof.PProf
+		cfg      *gcmiddleware.PProf
 		token    string
 		useQuery bool
 		want     bool
 	}{
 		{
 			name: "认证未启用",
-			cfg: &gopprof.PProf{
-				Authentication: &gopprof.AuthConfig{
+			cfg: &gcmiddleware.PProf{
+				Authentication: &gcmiddleware.AuthConfig{
 					Enabled: false,
 				},
 			},
@@ -170,8 +170,8 @@ func TestAuthenticateRequest(t *testing.T) {
 		},
 		{
 			name: "不需要认证",
-			cfg: &gopprof.PProf{
-				Authentication: &gopprof.AuthConfig{
+			cfg: &gcmiddleware.PProf{
+				Authentication: &gcmiddleware.AuthConfig{
 					Enabled:     true,
 					RequireAuth: false,
 				},
@@ -181,8 +181,8 @@ func TestAuthenticateRequest(t *testing.T) {
 		},
 		{
 			name: "有效token（Header）",
-			cfg: &gopprof.PProf{
-				Authentication: &gopprof.AuthConfig{
+			cfg: &gcmiddleware.PProf{
+				Authentication: &gcmiddleware.AuthConfig{
 					Enabled:     true,
 					RequireAuth: true,
 					AuthToken:   "test-token",
@@ -193,8 +193,8 @@ func TestAuthenticateRequest(t *testing.T) {
 		},
 		{
 			name: "有效token（Query）",
-			cfg: &gopprof.PProf{
-				Authentication: &gopprof.AuthConfig{
+			cfg: &gcmiddleware.PProf{
+				Authentication: &gcmiddleware.AuthConfig{
 					Enabled:     true,
 					RequireAuth: true,
 					AuthToken:   "test-token",
@@ -206,8 +206,8 @@ func TestAuthenticateRequest(t *testing.T) {
 		},
 		{
 			name: "无效token",
-			cfg: &gopprof.PProf{
-				Authentication: &gopprof.AuthConfig{
+			cfg: &gcmiddleware.PProf{
+				Authentication: &gcmiddleware.AuthConfig{
 					Enabled:     true,
 					RequireAuth: true,
 					AuthToken:   "test-token",
@@ -240,14 +240,14 @@ func TestAuthenticateRequest(t *testing.T) {
 func TestCheckPProfIPWhitelist(t *testing.T) {
 	tests := []struct {
 		name       string
-		cfg        *gopprof.PProf
+		cfg        *gcmiddleware.PProf
 		remoteAddr string
 		want       bool
 	}{
 		{
 			name: "白名单为空",
-			cfg: &gopprof.PProf{
-				Authentication: &gopprof.AuthConfig{
+			cfg: &gcmiddleware.PProf{
+				Authentication: &gcmiddleware.AuthConfig{
 					AllowedIPs: []string{},
 				},
 			},
@@ -256,8 +256,8 @@ func TestCheckPProfIPWhitelist(t *testing.T) {
 		},
 		{
 			name: "精确匹配",
-			cfg: &gopprof.PProf{
-				Authentication: &gopprof.AuthConfig{
+			cfg: &gcmiddleware.PProf{
+				Authentication: &gcmiddleware.AuthConfig{
 					AllowedIPs: []string{"127.0.0.1"},
 				},
 			},
@@ -266,8 +266,8 @@ func TestCheckPProfIPWhitelist(t *testing.T) {
 		},
 		{
 			name: "CIDR匹配",
-			cfg: &gopprof.PProf{
-				Authentication: &gopprof.AuthConfig{
+			cfg: &gcmiddleware.PProf{
+				Authentication: &gcmiddleware.AuthConfig{
 					AllowedIPs: []string{"192.168.1.0/24"},
 				},
 			},
@@ -276,8 +276,8 @@ func TestCheckPProfIPWhitelist(t *testing.T) {
 		},
 		{
 			name: "不在白名单",
-			cfg: &gopprof.PProf{
-				Authentication: &gopprof.AuthConfig{
+			cfg: &gcmiddleware.PProf{
+				Authentication: &gcmiddleware.AuthConfig{
 					AllowedIPs: []string{"127.0.0.1", "192.168.1.0/24"},
 				},
 			},
@@ -301,20 +301,20 @@ func TestCheckPProfIPWhitelist(t *testing.T) {
 func TestIsProfileEnabled(t *testing.T) {
 	tests := []struct {
 		name      string
-		cfg       *gopprof.PProf
+		cfg       *gcmiddleware.PProf
 		pprofPath string
 		want      bool
 	}{
 		{
 			name:      "配置为nil，全部启用",
-			cfg:       &gopprof.PProf{},
+			cfg:       &gcmiddleware.PProf{},
 			pprofPath: "heap",
 			want:      true,
 		},
 		{
 			name: "CPU已启用",
-			cfg: &gopprof.PProf{
-				EnableProfiles: &gopprof.ProfilesConfig{
+			cfg: &gcmiddleware.PProf{
+				EnableProfiles: &gcmiddleware.ProfilesConfig{
 					CPU: true,
 				},
 			},
@@ -323,8 +323,8 @@ func TestIsProfileEnabled(t *testing.T) {
 		},
 		{
 			name: "Heap未启用",
-			cfg: &gopprof.PProf{
-				EnableProfiles: &gopprof.ProfilesConfig{
+			cfg: &gcmiddleware.PProf{
+				EnableProfiles: &gcmiddleware.ProfilesConfig{
 					Heap: false,
 				},
 			},
@@ -333,8 +333,8 @@ func TestIsProfileEnabled(t *testing.T) {
 		},
 		{
 			name: "索引页面始终可访问",
-			cfg: &gopprof.PProf{
-				EnableProfiles: &gopprof.ProfilesConfig{
+			cfg: &gcmiddleware.PProf{
+				EnableProfiles: &gcmiddleware.ProfilesConfig{
 					CPU: false,
 				},
 			},
@@ -343,8 +343,8 @@ func TestIsProfileEnabled(t *testing.T) {
 		},
 		{
 			name: "cmdline始终可访问",
-			cfg: &gopprof.PProf{
-				EnableProfiles: &gopprof.ProfilesConfig{
+			cfg: &gcmiddleware.PProf{
+				EnableProfiles: &gcmiddleware.ProfilesConfig{
 					CPU: false,
 				},
 			},
@@ -363,18 +363,18 @@ func TestIsProfileEnabled(t *testing.T) {
 
 // TestInitSamplingConfig 测试采样配置初始化
 func TestInitSamplingConfig(t *testing.T) {
-	cfg := gopprof.Default()
+	cfg := gcmiddleware.DefaultPProf()
 
 	// 确保配置正确设置
 	if cfg.Sampling == nil {
-		cfg.Sampling = &gopprof.SamplingConfig{}
+		cfg.Sampling = &gcmiddleware.SamplingConfig{}
 	}
 	cfg.Sampling.MemoryRate = 4096
 	cfg.Sampling.BlockRate = 1
 	cfg.Sampling.MutexFraction = 1
 
 	if cfg.EnableProfiles == nil {
-		cfg.EnableProfiles = &gopprof.ProfilesConfig{}
+		cfg.EnableProfiles = &gcmiddleware.ProfilesConfig{}
 	}
 	cfg.EnableProfiles.Block = true
 	cfg.EnableProfiles.Mutex = true

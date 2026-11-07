@@ -17,7 +17,7 @@ import (
 	"sync"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
@@ -57,9 +57,6 @@ type Server struct {
 
 	// 连接池管理器
 	poolManager cpool.PoolManager
-
-	// WebSocket 服务
-	webSocketService *WebSocketService
 
 	// 端点信息收集器
 	endpointCollector *EndpointCollector
@@ -171,11 +168,6 @@ func (s *Server) GetBannerManager() *BannerManager {
 // GetPoolManager 获取连接池管理器
 func (s *Server) GetPoolManager() cpool.PoolManager {
 	return s.poolManager
-}
-
-// GetWebSocketService 获取 WebSocket 服务
-func (s *Server) GetWebSocketService() *WebSocketService {
-	return s.webSocketService
 }
 
 // GetEndpointCollector 获取端点收集器

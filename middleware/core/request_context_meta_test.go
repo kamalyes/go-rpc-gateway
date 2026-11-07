@@ -3,7 +3,7 @@
  * @Date: 2026-11-03 18:02:00
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2026-11-03 18:20:00
- * @FilePath: \\go-rpc-gateway\\middleware\\core\\request_context_meta_test.go
+ * @FilePath: \go-rpc-gateway\middleware\core\request_context_meta_test.go
  * @Description: WithRequestCommonMeta 单层 context 同时应答两个键的测试
  *
  * Copyright (c) 2026 by kamalyes, All Rights Reserved.
@@ -15,8 +15,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kamalyes/go-logger"
 	"github.com/kamalyes/go-toolbox/pkg/contextx"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/stretchr/testify/assert"
 )
 

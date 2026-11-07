@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	breakerconfig "github.com/kamalyes/go-config/pkg/breaker"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"google.golang.org/grpc"
@@ -180,21 +180,21 @@ var clientBreakerOpenErr = errors.NewError(
 
 // DefaultClientBreakerConfig 客户端熔断的默认配置
 //
-// 与 breakerconfig.Default() 的差别有两处，都是客户端语义决定的：
+// 与 gcmiddleware.DefaultCircuitBreaker() 的差别有两处，都是客户端语义决定的：
 //   - PreventionPaths 为空：服务端默认值是 []string{"/api/"}，那是 HTTP 路径前缀，
 //     放到 gRPC 侧永远匹配不上 /pkg.Service/Method，断路器会「启用了但从不生效」
 //     客户端语义是「开了就保护这个下游的全部方法」，所以用空列表表示全保护
 //   - Timeout 取 5s 而非 30s：客户端熔断打开期间调用方是完全看不到下游的，
 //     恢复探测迟 30s 意味着下游已经好了还要再瞎 30s，客户端对误判的容忍度比服务端低
 //
-// [EN] Differs from breakerconfig.Default() in two client-specific ways. PreventionPaths is
+// [EN] Differs from gcmiddleware.DefaultCircuitBreaker() in two client-specific ways. PreventionPaths is
 // empty: the server default of "/api/" is an HTTP path prefix that can never match a gRPC
 // method name, which would leave the breaker enabled but permanently inert, whereas the
 // client-side meaning of "enabled" is "protect every method of this dependency". And the
 // recovery timeout is 5s rather than 30s, because while a client breaker is open the caller
 // is blind to the dependency, so waiting 30s after it recovered is far more costly here
-func DefaultClientBreakerConfig() *breakerconfig.CircuitBreaker {
-	return &breakerconfig.CircuitBreaker{
+func DefaultClientBreakerConfig() *gcmiddleware.CircuitBreaker {
+	return &gcmiddleware.CircuitBreaker{
 		ModuleName:       "grpc_client_breaker",
 		Enabled:          true,
 		FailureThreshold: 5,
@@ -319,7 +319,7 @@ type ClientBreaker struct {
 // [EN] A nil cfg falls back to DefaultClientBreakerConfig(); a disabled cfg returns nil and
 // the interceptors pass through, so "off" costs nothing beyond one nil check. An empty
 // keyMode defaults to BreakerKeyTargetMethod
-func NewClientBreaker(cfg *breakerconfig.CircuitBreaker, keyMode ClientBreakerKeyMode) *ClientBreaker {
+func NewClientBreaker(cfg *gcmiddleware.CircuitBreaker, keyMode ClientBreakerKeyMode) *ClientBreaker {
 	if cfg == nil {
 		cfg = DefaultClientBreakerConfig()
 	}
@@ -340,7 +340,7 @@ func NewClientBreaker(cfg *breakerconfig.CircuitBreaker, keyMode ClientBreakerKe
 // list every breaker at once. Sharing is safe because client keys carry the target while
 // server keys are bare method names, so they cannot collide. cfg must be the same config the
 // manager was built from, since the protection scope is read from it
-func NewClientBreakerWithManager(manager *middleware.BreakerManager, cfg *breakerconfig.CircuitBreaker, keyMode ClientBreakerKeyMode) *ClientBreaker {
+func NewClientBreakerWithManager(manager *middleware.BreakerManager, cfg *gcmiddleware.CircuitBreaker, keyMode ClientBreakerKeyMode) *ClientBreaker {
 	if manager == nil {
 		return nil
 	}
@@ -573,7 +573,7 @@ func StreamClientBreakerInterceptor(cb *ClientBreaker) grpc.StreamClientIntercep
 // 这组包级函数仍然保留，它们能表达 YAML 表达不了的两件事：
 //
 //   - 自定义阈值：失败/成功阈值、恢复超时、volume-threshold、prevention-paths、
-//     exclude-paths 全都只能从 breakerconfig.CircuitBreaker 来，GRPCClient 上只有
+//     exclude-paths 全都只能从 gcmiddleware.CircuitBreaker 来，GRPCClient 上只有
 //     「开不开」和「key 粒度」两个字段
 //   - 与服务端熔断共享一个 BreakerManager（NewClientBreakerWithManager），
 //     让一个诊断端点一次看到两侧的全部断路器
@@ -584,7 +584,7 @@ func StreamClientBreakerInterceptor(cb *ClientBreaker) grpc.StreamClientIntercep
 // (grpc.clients.<name>.enable-breaker / breaker-key-mode, wired in client.go's
 // resolveClientBreaker). These package-level functions are kept because they express two
 // things YAML cannot: custom thresholds — failure/success thresholds, recovery timeout,
-// volume threshold, prevention/exclude paths all come from breakerconfig.CircuitBreaker,
+// volume threshold, prevention/exclude paths all come from gcmiddleware.CircuitBreaker,
 // while GRPCClient carries only an on/off flag and a key granularity — and sharing one
 // BreakerManager with the server side so a single diagnostic endpoint sees every breaker.
 // Config can therefore never be a superset of them, which is why a registered package-level
@@ -614,7 +614,7 @@ func GetDefaultClientBreaker() *ClientBreaker {
 
 // EnableClientBreaker 按配置创建并注册包级默认客户端熔断器，返回创建出的实例
 // cfg.Enabled 为 false 时等价于 DisableClientBreaker()，返回 nil
-func EnableClientBreaker(cfg *breakerconfig.CircuitBreaker, keyMode ClientBreakerKeyMode) *ClientBreaker {
+func EnableClientBreaker(cfg *gcmiddleware.CircuitBreaker, keyMode ClientBreakerKeyMode) *ClientBreaker {
 	cb := NewClientBreaker(cfg, keyMode)
 	SetDefaultClientBreaker(cb)
 	return cb

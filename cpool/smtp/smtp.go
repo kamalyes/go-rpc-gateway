@@ -16,8 +16,8 @@ import (
 	"net/smtp"
 
 	"github.com/jordan-wright/email"
-	smtpconfig "github.com/kamalyes/go-config/pkg/smtp"
-	"github.com/kamalyes/go-logger"
+	smtpconfig "github.com/kamalyes/go-rpc-gateway/config/smtp"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 )
 

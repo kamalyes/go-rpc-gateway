@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	gwglobal "github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
@@ -429,7 +429,7 @@ func resolveClientBreaker(clientCfg *gwconfig.GRPCClient, serviceName string) *C
 			BreakerKeyTargetMethod, BreakerKeyTarget, BreakerKeyMethod, keyMode)
 	}
 
-	// cfg 传 nil 即取 DefaultClientBreakerConfig()：它与 breakerconfig.Default() 的两处差别
+	// cfg 传 nil 即取 DefaultClientBreakerConfig()：它与 breakerconfig.DefaultCircuitBreaker() 的两处差别
 	// （prevention-paths 为空、恢复超时 5s）都是客户端语义决定的，理由见该函数注释
 	return NewClientBreaker(nil, keyMode)
 }

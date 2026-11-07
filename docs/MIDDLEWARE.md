@@ -388,7 +388,7 @@ func CPUUsageSource() string    // cgroup2 / cgroup1 / procstat / rusage / unsup
 - 路径策略与熔断相反：默认保护全部流量，只按 `exclude-paths` 前缀排除（默认排除 `/health` `/healthz` `/readyz` `/livez` `/metrics` `/debug`）
 - 完整的三信号实现、链路位置理由、与限流/熔断的相互作用分析见 [自适应降载](./SHEDDER.md)
 
-配置类型是 go-config 的 `shedderconfig.Shedder`（`github.com/kamalyes/go-config/pkg/shedder`），`Manager` 直接读 `cfg.Middleware.Shedder`：
+配置类型是 go-config 的 `shedderconfig.Shedder`（`github.com/kamalyes/go-rpc-gateway/config/shedder`），`Manager` 直接读 `cfg.Middleware.Shedder`：
 
 ```yaml
 middleware:

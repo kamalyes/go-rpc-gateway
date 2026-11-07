@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	breakerconfig "github.com/kamalyes/go-config/pkg/breaker"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,8 +48,8 @@ func newTestClientConn(t *testing.T, target string) *grpc.ClientConn {
 }
 
 // testBreakerCfg 测试用熔断配置：3 次失败打开，2 次成功闭合，恢复等待 timeout
-func testBreakerCfg(timeout time.Duration) *breakerconfig.CircuitBreaker {
-	return &breakerconfig.CircuitBreaker{
+func testBreakerCfg(timeout time.Duration) *gcmiddleware.CircuitBreaker {
+	return &gcmiddleware.CircuitBreaker{
 		ModuleName:       "test_client_breaker",
 		Enabled:          true,
 		FailureThreshold: 3,

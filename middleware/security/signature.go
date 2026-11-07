@@ -18,13 +18,13 @@ import (
 	"fmt"
 	"net/http"
 
-	validator "github.com/kamalyes/go-argus"
-	"github.com/kamalyes/go-config/pkg/signature"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	gwerrors "github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
 	"github.com/kamalyes/go-rpc-gateway/response"
+	validator "github.com/kamalyes/go-toolbox/pkg/argus"
 	"github.com/kamalyes/go-toolbox/pkg/httpx"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/sign"
@@ -63,7 +63,7 @@ func NewHMACValidator(algorithm sign.HashCryptoFunc) (*HMACValidator, error) {
 }
 
 // Validate 验证 HMAC 签名
-func (v *HMACValidator) Validate(r *http.Request, config *signature.Signature) error {
+func (v *HMACValidator) Validate(r *http.Request, config *gcmiddleware.Signature) error {
 	if !config.Enabled {
 		return nil
 	}
@@ -139,7 +139,7 @@ func NewRSAValidator(publicKeyPEM []byte) (*RSAValidator, error) {
 }
 
 // Validate 验证 RSA 签名
-func (v *RSAValidator) Validate(r *http.Request, config *signature.Signature) error {
+func (v *RSAValidator) Validate(r *http.Request, config *gcmiddleware.Signature) error {
 	if !config.Enabled {
 		return nil
 	}
@@ -226,13 +226,13 @@ func getQueryString(r *http.Request, skipQuery bool) string {
 	return mathx.IF(skipQuery, "", r.URL.RawQuery)
 }
 
-func buildSignatureValidator(config *signature.Signature) (core.SignatureValidator, *gwerrors.AppError) {
+func buildSignatureValidator(config *gcmiddleware.Signature) (core.SignatureValidator, *gwerrors.AppError) {
 	if config == nil || !config.Enabled {
 		return nil, nil
 	}
 
 	switch config.Type {
-	case signature.SignatureTypeRSA:
+	case gcmiddleware.SignatureTypeRSA:
 		if config.PublicKeyPEM == "" {
 			global.LOGGER.Warn("⚠️  RSA 签名已启用但未配置公钥，将跳过签名验证")
 			return nil, nil
@@ -242,7 +242,7 @@ func buildSignatureValidator(config *signature.Signature) (core.SignatureValidat
 			return nil, gwerrors.NewError(gwerrors.ErrCodeInternalServerError, fmt.Sprintf("failed to create RSA validator: %v", err))
 		}
 		return validator, nil
-	case signature.SignatureTypeHMAC:
+	case gcmiddleware.SignatureTypeHMAC:
 		fallthrough
 	default:
 		validator, err := NewHMACValidator(config.Algorithm)
@@ -267,7 +267,7 @@ func buildSignatureValidator(config *signature.Signature) (core.SignatureValidat
 //
 //	自动选择验证器（根据配置）
 //	middleware.SignatureMiddleware(config)
-func SignatureMiddleware(config *signature.Signature) core.HTTPMiddleware {
+func SignatureMiddleware(config *gcmiddleware.Signature) core.HTTPMiddleware {
 	if !config.Enabled {
 		return core.NoopMiddleware
 	}
@@ -276,7 +276,7 @@ func SignatureMiddleware(config *signature.Signature) core.HTTPMiddleware {
 
 // SignatureMiddlewareWithProvider 签名验证中间件（按请求动态解析配置/验证器）
 // 静态配置在构建期解析一次验证器并缓存，动态配置仍按请求解析
-func SignatureMiddlewareWithProvider(config *signature.Signature, provider core.DynamicSignatureProvider) core.HTTPMiddleware {
+func SignatureMiddlewareWithProvider(config *gcmiddleware.Signature, provider core.DynamicSignatureProvider) core.HTTPMiddleware {
 	if !config.Enabled {
 		return core.NoopMiddleware
 	}
@@ -286,7 +286,7 @@ func SignatureMiddlewareWithProvider(config *signature.Signature, provider core.
 
 	// resolveValidator 解析请求对应的签名验证器
 	// 静态配置直接复用构建期结果，动态配置按请求构建
-	resolveValidator := func(resolvedConfig *signature.Signature) (core.SignatureValidator, *gwerrors.AppError) {
+	resolveValidator := func(resolvedConfig *gcmiddleware.Signature) (core.SignatureValidator, *gwerrors.AppError) {
 		if resolvedConfig == config {
 			return staticValidator, staticErr
 		}
@@ -330,7 +330,7 @@ func SignatureMiddlewareWithProvider(config *signature.Signature, provider core.
 
 // resolveDynamic 解析动态签名结果
 // 无 provider 或 provider 返回空结果时，沿用构建期的静态配置与验证器
-func resolveDynamic(provider core.DynamicSignatureProvider, config *signature.Signature, staticValidator core.SignatureValidator, r *http.Request) (resolvedConfig *signature.Signature, validator core.SignatureValidator, skip bool, appErr *gwerrors.AppError) {
+func resolveDynamic(provider core.DynamicSignatureProvider, config *gcmiddleware.Signature, staticValidator core.SignatureValidator, r *http.Request) (resolvedConfig *gcmiddleware.Signature, validator core.SignatureValidator, skip bool, appErr *gwerrors.AppError) {
 	resolvedConfig, validator = config, staticValidator
 	if provider == nil {
 		return
@@ -360,7 +360,7 @@ func resolveDynamic(provider core.DynamicSignatureProvider, config *signature.Si
 //	 使用自定义 RSA 验证器
 //		rsaValidator, _ := middleware.NewRSAValidator([]byte(publicKeyPEM))
 //		middleware.SignatureMiddlewareWithValidator(config, rsaValidator)
-func SignatureMiddlewareWithValidator(config *signature.Signature, validator core.SignatureValidator) core.HTTPMiddleware {
+func SignatureMiddlewareWithValidator(config *gcmiddleware.Signature, validator core.SignatureValidator) core.HTTPMiddleware {
 	return SignatureMiddlewareWithProvider(config, staticSignatureProvider{validator: validator})
 }
 

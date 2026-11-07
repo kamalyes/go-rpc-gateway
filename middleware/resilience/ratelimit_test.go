@@ -22,11 +22,11 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
-	"github.com/kamalyes/go-config/pkg/ratelimit"
-	"github.com/kamalyes/go-logger"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,9 +92,9 @@ func getTestRedisClientWithFlush(t *testing.T) *redis.Client {
 func TestLimiters(t *testing.T) {
 	t.Run("TokenBucket", func(t *testing.T) {
 		t.Run("Basic", func(t *testing.T) {
-			config := &ratelimit.RateLimit{
-				Strategy: ratelimit.StrategyTokenBucket,
-				GlobalLimit: &ratelimit.LimitRule{
+			config := &gcmiddleware.RateLimit{
+				Strategy: gcmiddleware.StrategyTokenBucket,
+				GlobalLimit: &gcmiddleware.LimitRule{
 					RequestsPerSecond: 10,
 					BurstSize:         20,
 				},
@@ -130,18 +130,18 @@ func TestLimiters(t *testing.T) {
 		})
 
 		t.Run("DifferentRules", func(t *testing.T) {
-			config := &ratelimit.RateLimit{
-				Strategy: ratelimit.StrategyTokenBucket,
+			config := &gcmiddleware.RateLimit{
+				Strategy: gcmiddleware.StrategyTokenBucket,
 			}
 			limiter := NewTokenBucketLimiter(config)
 			ctx := context.Background()
 
-			rule1 := &ratelimit.LimitRule{
+			rule1 := &gcmiddleware.LimitRule{
 				RequestsPerSecond: 5,
 				BurstSize:         10,
 			}
 
-			rule2 := &ratelimit.LimitRule{
+			rule2 := &gcmiddleware.LimitRule{
 				RequestsPerSecond: 20,
 				BurstSize:         40,
 			}
@@ -163,8 +163,8 @@ func TestLimiters(t *testing.T) {
 		})
 
 		t.Run("Reset", func(t *testing.T) {
-			config := &ratelimit.RateLimit{
-				GlobalLimit: &ratelimit.LimitRule{
+			config := &gcmiddleware.RateLimit{
+				GlobalLimit: &gcmiddleware.LimitRule{
 					RequestsPerSecond: 10,
 					BurstSize:         5,
 				},
@@ -192,9 +192,9 @@ func TestLimiters(t *testing.T) {
 
 	t.Run("FixedWindow", func(t *testing.T) {
 		t.Run("Basic", func(t *testing.T) {
-			config := &ratelimit.RateLimit{
-				Strategy: ratelimit.StrategyFixedWindow,
-				Storage: ratelimit.StorageConfig{
+			config := &gcmiddleware.RateLimit{
+				Strategy: gcmiddleware.StrategyFixedWindow,
+				Storage: gcmiddleware.StorageConfig{
 					CleanInterval: 5 * time.Minute,
 				},
 			}
@@ -202,7 +202,7 @@ func TestLimiters(t *testing.T) {
 			defer limiter.Stop()
 
 			ctx := context.Background()
-			rule := &ratelimit.LimitRule{
+			rule := &gcmiddleware.LimitRule{
 				RequestsPerSecond: 10,
 				WindowSize:        time.Second,
 			}
@@ -231,21 +231,21 @@ func TestLimiters(t *testing.T) {
 
 // TestRateLimitMiddleware_RouteLimit 测试路由级别限流
 func TestRateLimitMiddleware_RouteLimit(t *testing.T) {
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes: []ratelimit.RouteLimit{
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes: []gcmiddleware.RouteLimit{
 			{
 				Path:    "/v1/messages/send",
 				PerUser: true,
-				Limit: &ratelimit.LimitRule{
+				Limit: &gcmiddleware.LimitRule{
 					RequestsPerSecond: 1,  // 每秒1个令牌（1分钟60个）
 					BurstSize:         10, // 初始突发容量10
 					WindowSize:        time.Minute,
 				},
 			},
 		},
-		Storage: ratelimit.StorageConfig{
+		Storage: gcmiddleware.StorageConfig{
 			KeyPrefix: "rate_limit:",
 		},
 	}
@@ -324,20 +324,20 @@ func TestRateLimitMiddleware_RouteLimit(t *testing.T) {
 
 // TestRateLimitMiddleware_PathGlobMatching 测试路径 Glob 通配符匹配
 func TestRateLimitMiddleware_PathGlobMatching(t *testing.T) {
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes: []ratelimit.RouteLimit{
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes: []gcmiddleware.RouteLimit{
 			{
 				Path: "/api/*/users",
-				Limit: &ratelimit.LimitRule{
+				Limit: &gcmiddleware.LimitRule{
 					RequestsPerSecond: 10,
 					BurstSize:         20,
 				},
 			},
 			{
 				Path: "/v?/messages/*",
-				Limit: &ratelimit.LimitRule{
+				Limit: &gcmiddleware.LimitRule{
 					RequestsPerSecond: 5,
 					BurstSize:         10,
 				},
@@ -402,14 +402,14 @@ func TestRateLimitMiddleware_PathGlobMatching(t *testing.T) {
 
 // TestRateLimitMiddleware_PathGlobMatchingPerIP 测试路径通配符 + 按IP限流
 func TestRateLimitMiddleware_PathGlobMatchingPerIP(t *testing.T) {
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes: []ratelimit.RouteLimit{
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes: []gcmiddleware.RouteLimit{
 			{
 				Path:  "/api/*/data",
 				PerIP: true, // 按IP独立限流
-				Limit: &ratelimit.LimitRule{
+				Limit: &gcmiddleware.LimitRule{
 					RequestsPerSecond: 10,
 					BurstSize:         20,
 				},
@@ -475,14 +475,14 @@ func TestRateLimitMiddleware_PathGlobMatchingPerIP(t *testing.T) {
 
 // TestRateLimitMiddleware_HTTPMethodMatching 测试 HTTP 方法匹配
 func TestRateLimitMiddleware_HTTPMethodMatching(t *testing.T) {
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes: []ratelimit.RouteLimit{
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes: []gcmiddleware.RouteLimit{
 			{
 				Path:    "/api/resource",
 				Methods: []string{"POST", "PUT"},
-				Limit: &ratelimit.LimitRule{
+				Limit: &gcmiddleware.LimitRule{
 					RequestsPerSecond: 5,
 					BurstSize:         10,
 				},
@@ -588,14 +588,14 @@ func TestRateLimitMiddleware_IPWhitelist(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			config := &ratelimit.RateLimit{
+			config := &gcmiddleware.RateLimit{
 				Enabled:  true,
-				Strategy: ratelimit.StrategyTokenBucket,
-				Routes: []ratelimit.RouteLimit{
+				Strategy: gcmiddleware.StrategyTokenBucket,
+				Routes: []gcmiddleware.RouteLimit{
 					{
 						Path:      "/api/whitelist-" + tc.name,
 						Whitelist: tc.whitelist,
-						Limit: &ratelimit.LimitRule{
+						Limit: &gcmiddleware.LimitRule{
 							RequestsPerSecond: 5,
 							BurstSize:         10,
 						},
@@ -694,10 +694,10 @@ func TestRateLimitMiddleware_IPBlacklist(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := &ratelimit.RateLimit{
+			config := &gcmiddleware.RateLimit{
 				Enabled:  true,
-				Strategy: ratelimit.StrategyTokenBucket,
-				Routes: []ratelimit.RouteLimit{
+				Strategy: gcmiddleware.StrategyTokenBucket,
+				Routes: []gcmiddleware.RouteLimit{
 					{
 						Path:      "/api/blacklist/" + tt.name,
 						Blacklist: tt.blacklist,
@@ -740,27 +740,27 @@ func TestRateLimitMiddleware_IPBlacklist(t *testing.T) {
 
 // TestRateLimitMiddleware_UserWildcardMatching 测试用户通配符匹配
 func TestRateLimitMiddleware_UserWildcardMatching(t *testing.T) {
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
+		Strategy: gcmiddleware.StrategyTokenBucket,
 		// 使用 0 RPS 禁止测试期间的令牌补充，避免顺序请求带来的时间抖动影响断言。
-		UserRules: []ratelimit.UserRule{
+		UserRules: []gcmiddleware.UserRule{
 			{
 				UserID: "admin-*", // 匹配所有 admin- 开头的用户
-				Limit: &ratelimit.LimitRule{
+				Limit: &gcmiddleware.LimitRule{
 					RequestsPerSecond: 0,
 					BurstSize:         200,
 				},
 			},
 			{
 				UserID: "vip-*", // 匹配所有 vip- 开头的用户
-				Limit: &ratelimit.LimitRule{
+				Limit: &gcmiddleware.LimitRule{
 					RequestsPerSecond: 0,
 					BurstSize:         100,
 				},
 			},
 		},
-		GlobalLimit: &ratelimit.LimitRule{
+		GlobalLimit: &gcmiddleware.LimitRule{
 			RequestsPerSecond: 0,
 			BurstSize:         20,
 		},
@@ -834,16 +834,16 @@ func TestRateLimitMiddleware_UserWildcardMatching(t *testing.T) {
 
 // TestRateLimitMiddleware_ComplexScenario 测试复杂场景（组合规则）
 func TestRateLimitMiddleware_ComplexScenario(t *testing.T) {
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes: []ratelimit.RouteLimit{
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes: []gcmiddleware.RouteLimit{
 			{
 				Path:      "/api/*/premium",
 				Methods:   []string{"POST", "PUT"},
 				Whitelist: []string{"192.168.1.0/24"},
 				PerUser:   true,
-				Limit: &ratelimit.LimitRule{
+				Limit: &gcmiddleware.LimitRule{
 					RequestsPerSecond: 50,
 					BurstSize:         100,
 				},
@@ -851,7 +851,7 @@ func TestRateLimitMiddleware_ComplexScenario(t *testing.T) {
 			{
 				Path:      "/api/public/*",
 				Blacklist: []string{"10.0.0.*"},
-				Limit: &ratelimit.LimitRule{
+				Limit: &gcmiddleware.LimitRule{
 					RequestsPerSecond: 10,
 					BurstSize:         20,
 				},
@@ -917,11 +917,11 @@ func TestRateLimitMiddleware_ComplexScenario(t *testing.T) {
 
 // TestRateLimitMiddleware_GlobalLimit 测试全局限流
 func TestRateLimitMiddleware_GlobalLimit(t *testing.T) {
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled:      true,
-		Strategy:     ratelimit.StrategyTokenBucket,
-		DefaultScope: ratelimit.ScopeGlobal,
-		GlobalLimit: &ratelimit.LimitRule{
+		Strategy:     gcmiddleware.StrategyTokenBucket,
+		DefaultScope: gcmiddleware.ScopeGlobal,
+		GlobalLimit: &gcmiddleware.LimitRule{
 			RequestsPerSecond: 100,
 			BurstSize:         200,
 		},
@@ -956,11 +956,11 @@ func TestRateLimitMiddleware_GlobalLimit(t *testing.T) {
 
 // TestRateLimitMiddleware_PerIPLimit 测试按IP限流
 func TestRateLimitMiddleware_PerIPLimit(t *testing.T) {
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled:      true,
-		Strategy:     ratelimit.StrategyTokenBucket,
-		DefaultScope: ratelimit.ScopePerIP,
-		GlobalLimit: &ratelimit.LimitRule{
+		Strategy:     gcmiddleware.StrategyTokenBucket,
+		DefaultScope: gcmiddleware.ScopePerIP,
+		GlobalLimit: &gcmiddleware.LimitRule{
 			RequestsPerSecond: 10,
 			BurstSize:         20,
 		},
@@ -997,9 +997,9 @@ func TestRateLimitMiddleware_PerIPLimit(t *testing.T) {
 
 // TestRateLimitMiddleware_Disabled 测试禁用限流
 func TestRateLimitMiddleware_Disabled(t *testing.T) {
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled: false,
-		GlobalLimit: &ratelimit.LimitRule{
+		GlobalLimit: &gcmiddleware.LimitRule{
 			RequestsPerSecond: 1,
 			BurstSize:         1,
 		},
@@ -1021,8 +1021,8 @@ func TestRateLimitMiddleware_Disabled(t *testing.T) {
 
 // BenchmarkTokenBucketLimiter_Allow 性能测试
 func BenchmarkTokenBucketLimiter_Allow(b *testing.B) {
-	config := &ratelimit.RateLimit{
-		GlobalLimit: &ratelimit.LimitRule{
+	config := &gcmiddleware.RateLimit{
+		GlobalLimit: &gcmiddleware.LimitRule{
 			RequestsPerSecond: 10000,
 			BurstSize:         20000,
 		},
@@ -1040,15 +1040,15 @@ func BenchmarkTokenBucketLimiter_Allow(b *testing.B) {
 
 // BenchmarkFixedWindowLimiter_Allow 固定窗口性能测试
 func BenchmarkFixedWindowLimiter_Allow(b *testing.B) {
-	config := &ratelimit.RateLimit{
-		Storage: ratelimit.StorageConfig{
+	config := &gcmiddleware.RateLimit{
+		Storage: gcmiddleware.StorageConfig{
 			CleanInterval: 5 * time.Minute,
 		},
 	}
 	limiter := NewFixedWindowLimiter(config)
 	defer limiter.Stop()
 
-	rule := &ratelimit.LimitRule{
+	rule := &gcmiddleware.LimitRule{
 		RequestsPerSecond: 10000,
 		WindowSize:        time.Second,
 	}
@@ -1064,8 +1064,8 @@ func BenchmarkFixedWindowLimiter_Allow(b *testing.B) {
 
 // TestTokenBucketLimiter_ConcurrentAccess 并发测试
 func TestTokenBucketLimiter_ConcurrentAccess(t *testing.T) {
-	config := &ratelimit.RateLimit{
-		GlobalLimit: &ratelimit.LimitRule{
+	config := &gcmiddleware.RateLimit{
+		GlobalLimit: &gcmiddleware.LimitRule{
 			RequestsPerSecond: 100,
 			BurstSize:         200,
 		},
@@ -1102,21 +1102,21 @@ func TestTokenBucketLimiter_ConcurrentAccess(t *testing.T) {
 
 // TestRateLimitMiddleware_CompleteConfig 完整配置测试
 func TestRateLimitMiddleware_CompleteConfig(t *testing.T) {
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled:      true,
-		Strategy:     ratelimit.StrategyTokenBucket,
-		DefaultScope: ratelimit.ScopeGlobal,
-		GlobalLimit: &ratelimit.LimitRule{
+		Strategy:     gcmiddleware.StrategyTokenBucket,
+		DefaultScope: gcmiddleware.ScopeGlobal,
+		GlobalLimit: &gcmiddleware.LimitRule{
 			RequestsPerSecond: 1000,
 			BurstSize:         2000,
 			WindowSize:        time.Minute,
 			BlockDuration:     time.Minute,
 		},
-		Routes: []ratelimit.RouteLimit{
+		Routes: []gcmiddleware.RouteLimit{
 			{
 				Path:    "/v1/messages/send",
 				PerUser: true,
-				Limit: &ratelimit.LimitRule{
+				Limit: &gcmiddleware.LimitRule{
 					RequestsPerSecond: 20,
 					BurstSize:         40,
 					WindowSize:        time.Minute,
@@ -1124,7 +1124,7 @@ func TestRateLimitMiddleware_CompleteConfig(t *testing.T) {
 				},
 			},
 		},
-		Storage: ratelimit.StorageConfig{
+		Storage: gcmiddleware.StorageConfig{
 			Type:          "memory",
 			KeyPrefix:     "rate_limit:",
 			CleanInterval: time.Minute,
@@ -1178,12 +1178,12 @@ func TestSlidingWindowLimiter_Basic(t *testing.T) {
 	global.REDIS = redisClient
 	defer func() { global.REDIS = oldRedis }()
 
-	config := &ratelimit.RateLimit{
-		Strategy: ratelimit.StrategySlidingWindow,
-		Storage: ratelimit.StorageConfig{
+	config := &gcmiddleware.RateLimit{
+		Strategy: gcmiddleware.StrategySlidingWindow,
+		Storage: gcmiddleware.StorageConfig{
 			KeyPrefix: "test_sliding",
 		},
-		GlobalLimit: &ratelimit.LimitRule{
+		GlobalLimit: &gcmiddleware.LimitRule{
 			RequestsPerSecond: 10,
 			WindowSize:        time.Second,
 		},
@@ -1227,12 +1227,12 @@ func TestSlidingWindowLimiter_DifferentKeys(t *testing.T) {
 	global.REDIS = redisClient
 	defer func() { global.REDIS = oldRedis }()
 
-	config := &ratelimit.RateLimit{
-		Strategy: ratelimit.StrategySlidingWindow,
-		Storage: ratelimit.StorageConfig{
+	config := &gcmiddleware.RateLimit{
+		Strategy: gcmiddleware.StrategySlidingWindow,
+		Storage: gcmiddleware.StorageConfig{
 			KeyPrefix: "test_sliding",
 		},
-		GlobalLimit: &ratelimit.LimitRule{
+		GlobalLimit: &gcmiddleware.LimitRule{
 			RequestsPerSecond: 5,
 			WindowSize:        time.Second,
 		},
@@ -1270,12 +1270,12 @@ func TestSlidingWindowLimiter_Reset(t *testing.T) {
 	global.REDIS = redisClient
 	defer func() { global.REDIS = oldRedis }()
 
-	config := &ratelimit.RateLimit{
-		Strategy: ratelimit.StrategySlidingWindow,
-		Storage: ratelimit.StorageConfig{
+	config := &gcmiddleware.RateLimit{
+		Strategy: gcmiddleware.StrategySlidingWindow,
+		Storage: gcmiddleware.StorageConfig{
 			KeyPrefix: "test_sliding",
 		},
-		GlobalLimit: &ratelimit.LimitRule{
+		GlobalLimit: &gcmiddleware.LimitRule{
 			RequestsPerSecond: 5,
 			WindowSize:        time.Second,
 		},
@@ -1312,12 +1312,12 @@ func TestSlidingWindowLimiter_ConcurrentAccess(t *testing.T) {
 	global.REDIS = redisClient
 	defer func() { global.REDIS = oldRedis }()
 
-	config := &ratelimit.RateLimit{
-		Strategy: ratelimit.StrategySlidingWindow,
-		Storage: ratelimit.StorageConfig{
+	config := &gcmiddleware.RateLimit{
+		Strategy: gcmiddleware.StrategySlidingWindow,
+		Storage: gcmiddleware.StorageConfig{
 			KeyPrefix: "test_sliding",
 		},
-		GlobalLimit: &ratelimit.LimitRule{
+		GlobalLimit: &gcmiddleware.LimitRule{
 			RequestsPerSecond: 100,
 			WindowSize:        time.Second,
 		},
@@ -1381,17 +1381,17 @@ func TestRateLimitMiddleware_WithRedis(t *testing.T) {
 	global.REDIS = redisClient
 	defer func() { global.REDIS = oldRedis }()
 
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategySlidingWindow,
-		Storage: ratelimit.StorageConfig{
+		Strategy: gcmiddleware.StrategySlidingWindow,
+		Storage: gcmiddleware.StorageConfig{
 			KeyPrefix: "test_middleware",
 		},
-		GlobalLimit: &ratelimit.LimitRule{
+		GlobalLimit: &gcmiddleware.LimitRule{
 			RequestsPerSecond: 20,
 			WindowSize:        time.Minute, // 使用1分钟窗口，确保测试期间不会滑动
 		},
-		DefaultScope: ratelimit.ScopeGlobal,
+		DefaultScope: gcmiddleware.ScopeGlobal,
 	}
 
 	middleware := newRateLimitMiddleware(config, nil, nil, nil)
@@ -1497,17 +1497,17 @@ func grpcAllowN(t *testing.T, interceptor grpc.UnaryServerInterceptor, ctx conte
 }
 
 // noRefillRule 返回不会补充令牌的规则（RPS=0），便于确定性断言
-func noRefillRule(burst int) *ratelimit.LimitRule {
-	return &ratelimit.LimitRule{RequestsPerSecond: 0, BurstSize: burst}
+func noRefillRule(burst int) *gcmiddleware.LimitRule {
+	return &gcmiddleware.LimitRule{RequestsPerSecond: 0, BurstSize: burst}
 }
 
 // unaryInterceptor 用配置构造一元限流拦截器（limiter 传 nil，由内部按策略创建默认令牌桶）
-func unaryInterceptor(t *testing.T, config *ratelimit.RateLimit) grpc.UnaryServerInterceptor {
+func unaryInterceptor(t *testing.T, config *gcmiddleware.RateLimit) grpc.UnaryServerInterceptor {
 	t.Helper()
 	return GRPCRateLimitUnaryInterceptor(config, nil)
 }
 
-func streamInterceptor(t *testing.T, config *ratelimit.RateLimit) grpc.StreamServerInterceptor {
+func streamInterceptor(t *testing.T, config *gcmiddleware.RateLimit) grpc.StreamServerInterceptor {
 	t.Helper()
 	return GRPCRateLimitStreamInterceptor(config, nil)
 }
@@ -1517,10 +1517,10 @@ func streamInterceptor(t *testing.T, config *ratelimit.RateLimit) grpc.StreamSer
 // ============================================================================
 
 func TestResolveRuleAndKey_GRPCMethodPathMatch(t *testing.T) {
-	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+	mw := newRateLimitMiddleware(&gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes: []ratelimit.RouteLimit{
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes: []gcmiddleware.RouteLimit{
 			{Path: grpcMethodSend, Limit: noRefillRule(5)},
 		},
 	}, nil, nil, nil)
@@ -1532,10 +1532,10 @@ func TestResolveRuleAndKey_GRPCMethodPathMatch(t *testing.T) {
 }
 
 func TestResolveRuleAndKey_PerUserKey(t *testing.T) {
-	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+	mw := newRateLimitMiddleware(&gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(3)}},
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes:   []gcmiddleware.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(3)}},
 	}, nil, nil, nil)
 
 	_, key := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "1.2.3.4", "user-9")
@@ -1543,10 +1543,10 @@ func TestResolveRuleAndKey_PerUserKey(t *testing.T) {
 }
 
 func TestResolveRuleAndKey_PerIPKey(t *testing.T) {
-	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+	mw := newRateLimitMiddleware(&gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerIP: true, Limit: noRefillRule(3)}},
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes:   []gcmiddleware.RouteLimit{{Path: grpcMethodSend, PerIP: true, Limit: noRefillRule(3)}},
 	}, nil, nil, nil)
 
 	_, key := mw.resolveRuleAndKey(context.Background(), grpcMethodSend, "POST", "10.0.0.7", "u1")
@@ -1554,10 +1554,10 @@ func TestResolveRuleAndKey_PerIPKey(t *testing.T) {
 }
 
 func TestResolveRuleAndKey_RouteWhitelist(t *testing.T) {
-	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+	mw := newRateLimitMiddleware(&gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes: []ratelimit.RouteLimit{
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes: []gcmiddleware.RouteLimit{
 			{Path: grpcMethodSend, Whitelist: []string{"10.0.0.0/24"}, Limit: noRefillRule(3)},
 		},
 	}, nil, nil, nil)
@@ -1572,10 +1572,10 @@ func TestResolveRuleAndKey_RouteWhitelist(t *testing.T) {
 }
 
 func TestResolveRuleAndKey_RouteBlacklist(t *testing.T) {
-	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+	mw := newRateLimitMiddleware(&gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes: []ratelimit.RouteLimit{
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes: []gcmiddleware.RouteLimit{
 			{Path: grpcMethodSend, Blacklist: []string{"10.0.0.0/24"}},
 		},
 	}, nil, nil, nil)
@@ -1593,10 +1593,10 @@ func TestResolveRuleAndKey_RouteBlacklist(t *testing.T) {
 }
 
 func TestResolveRuleAndKey_IPRuleWhitelist(t *testing.T) {
-	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+	mw := newRateLimitMiddleware(&gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		IPRules: []ratelimit.IPRule{
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		IPRules: []gcmiddleware.IPRule{
 			{IP: "10.0.0.0/24", Type: typeWhitelist},
 		},
 	}, nil, nil, nil)
@@ -1607,10 +1607,10 @@ func TestResolveRuleAndKey_IPRuleWhitelist(t *testing.T) {
 }
 
 func TestResolveRuleAndKey_IPRuleLimit(t *testing.T) {
-	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+	mw := newRateLimitMiddleware(&gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		IPRules: []ratelimit.IPRule{
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		IPRules: []gcmiddleware.IPRule{
 			{IP: "10.0.0.0/24", Type: "blacklist", Limit: noRefillRule(2)},
 		},
 	}, nil, nil, nil)
@@ -1621,10 +1621,10 @@ func TestResolveRuleAndKey_IPRuleLimit(t *testing.T) {
 }
 
 func TestResolveRuleAndKey_UserRuleMatch(t *testing.T) {
-	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+	mw := newRateLimitMiddleware(&gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		UserRules: []ratelimit.UserRule{
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		UserRules: []gcmiddleware.UserRule{
 			{UserID: "vip-*", Limit: noRefillRule(100)},
 		},
 	}, nil, nil, nil)
@@ -1639,10 +1639,10 @@ func TestResolveRuleAndKey_UserRuleMatch(t *testing.T) {
 }
 
 func TestResolveRuleAndKey_GlobalFallback(t *testing.T) {
-	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+	mw := newRateLimitMiddleware(&gcmiddleware.RateLimit{
 		Enabled:      true,
-		Strategy:     ratelimit.StrategyTokenBucket,
-		DefaultScope: ratelimit.ScopeGlobal,
+		Strategy:     gcmiddleware.StrategyTokenBucket,
+		DefaultScope: gcmiddleware.ScopeGlobal,
 		GlobalLimit:  noRefillRule(10),
 	}, nil, nil, nil)
 
@@ -1654,9 +1654,9 @@ func TestResolveRuleAndKey_GlobalFallback(t *testing.T) {
 }
 
 func TestResolveRuleAndKey_NoConfig(t *testing.T) {
-	mw := newRateLimitMiddleware(&ratelimit.RateLimit{
+	mw := newRateLimitMiddleware(&gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
+		Strategy: gcmiddleware.StrategyTokenBucket,
 	}, nil, nil, nil)
 
 	rule, _ := mw.resolveRuleAndKey(context.Background(), "/any", "POST", "1.2.3.4", "u1")
@@ -1664,20 +1664,20 @@ func TestResolveRuleAndKey_NoConfig(t *testing.T) {
 }
 
 func TestGenerateKeyForScope(t *testing.T) {
-	mw := newRateLimitMiddleware(&ratelimit.RateLimit{Enabled: true, Strategy: ratelimit.StrategyTokenBucket}, nil, nil, nil)
+	mw := newRateLimitMiddleware(&gcmiddleware.RateLimit{Enabled: true, Strategy: gcmiddleware.StrategyTokenBucket}, nil, nil, nil)
 
 	cases := []struct {
-		scope    ratelimit.Scope
+		scope    gcmiddleware.Scope
 		ip, uid  string
 		method   string
 		path     string
 		expected string
 	}{
-		{ratelimit.ScopeGlobal, "1.1.1.1", "u1", "POST", "/p", "global"},
-		{ratelimit.ScopePerIP, "1.1.1.1", "u1", "POST", "/p", "ip:1.1.1.1"},
-		{ratelimit.ScopePerUser, "1.1.1.1", "u1", "POST", "/p", "user:u1"},
-		{ratelimit.ScopePerRoute, "1.1.1.1", "u1", "POST", "/p", "route:POST:/p"},
-		{ratelimit.Scope("unknown"), "1.1.1.1", "u1", "POST", "/p", "global"}, // default
+		{gcmiddleware.ScopeGlobal, "1.1.1.1", "u1", "POST", "/p", "global"},
+		{gcmiddleware.ScopePerIP, "1.1.1.1", "u1", "POST", "/p", "ip:1.1.1.1"},
+		{gcmiddleware.ScopePerUser, "1.1.1.1", "u1", "POST", "/p", "user:u1"},
+		{gcmiddleware.ScopePerRoute, "1.1.1.1", "u1", "POST", "/p", "route:POST:/p"},
+		{gcmiddleware.Scope("unknown"), "1.1.1.1", "u1", "POST", "/p", "global"}, // default
 	}
 	for _, c := range cases {
 		got := mw.generateKeyForScope(c.scope, c.ip, c.uid, c.method, c.path)
@@ -1690,7 +1690,7 @@ func TestGenerateKeyForScope(t *testing.T) {
 // ============================================================================
 
 func TestGRPCRateLimitUnaryInterceptor_Disabled(t *testing.T) {
-	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{Enabled: false})
+	interceptor := unaryInterceptor(t, &gcmiddleware.RateLimit{Enabled: false})
 	ctx := newGRPCContext("u1", "1.2.3.4")
 	called := false
 	_, err := interceptor(ctx, nil, newGRPCUnaryInfo(grpcMethodSend), okUnaryHandler(&called))
@@ -1699,9 +1699,9 @@ func TestGRPCRateLimitUnaryInterceptor_Disabled(t *testing.T) {
 }
 
 func TestGRPCRateLimitUnaryInterceptor_NoRule(t *testing.T) {
-	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+	interceptor := unaryInterceptor(t, &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
+		Strategy: gcmiddleware.StrategyTokenBucket,
 	})
 	ctx := newGRPCContext("u1", "1.2.3.4")
 	// 无任何规则 → 全部放行
@@ -1709,10 +1709,10 @@ func TestGRPCRateLimitUnaryInterceptor_NoRule(t *testing.T) {
 }
 
 func TestGRPCRateLimitUnaryInterceptor_AllowedThenExceeded(t *testing.T) {
-	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+	interceptor := unaryInterceptor(t, &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(5)}},
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes:   []gcmiddleware.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(5)}},
 	})
 	ctx := newGRPCContext("u1", "1.2.3.4")
 
@@ -1729,10 +1729,10 @@ func TestGRPCRateLimitUnaryInterceptor_AllowedThenExceeded(t *testing.T) {
 // TestGRPCRateLimitUnaryInterceptor_GRPCMethodPathMatches 核心修复验证：
 // gRPC 方法路径（info.FullMethod）能命中 routes 中以 gRPC 方法全名配置的规则。
 func TestGRPCRateLimitUnaryInterceptor_GRPCMethodPathMatches(t *testing.T) {
-	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+	interceptor := unaryInterceptor(t, &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(3)}},
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes:   []gcmiddleware.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(3)}},
 	})
 	ctx := newGRPCContext("u1", "1.2.3.4")
 
@@ -1745,12 +1745,12 @@ func TestGRPCRateLimitUnaryInterceptor_GRPCMethodPathMatches(t *testing.T) {
 // TestGRPCRateLimitUnaryInterceptor_RESTPathNotMatchGRPCMethod
 // 验证 REST 路由不会误伤 gRPC 方法：gRPC 方法不会命中 REST 路径规则，落入全局。
 func TestGRPCRateLimitUnaryInterceptor_RESTPathNotMatchGRPCMethod(t *testing.T) {
-	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+	interceptor := unaryInterceptor(t, &gcmiddleware.RateLimit{
 		Enabled:      true,
-		Strategy:     ratelimit.StrategyTokenBucket,
-		DefaultScope: ratelimit.ScopeGlobal,
+		Strategy:     gcmiddleware.StrategyTokenBucket,
+		DefaultScope: gcmiddleware.ScopeGlobal,
 		GlobalLimit:  noRefillRule(2),
-		Routes:       []ratelimit.RouteLimit{{Path: restPathSend, PerUser: true, Limit: noRefillRule(99)}},
+		Routes:       []gcmiddleware.RouteLimit{{Path: restPathSend, PerUser: true, Limit: noRefillRule(99)}},
 	})
 	ctx := newGRPCContext("u1", "1.2.3.4")
 
@@ -1761,10 +1761,10 @@ func TestGRPCRateLimitUnaryInterceptor_RESTPathNotMatchGRPCMethod(t *testing.T) 
 }
 
 func TestGRPCRateLimitUnaryInterceptor_PerUserIsolation(t *testing.T) {
-	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+	interceptor := unaryInterceptor(t, &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(3)}},
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes:   []gcmiddleware.RouteLimit{{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(3)}},
 	})
 
 	// 用户 A 用尽 3 个令牌
@@ -1781,10 +1781,10 @@ func TestGRPCRateLimitUnaryInterceptor_PerUserIsolation(t *testing.T) {
 }
 
 func TestGRPCRateLimitUnaryInterceptor_PerIP(t *testing.T) {
-	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+	interceptor := unaryInterceptor(t, &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, PerIP: true, Limit: noRefillRule(2)}},
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes:   []gcmiddleware.RouteLimit{{Path: grpcMethodSend, PerIP: true, Limit: noRefillRule(2)}},
 	})
 
 	ctx1 := newGRPCContext("", "10.0.0.1")
@@ -1799,10 +1799,10 @@ func TestGRPCRateLimitUnaryInterceptor_PerIP(t *testing.T) {
 }
 
 func TestGRPCRateLimitUnaryInterceptor_WhitelistBypass(t *testing.T) {
-	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+	interceptor := unaryInterceptor(t, &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes: []ratelimit.RouteLimit{
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes: []gcmiddleware.RouteLimit{
 			{Path: grpcMethodSend, Whitelist: []string{"10.0.0.0/24"}, Limit: noRefillRule(1)},
 		},
 	})
@@ -1813,10 +1813,10 @@ func TestGRPCRateLimitUnaryInterceptor_WhitelistBypass(t *testing.T) {
 }
 
 func TestGRPCRateLimitUnaryInterceptor_GlobalFallback(t *testing.T) {
-	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+	interceptor := unaryInterceptor(t, &gcmiddleware.RateLimit{
 		Enabled:      true,
-		Strategy:     ratelimit.StrategyTokenBucket,
-		DefaultScope: ratelimit.ScopeGlobal,
+		Strategy:     gcmiddleware.StrategyTokenBucket,
+		DefaultScope: gcmiddleware.ScopeGlobal,
 		GlobalLimit:  noRefillRule(4),
 	})
 
@@ -1828,10 +1828,10 @@ func TestGRPCRateLimitUnaryInterceptor_GlobalFallback(t *testing.T) {
 }
 
 func TestGRPCRateLimitUnaryInterceptor_HandlerContextPreserved(t *testing.T) {
-	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+	interceptor := unaryInterceptor(t, &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, Limit: noRefillRule(5)}},
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes:   []gcmiddleware.RouteLimit{{Path: grpcMethodSend, Limit: noRefillRule(5)}},
 	})
 
 	ctx := newGRPCContext("ctx-user", "1.1.1.1")
@@ -1848,10 +1848,10 @@ func TestGRPCRateLimitUnaryInterceptor_HandlerContextPreserved(t *testing.T) {
 
 // TestGRPCRateLimitUnaryInterceptor_BurstSizeBoundary 边界值：BurstSize=1
 func TestGRPCRateLimitUnaryInterceptor_BurstSizeBoundary(t *testing.T) {
-	interceptor := unaryInterceptor(t, &ratelimit.RateLimit{
+	interceptor := unaryInterceptor(t, &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, Limit: noRefillRule(1)}},
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes:   []gcmiddleware.RouteLimit{{Path: grpcMethodSend, Limit: noRefillRule(1)}},
 	})
 	ctx := newGRPCContext("u1", "1.2.3.4")
 
@@ -1869,7 +1869,7 @@ func TestGRPCRateLimitUnaryInterceptor_BurstSizeBoundary(t *testing.T) {
 // ============================================================================
 
 func TestGRPCRateLimitStreamInterceptor_Disabled(t *testing.T) {
-	interceptor := streamInterceptor(t, &ratelimit.RateLimit{Enabled: false})
+	interceptor := streamInterceptor(t, &gcmiddleware.RateLimit{Enabled: false})
 	ctx := newGRPCContext("u1", "1.2.3.4")
 	called := false
 	err := interceptor(nil, &mockRateLimitServerStream{ctx: ctx}, newGRPCStreamInfo(grpcMethodSend), func(srv interface{}, ss grpc.ServerStream) error {
@@ -1881,10 +1881,10 @@ func TestGRPCRateLimitStreamInterceptor_Disabled(t *testing.T) {
 }
 
 func TestGRPCRateLimitStreamInterceptor_AllowedThenExceeded(t *testing.T) {
-	interceptor := streamInterceptor(t, &ratelimit.RateLimit{
+	interceptor := streamInterceptor(t, &gcmiddleware.RateLimit{
 		Enabled:  true,
-		Strategy: ratelimit.StrategyTokenBucket,
-		Routes:   []ratelimit.RouteLimit{{Path: grpcMethodSend, Limit: noRefillRule(2)}},
+		Strategy: gcmiddleware.StrategyTokenBucket,
+		Routes:   []gcmiddleware.RouteLimit{{Path: grpcMethodSend, Limit: noRefillRule(2)}},
 	})
 
 	handler := func(srv interface{}, ss grpc.ServerStream) error { return nil }
@@ -1906,12 +1906,12 @@ func TestGRPCRateLimitStreamInterceptor_AllowedThenExceeded(t *testing.T) {
 // ============================================================================
 
 func TestGRPCRateLimit_RealisticMixedConfig(t *testing.T) {
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled:      true,
-		Strategy:     ratelimit.StrategyTokenBucket,
-		DefaultScope: ratelimit.ScopeGlobal,
+		Strategy:     gcmiddleware.StrategyTokenBucket,
+		DefaultScope: gcmiddleware.ScopeGlobal,
 		GlobalLimit:  noRefillRule(2), // 全局：突发 2
-		Routes: []ratelimit.RouteLimit{
+		Routes: []gcmiddleware.RouteLimit{
 			{Path: restPathSend, PerUser: true, Limit: noRefillRule(20)},  // REST 路由
 			{Path: grpcMethodSend, PerUser: true, Limit: noRefillRule(3)}, // gRPC 路由
 		},
@@ -1937,10 +1937,10 @@ func TestGRPCRateLimit_RealisticMixedConfig(t *testing.T) {
 
 // TestGRPCRateLimit_HTTPPathUnchangedRegression 回归：重构后 HTTP 入口 getRuleAndKey/generateKey 行为不变
 func TestGRPCRateLimit_HTTPPathUnchangedRegression(t *testing.T) {
-	config := &ratelimit.RateLimit{
+	config := &gcmiddleware.RateLimit{
 		Enabled:      true,
-		Strategy:     ratelimit.StrategyTokenBucket,
-		DefaultScope: ratelimit.ScopeGlobal,
+		Strategy:     gcmiddleware.StrategyTokenBucket,
+		DefaultScope: gcmiddleware.ScopeGlobal,
 		GlobalLimit:  noRefillRule(3),
 	}
 	mw := newRateLimitMiddleware(config, nil, nil, nil)
@@ -1970,7 +1970,7 @@ func TestGRPCRateLimit_HTTPPathUnchangedRegression(t *testing.T) {
 // 将中间值降至 remainderNanos*rps，避免溢出。
 // ============================================================================
 
-// computeAddTokens 与生产代码 ratelimit.go 中的补充公式保持一致
+// computeAddTokens 与生产代码 gcmiddleware.go 中的补充公式保持一致
 // refillRate = rps * billion，结果单位为纳令牌（1 令牌 = billion 纳令牌）
 func computeAddTokens(elapsed, refillRate int64) int64 {
 	elapsedSeconds := elapsed / billion
@@ -2049,7 +2049,7 @@ func TestTokenBucket_RefillEndToEnd(t *testing.T) {
 	const burst = int64(1000)
 	limiter := NewTokenBucketLimiter(nil)
 
-	rule := &ratelimit.LimitRule{
+	rule := &gcmiddleware.LimitRule{
 		RequestsPerSecond: int(rps),
 		BurstSize:         int(burst),
 	}
@@ -2123,7 +2123,7 @@ func TestTokenBucket_RefillNoNegative(t *testing.T) {
 	const burst = int64(1000)
 	limiter := NewTokenBucketLimiter(nil)
 
-	rule := &ratelimit.LimitRule{
+	rule := &gcmiddleware.LimitRule{
 		RequestsPerSecond: int(rps),
 		BurstSize:         int(burst),
 	}

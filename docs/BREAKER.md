@@ -152,7 +152,7 @@ type BreakerManager struct {
 ```go
 import (
     "github.com/kamalyes/go-rpc-gateway/middleware"
-    breakerconfig "github.com/kamalyes/go-config/pkg/breaker"
+    breakerconfig "github.com/kamalyes/go-rpc-gateway/config/breaker"
 )
 
 cfg := &breakerconfig.CircuitBreaker{

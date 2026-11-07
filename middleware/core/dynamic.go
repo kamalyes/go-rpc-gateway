@@ -14,8 +14,7 @@ package core
 import (
 	"net/http"
 
-	"github.com/kamalyes/go-config/pkg/ratelimit"
-	"github.com/kamalyes/go-config/pkg/signature"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	gwerrors "github.com/kamalyes/go-rpc-gateway/errors"
 )
 
@@ -24,12 +23,12 @@ import (
 // 接口定义在 core 是因为 ResolvedSignature 需要引用它，具体实现（HMAC/RSA）在 security 子包
 // [EN] The interface lives in core because ResolvedSignature refers to it; the HMAC/RSA implementations live in the security subpackage
 type SignatureValidator interface {
-	Validate(r *http.Request, config *signature.Signature) error
+	Validate(r *http.Request, config *gcmiddleware.Signature) error
 }
 
 // ResolvedSignature 表示按请求动态解析后的签名配置
 type ResolvedSignature struct {
-	Config    *signature.Signature
+	Config    *gcmiddleware.Signature
 	Validator SignatureValidator
 	Skip      bool
 }
@@ -41,9 +40,9 @@ type DynamicSignatureProvider interface {
 
 // RateLimitDecision 表示单次请求需要执行的一条限流决策
 type RateLimitDecision struct {
-	Rule     *ratelimit.LimitRule
+	Rule     *gcmiddleware.LimitRule
 	Key      string
-	Strategy ratelimit.Strategy
+	Strategy gcmiddleware.Strategy
 }
 
 // DynamicRateLimitResult 表示按请求动态解析后的限流结果

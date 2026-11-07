@@ -4,7 +4,7 @@
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2025-11-10 10:52:57
  * @FilePath: \go-rpc-gateway\middleware\observability\health.go
- * @Description: 健康检查模块 - 支持Redis和MySQL健康检查
+ * @Description: 健康检查模块 - 支持Redis和PostgreSQL健康检查
  *
  * Copyright (c) 2024 by kamalyes, All Rights Reserved.
  */
@@ -152,41 +152,41 @@ func (r *RedisChecker) Check(ctx context.Context) HealthStatus {
 	}
 }
 
-// MySQLChecker MySQL健康检查器 (支持GORM)
-type MySQLChecker struct {
+// PostgreSQLChecker PostgreSQL健康检查器
+type PostgreSQLChecker struct {
 	db        *gorm.DB
 	timeout   time.Duration
 	useGlobal bool
 }
 
-// NewMySQLChecker 创建MySQL健康检查器（使用全局DB）
-func NewMySQLChecker(timeout time.Duration) *MySQLChecker {
+// NewPostgreSQLChecker 创建PostgreSQL健康检查器（使用全局DB）
+func NewPostgreSQLChecker(timeout time.Duration) *PostgreSQLChecker {
 	if timeout == 0 {
 		timeout = 5 * time.Second
 	}
-	return &MySQLChecker{
+	return &PostgreSQLChecker{
 		timeout:   timeout,
 		useGlobal: true,
 	}
 }
 
-// NewMySQLCheckerWithDB 使用现有GORM DB连接创建MySQL健康检查器
-func NewMySQLCheckerWithDB(db *gorm.DB, timeout time.Duration) *MySQLChecker {
+// NewPostgreSQLCheckerWithDB 使用现有 gorm.DB 连接创建PostgreSQL健康检查器
+func NewPostgreSQLCheckerWithDB(db *gorm.DB, timeout time.Duration) *PostgreSQLChecker {
 	if timeout == 0 {
 		timeout = 5 * time.Second
 	}
-	return &MySQLChecker{
+	return &PostgreSQLChecker{
 		db:        db,
 		timeout:   timeout,
 		useGlobal: false,
 	}
 }
 
-func (m *MySQLChecker) Name() string {
-	return "mysql"
+func (m *PostgreSQLChecker) Name() string {
+	return "postgres"
 }
 
-func (m *MySQLChecker) Check(ctx context.Context) HealthStatus {
+func (m *PostgreSQLChecker) Check(ctx context.Context) HealthStatus {
 	start := time.Now()
 
 	var db *gorm.DB
@@ -198,11 +198,11 @@ func (m *MySQLChecker) Check(ctx context.Context) HealthStatus {
 		db = m.db
 	}
 
-	// 检查数据库连接是否存在
+	// 检查连接是否存在
 	if db == nil {
 		return HealthStatus{
 			Status:    "error",
-			Message:   "MySQL connection is not available",
+			Message:   "PostgreSQL connection is not available",
 			Latency:   time.Since(start),
 			CheckedAt: start,
 		}
@@ -212,45 +212,50 @@ func (m *MySQLChecker) Check(ctx context.Context) HealthStatus {
 	timeoutCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
-	// 获取底层的sql.DB来执行ping
+	// 执行ping检查
 	sqlDB, err := db.DB()
 	if err != nil {
 		return HealthStatus{
 			Status:    "error",
-			Message:   fmt.Sprintf("Failed to get underlying SQL DB: %v", err),
+			Message:   fmt.Sprintf("PostgreSQL ping failed: %v", err),
 			Latency:   time.Since(start),
 			CheckedAt: start,
 		}
 	}
-
-	// 执行ping检查
 	err = sqlDB.PingContext(timeoutCtx)
 	latency := time.Since(start)
 
 	if err != nil {
 		return HealthStatus{
 			Status:    "error",
-			Message:   fmt.Sprintf("MySQL ping failed: %v", err),
+			Message:   fmt.Sprintf("PostgreSQL ping failed: %v", err),
 			Latency:   latency,
 			CheckedAt: start,
 		}
 	}
 
-	// 检查数据库连接统计
-	stats := sqlDB.Stats()
+	// 连接池统计
+	stat := sqlDB.Stats()
 
 	// 检查延迟是否过高
 	status := "ok"
-	message := "MySQL is healthy"
+	message := "PostgreSQL is healthy"
 	if latency > 100*time.Millisecond {
 		status = "warning"
-		message = fmt.Sprintf("MySQL latency is high: %v", latency)
+		message = fmt.Sprintf("PostgreSQL latency is high: %v", latency)
+	}
+
+	details := map[string]interface{}{
+		"max_open_conns":     stat.MaxOpenConnections,
+		"open_connections":   stat.OpenConnections,
+		"idle_connections":   stat.Idle,
+		"in_use_connections": stat.InUse,
 	}
 
 	// 检查连接池状态
-	if stats.OpenConnections > 0 && stats.MaxOpenConnections > 0 && stats.OpenConnections >= stats.MaxOpenConnections {
+	if stat.MaxOpenConnections > 0 && stat.OpenConnections >= stat.MaxOpenConnections {
 		status = "warning"
-		message = "MySQL connection pool is at maximum capacity"
+		message = "PostgreSQL connection pool is at maximum capacity"
 	}
 
 	return HealthStatus{
@@ -258,12 +263,7 @@ func (m *MySQLChecker) Check(ctx context.Context) HealthStatus {
 		Message:   message,
 		Latency:   latency,
 		CheckedAt: start,
-		Details: map[string]interface{}{
-			"open_connections": stats.OpenConnections,
-			"in_use":           stats.InUse,
-			"idle":             stats.Idle,
-			"max_open_conns":   stats.MaxOpenConnections,
-		},
+		Details:   details,
 	}
 }
 

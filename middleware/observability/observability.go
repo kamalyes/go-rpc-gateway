@@ -17,7 +17,7 @@ import (
 	"time"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
-	"github.com/kamalyes/go-config/pkg/monitoring"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
@@ -42,20 +42,6 @@ type BreakerStat struct {
 	SuccessCount   int32
 }
 
-// WSCStats WebSocket 统计信息
-type WSCStats struct {
-	TotalClients     int64
-	WebSocketClients int64
-	SSEClients       int64
-	AgentConnections int64
-	OnlineUsers      int
-	MessagesSent     int64
-	MessagesReceived int64
-	BroadcastsSent   int64
-	QueuedMessages   int
-	Uptime           int64
-}
-
 // MetricsManager 可观测性管理器 - 统一管理 Prometheus 指标（HTTP + gRPC）
 type MetricsManager struct {
 	registry      *prometheus.Registry
@@ -63,7 +49,7 @@ type MetricsManager struct {
 	clientMetrics *grpc_prometheus.ClientMetrics
 	httpMetrics   *HTTPMetrics
 	panicCounter  prometheus.Counter
-	config        *monitoring.Monitoring
+	config        *gcmiddleware.Monitoring
 
 	// 扩展业务指标（通过函数注入采集逻辑，避免包循环依赖）
 	rateLimitRejected *prometheus.CounterVec // 限流拒绝计数器
@@ -71,7 +57,6 @@ type MetricsManager struct {
 	// 依赖采集函数（由 server 包在初始化后注入，按需在 scrape 时调用）
 	poolHealthFn   func() map[string]bool // 连接池健康检查采集函数
 	breakerStatsFn func() []BreakerStat   // 熔断器统计采集函数
-	wscStatsFn     func() *WSCStats       // WebSocket 统计采集函数
 }
 
 // HTTPMetrics HTTP 请求指标
@@ -125,7 +110,7 @@ func registerProcessCollector(registry *prometheus.Registry) {
 
 // NewMetricsManager 创建可观测性管理器（支持 gRPC + HTTP 完整指标）
 // go-config 的 Default() 已经设置了所有默认值（包括 Buckets），无需再次设置
-func NewMetricsManager(cfg *monitoring.Monitoring) *MetricsManager {
+func NewMetricsManager(cfg *gcmiddleware.Monitoring) *MetricsManager {
 	if !cfg.Metrics.Enabled {
 		return nil
 	}
@@ -192,7 +177,6 @@ func NewMetricsManager(cfg *monitoring.Monitoring) *MetricsManager {
 	// 注册扩展业务指标采集器（采集函数由 server 包在初始化后注入，未注入时输出空指标）
 	registry.MustRegister(newPoolCollector(mm))
 	registry.MustRegister(newBreakerCollector(mm))
-	registry.MustRegister(newWSCCollector(mm))
 
 	if global.LOGGER != nil {
 		global.LOGGER.InfoMsg("Prometheus可观测性管理器已初始化（含 runtime/process 采集器）")
@@ -355,14 +339,6 @@ func (mm *MetricsManager) SetBreakerStatsFn(fn func() []BreakerStat) {
 		return
 	}
 	mm.breakerStatsFn = fn
-}
-
-// SetWSCStatsFn 注入 WebSocket 统计采集函数
-func (mm *MetricsManager) SetWSCStatsFn(fn func() *WSCStats) {
-	if mm == nil {
-		return
-	}
-	mm.wscStatsFn = fn
 }
 
 // Handler 创建 Prometheus HTTP 处理器
@@ -760,95 +736,5 @@ func (c *breakerCollector) Collect(ch chan<- prometheus.Metric) {
 		if m, err := prometheus.NewConstMetric(c.successCntDesc, prometheus.GaugeValue, float64(s.SuccessCount), s.Path); err == nil {
 			ch <- m
 		}
-	}
-}
-
-// wscCollector WebSocket 指标采集器
-type wscCollector struct {
-	mm               *MetricsManager
-	totalClientsDesc *prometheus.Desc
-	wsClientsDesc    *prometheus.Desc
-	sseClientsDesc   *prometheus.Desc
-	agentConnDesc    *prometheus.Desc
-	onlineUsersDesc  *prometheus.Desc
-	msgSentDesc      *prometheus.Desc
-	msgRecvDesc      *prometheus.Desc
-	broadcastsDesc   *prometheus.Desc
-	queuedMsgDesc    *prometheus.Desc
-	uptimeDesc       *prometheus.Desc
-}
-
-func newWSCCollector(mm *MetricsManager) *wscCollector {
-	return &wscCollector{
-		mm: mm,
-		totalClientsDesc: prometheus.NewDesc(
-			"gateway_wsc_total_clients", "WebSocket 服务总客户端数", nil, nil,
-		),
-		wsClientsDesc: prometheus.NewDesc(
-			"gateway_wsc_websocket_clients", "WebSocket 客户端数", nil, nil,
-		),
-		sseClientsDesc: prometheus.NewDesc(
-			"gateway_wsc_sse_clients", "SSE 客户端数", nil, nil,
-		),
-		agentConnDesc: prometheus.NewDesc(
-			"gateway_wsc_agent_connections", "座席连接数", nil, nil,
-		),
-		onlineUsersDesc: prometheus.NewDesc(
-			"gateway_wsc_online_users", "在线用户数", nil, nil,
-		),
-		msgSentDesc: prometheus.NewDesc(
-			"gateway_wsc_messages_sent_total", "已发送消息总数", nil, nil,
-		),
-		msgRecvDesc: prometheus.NewDesc(
-			"gateway_wsc_messages_received_total", "已接收消息总数", nil, nil,
-		),
-		broadcastsDesc: prometheus.NewDesc(
-			"gateway_wsc_broadcasts_sent_total", "已发送广播总数", nil, nil,
-		),
-		queuedMsgDesc: prometheus.NewDesc(
-			"gateway_wsc_queued_messages", "排队消息数", nil, nil,
-		),
-		uptimeDesc: prometheus.NewDesc(
-			"gateway_wsc_uptime_seconds", "WebSocket 服务运行时长（秒）", nil, nil,
-		),
-	}
-}
-
-func (c *wscCollector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- c.totalClientsDesc
-	ch <- c.wsClientsDesc
-	ch <- c.sseClientsDesc
-	ch <- c.agentConnDesc
-	ch <- c.onlineUsersDesc
-	ch <- c.msgSentDesc
-	ch <- c.msgRecvDesc
-	ch <- c.broadcastsDesc
-	ch <- c.queuedMsgDesc
-	ch <- c.uptimeDesc
-}
-
-func (c *wscCollector) Collect(ch chan<- prometheus.Metric) {
-	if c.mm == nil || c.mm.wscStatsFn == nil {
-		return
-	}
-	stats := c.mm.wscStatsFn()
-	if stats == nil {
-		return
-	}
-	c.emit(ch, c.totalClientsDesc, prometheus.GaugeValue, float64(stats.TotalClients))
-	c.emit(ch, c.wsClientsDesc, prometheus.GaugeValue, float64(stats.WebSocketClients))
-	c.emit(ch, c.sseClientsDesc, prometheus.GaugeValue, float64(stats.SSEClients))
-	c.emit(ch, c.agentConnDesc, prometheus.GaugeValue, float64(stats.AgentConnections))
-	c.emit(ch, c.onlineUsersDesc, prometheus.GaugeValue, float64(stats.OnlineUsers))
-	c.emit(ch, c.msgSentDesc, prometheus.CounterValue, float64(stats.MessagesSent))
-	c.emit(ch, c.msgRecvDesc, prometheus.CounterValue, float64(stats.MessagesReceived))
-	c.emit(ch, c.broadcastsDesc, prometheus.CounterValue, float64(stats.BroadcastsSent))
-	c.emit(ch, c.queuedMsgDesc, prometheus.GaugeValue, float64(stats.QueuedMessages))
-	c.emit(ch, c.uptimeDesc, prometheus.GaugeValue, float64(stats.Uptime)/1000.0)
-}
-
-func (c *wscCollector) emit(ch chan<- prometheus.Metric, desc *prometheus.Desc, valueType prometheus.ValueType, val float64) {
-	if m, err := prometheus.NewConstMetric(desc, valueType, val); err == nil {
-		ch <- m
 	}
 }

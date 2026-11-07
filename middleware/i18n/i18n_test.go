@@ -16,10 +16,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	gci18n "github.com/kamalyes/go-config/pkg/i18n"
-	goi18n "github.com/kamalyes/go-i18n"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	gwerrors "github.com/kamalyes/go-rpc-gateway/errors"
+	goi18n "github.com/kamalyes/go-toolbox/pkg/i18n"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -27,11 +27,11 @@ import (
 )
 
 func TestI18nResolveLanguage(t *testing.T) {
-	config := gci18n.Default()
+	config := gcmiddleware.DefaultI18N()
 	config.SupportedLanguages = []string{"en", "zh", "my"}
 	config.AddLanguageMapping("zh-cn", "zh").AddLanguageMapping("en-us", "en")
 	config.AddLegacyLanguageMapping("cn", "zh").AddLegacyLanguageMapping("bm", "my")
-	config.ResolutionOrder = []gci18n.MappingType{gci18n.LegacyMapping, gci18n.StandardMapping}
+	config.ResolutionOrder = []gcmiddleware.MappingType{gcmiddleware.LegacyMapping, gcmiddleware.StandardMapping}
 	config.MessageLoader, _ = goi18n.NewJSONLoader(`{"en":{"t":"test"},"zh":{"t":"测试"},"my":{"t":"ujian"}}`)
 
 	manager, err := NewI18nManager(config)
@@ -48,11 +48,11 @@ func TestI18nResolveLanguage(t *testing.T) {
 }
 
 func TestI18nMiddlewareDetect(t *testing.T) {
-	config := gci18n.Default()
+	config := gcmiddleware.DefaultI18N()
 	config.SupportedLanguages = []string{"en", "zh"}
 	config.AddLanguageMapping("zh-cn", "zh").AddLegacyLanguageMapping("cn", "zh")
-	config.ResolutionOrder = []gci18n.MappingType{gci18n.LegacyMapping, gci18n.StandardMapping}
-	config.DetectionOrder = []gci18n.DetectionType{gci18n.DetectionHeader, gci18n.DetectionQuery, gci18n.DetectionCookie, gci18n.DetectionDefault}
+	config.ResolutionOrder = []gcmiddleware.MappingType{gcmiddleware.LegacyMapping, gcmiddleware.StandardMapping}
+	config.DetectionOrder = []gcmiddleware.DetectionType{gcmiddleware.DetectionHeader, gcmiddleware.DetectionQuery, gcmiddleware.DetectionCookie, gcmiddleware.DetectionDefault}
 	config.MessageLoader, _ = goi18n.NewJSONLoader(`{"en":{"t":"test"},"zh":{"t":"测试"}}`)
 
 	manager, _ := NewI18nManager(config)
@@ -91,7 +91,7 @@ func TestI18nMiddlewareDetect(t *testing.T) {
 }
 
 func TestI18nTranslation(t *testing.T) {
-	config := gci18n.Default()
+	config := gcmiddleware.DefaultI18N()
 	config.SupportedLanguages = []string{"en", "zh"}
 	config.MessageLoader, _ = goi18n.NewJSONLoader(`{"en":{"hello":"Hello","welcome":"Welcome %s"},"zh":{"hello":"你好","welcome":"欢迎 %s"}}`)
 
@@ -105,7 +105,7 @@ func TestI18nTranslation(t *testing.T) {
 }
 
 func TestI18nGlobalFunctions(t *testing.T) {
-	config := gci18n.Default()
+	config := gcmiddleware.DefaultI18N()
 	config.SupportedLanguages = []string{"en", "zh"}
 	config.MessageLoader, _ = goi18n.NewJSONLoader(`{"en":{"greeting":"Hello"},"zh":{"greeting":"你好"}}`)
 
@@ -118,7 +118,7 @@ func TestI18nGlobalFunctions(t *testing.T) {
 }
 
 func TestI18nMessageWithMap(t *testing.T) {
-	config := gci18n.Default()
+	config := gcmiddleware.DefaultI18N()
 	config.SupportedLanguages = []string{"en"}
 	config.MessageLoader, _ = goi18n.NewJSONLoader(`{"en":{"legacy":"User: {{Name}}, Age: {{Age}}","mixed":"User: {{.Name}}, Age: {{Age}}"}}`)
 
@@ -146,12 +146,12 @@ func newLocalizedAppErrorTestContext(t *testing.T, language string) context.Cont
 	}`)
 	require.NoError(t, err)
 
-	manager, err := NewI18nManager(&gci18n.I18N{
+	manager, err := NewI18nManager(&gcmiddleware.I18N{
 		DefaultLanguage:    "en",
 		SupportedLanguages: []string{"en", "zh"},
 		LanguageHeader:     "Accept-Language",
 		LanguageParam:      "lang",
-		DetectionOrder:     []gci18n.DetectionType{gci18n.DetectionHeader, gci18n.DetectionQuery, gci18n.DetectionDefault},
+		DetectionOrder:     []gcmiddleware.DetectionType{gcmiddleware.DetectionHeader, gcmiddleware.DetectionQuery, gcmiddleware.DetectionDefault},
 		EnableFallback:     true,
 		MessageLoader:      loader,
 	})
@@ -212,7 +212,7 @@ func newTestI18nManager(t *testing.T) *goi18n.Manager {
 	t.Helper()
 	loader, err := goi18n.NewJSONLoader(`{"en":{"hello":"Hello","error.xxx":"Error"},"zh":{"hello":"你好","error.xxx":"错误"}}`)
 	require.NoError(t, err)
-	manager, err := NewI18nManager(&gci18n.I18N{
+	manager, err := NewI18nManager(&gcmiddleware.I18N{
 		DefaultLanguage:    "en",
 		SupportedLanguages: []string{"en", "zh"},
 		MessageLoader:      loader,
@@ -367,10 +367,10 @@ func TestEnrichI18nContextFromMetadata(t *testing.T) {
 
 	t.Run("从带语言映射的 Accept-Language header 解析", func(t *testing.T) {
 		// 创建带语言映射的 manager
-		config := gci18n.Default()
+		config := gcmiddleware.DefaultI18N()
 		config.SupportedLanguages = []string{"en", "zh"}
 		config.AddLanguageMapping("zh-cn", "zh").AddLanguageMapping("en-us", "en")
-		config.ResolutionOrder = []gci18n.MappingType{gci18n.StandardMapping}
+		config.ResolutionOrder = []gcmiddleware.MappingType{gcmiddleware.StandardMapping}
 		config.MessageLoader, _ = goi18n.NewJSONLoader(`{"en":{"t":"test"},"zh":{"t":"测试"}}`)
 		mappedManager, err := NewI18nManager(config)
 		require.NoError(t, err)

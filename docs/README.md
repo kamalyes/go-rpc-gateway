@@ -123,7 +123,7 @@ go-rpc-gateway/
     ├── grpc/auto_register.go # 自动注册与动态 handler
     ├── grpc/compression.go # gRPC 压缩
     ├── clickhouse/client.go # ClickHouse
-    ├── nats/client.go      # NATS / JetStream
+    ├── nats/nats.go        # NATS / JetStream
     ├── mqtt/mqtt.go        # MQTT
     └── smtp/smtp.go        # SMTP 邮件
 ```

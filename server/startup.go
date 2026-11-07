@@ -16,7 +16,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/kamalyes/go-logger"
+	"github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 )
@@ -150,7 +150,6 @@ func (b *BannerManager) buildStartupReport() startupReport {
 	modules := []startupToggle{
 		{name: "health", icon: "🏥", label: "健康检查", enabled: b.config.Health.Enabled, path: b.config.Health.Path, detail: b.config.Health.Path},
 		{name: "swagger", icon: "📚", label: "Swagger文档", enabled: b.config.Swagger.Enabled, path: b.config.Swagger.UIPath, detail: b.config.Swagger.UIPath},
-		{name: "websocket", icon: "🔌", label: "WebSocket", enabled: b.config.WSC.Enabled, path: b.config.WSC.Path, detail: b.config.WSC.Path},
 	}
 
 	features := []startupToggle{
@@ -212,7 +211,6 @@ func (b *BannerManager) buildStartupReport() startupReport {
 		b.config.Monitoring.Prometheus.Enabled,
 		b.config.Middleware.PProf.Enabled,
 		b.config.Monitoring.Jaeger.Enabled,
-		b.config.WSC.Enabled,
 		b.config.CORS.AllowedAllOrigins || len(b.config.CORS.AllowedOrigins) > 0,
 		b.config.RateLimit.Enabled,
 	}

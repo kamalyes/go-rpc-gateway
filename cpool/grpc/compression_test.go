@@ -17,7 +17,7 @@ import (
 	"io"
 	"testing"
 
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -280,7 +280,8 @@ func TestSnappyCompressor_Name(t *testing.T) {
 
 func TestSnappyCompressor_CompressDecompress(t *testing.T) {
 	c := newSnappyCompressor()
-	original := []byte("hello snappy passthrough test")
+	// snappy 对重复数据压缩效果好，构造可压缩载荷验证真实压缩行为
+	original := bytes.Repeat([]byte("hello snappy compression test "), 100)
 
 	var buf bytes.Buffer
 	wc, err := c.Compress(&buf)
@@ -290,13 +291,24 @@ func TestSnappyCompressor_CompressDecompress(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, wc.Close())
 
+	assert.Less(t, buf.Len(), len(original), "snappy should actually compress repetitive data")
+
 	rc, err := c.Decompress(&buf)
 	require.NoError(t, err)
 
 	decompressed, err := io.ReadAll(rc)
 	require.NoError(t, err)
 
-	assert.Equal(t, original, decompressed, "snappy passthrough should preserve data")
+	assert.Equal(t, original, decompressed, "snappy round-trip should preserve data")
+}
+
+func TestSnappyCompressor_DecompressInvalidData(t *testing.T) {
+	c := newSnappyCompressor()
+
+	// 非法输入（varint 溢出）应返回解码错误，而不是静默透传
+	rc, err := c.Decompress(bytes.NewReader(bytes.Repeat([]byte{0xff}, 16)))
+	require.Error(t, err, "invalid snappy data should fail to decode")
+	assert.Nil(t, rc)
 }
 
 func TestRegisterCompressor(t *testing.T) {

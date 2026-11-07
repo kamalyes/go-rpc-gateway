@@ -393,8 +393,8 @@ git push origin feature/amazing-feature
 
 ### 相关项目
 
-- [go-config](https://github.com/kamalyes/go-config) - 统一配置管理
-- [go-logger](https://github.com/kamalyes/go-logger) - 高性能日志
+- [go-config](https://github.com/kamalyes/go-rpc-gateway/config) - 统一配置管理
+- [go-logger](https://github.com/kamalyes/go-toolbox/pkg/logger) - 高性能日志
 - [go-toolbox](https://github.com/kamalyes/go-toolbox) - 工具集
 - [go-cachex](https://github.com/kamalyes/go-cachex) - 多级缓存
 - [go-wsc](https://github.com/kamalyes/go-wsc) - WebSocket 客户端

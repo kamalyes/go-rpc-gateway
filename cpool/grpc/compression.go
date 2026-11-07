@@ -18,7 +18,8 @@ import (
 	"io"
 	"sync"
 
-	gwconfig "github.com/kamalyes/go-config/pkg/gateway"
+	"github.com/golang/snappy"
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/klauspost/compress/zstd"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding"
@@ -231,8 +232,9 @@ func (z *zstdReadCloser) Close() error {
 }
 
 // ==================== Snappy Compressor ====================
-// Snappy 使用 zipx 的 Zlib 作为替代实现（Snappy 需要额外依赖）
-// 如果需要真正的 Snappy 压缩，请添加 github.com/golang/snappy 依赖
+// 使用 github.com/golang/snappy 的 block 格式（snappy.Encode/Decode）
+// gRPC 按消息独立压缩，每条消息整体 Encode 一次即可，无需流式分块
+// 与标准 gRPC snappy 压缩客户端完全互通
 
 type snappyCompressor struct {
 	bufPool sync.Pool
@@ -262,7 +264,11 @@ func (s *snappyCompressor) Decompress(r io.Reader) (io.Reader, error) {
 	if err != nil {
 		return nil, err
 	}
-	return bytes.NewReader(data), nil
+	decompressed, err := snappy.Decode(nil, data)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewReader(decompressed), nil
 }
 
 type snappyWriteCloser struct {
@@ -276,7 +282,8 @@ func (s *snappyWriteCloser) Write(p []byte) (int, error) {
 }
 
 func (s *snappyWriteCloser) Close() error {
-	_, err := s.writer.Write(s.buf.Bytes())
+	compressed := snappy.Encode(nil, s.buf.Bytes())
+	_, err := s.writer.Write(compressed)
 	s.buf.Reset()
 	s.pool.Put(s.buf)
 	return err

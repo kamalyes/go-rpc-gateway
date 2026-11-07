@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	shedderconfig "github.com/kamalyes/go-config/pkg/shedder"
+	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
@@ -97,7 +97,7 @@ type Shedder struct {
 // NewShedder 创建降载器（CPU 信号取自进程级采样器）
 //
 // [EN] Creates a shedder backed by the process-wide CPU sampler
-func NewShedder(cfg *shedderconfig.Shedder) *Shedder {
+func NewShedder(cfg *gcmiddleware.Shedder) *Shedder {
 	return NewShedderWithCPUFunc(cfg, CPUUsage)
 }
 
@@ -114,7 +114,7 @@ func NewShedder(cfg *shedderconfig.Shedder) *Shedder {
 // degradation path on darwin and windows — no panic, and a missing reading is never treated
 // as 0%. Use this constructor to plug in a different CPU source, such as usage pushed down
 // by a monitoring agent
-func NewShedderWithCPUFunc(cfg *shedderconfig.Shedder, cpuUsageFn func() (int64, bool)) *Shedder {
+func NewShedderWithCPUFunc(cfg *gcmiddleware.Shedder, cpuUsageFn func() (int64, bool)) *Shedder {
 	cfg = normalizeShedderConfig(cfg)
 	if cpuUsageFn == nil {
 		cpuUsageFn = func() (int64, bool) { return 0, false }
@@ -516,14 +516,14 @@ func (s *Shedder) Reset() {
 // while the endpoints that must stay reachable are few and enumerable
 type ShedderManager struct {
 	shedder         *Shedder
-	config          *shedderconfig.Shedder
+	config          *gcmiddleware.Shedder
 	excludePrefixes []string
 }
 
 // NewShedderManager 创建降载管理器
 //
 // [EN] Creates a load-shedding manager
-func NewShedderManager(cfg *shedderconfig.Shedder) *ShedderManager {
+func NewShedderManager(cfg *gcmiddleware.Shedder) *ShedderManager {
 	cfg = normalizeShedderConfig(cfg)
 
 	// 排除规则按前缀匹配，不用熔断那套精确 map：/debug/pprof/heap 这类子路径必须
@@ -556,7 +556,7 @@ func (m *ShedderManager) Shedder() *Shedder {
 // Config 获取生效的降载配置（已补齐默认值）
 //
 // [EN] Returns the effective configuration, with defaults filled in
-func (m *ShedderManager) Config() *shedderconfig.Shedder {
+func (m *ShedderManager) Config() *gcmiddleware.Shedder {
 	if m == nil {
 		return nil
 	}
