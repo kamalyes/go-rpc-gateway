@@ -175,8 +175,14 @@ func buildIntegrationTable(opMap map[string]interface{}) string {
 
 // buildParamOverviewTable 渲染非 body 参数的速览表格（query/path/header）
 func buildParamOverviewTable(opMap map[string]interface{}, res *refResolver) string {
+	params := paramList(opMap)
+	// 改名表按同一个操作的全部参数建：条件必填规则引用的是同级字段
+	// [EN] The rename table covers all parameters of the operation: conditional required rules
+	// reference sibling fields.
+	namer := newFieldNamer(paramNames(params))
+
 	rows := make([]string, 0)
-	for _, p := range paramList(opMap) {
+	for _, p := range params {
 		if mustString(p["in"]) == "body" {
 			continue
 		}
@@ -184,12 +190,15 @@ func buildParamOverviewTable(opMap map[string]interface{}, res *refResolver) str
 		if name == "" {
 			continue
 		}
+		doc, rules := splitValidateDoc(mustString(p[constants.FieldDescription]))
+		tag := argusTag{rules: rules, namer: namer}
+		required, _ := p["required"].(bool)
 		row := fmt.Sprintf("| %s | %s | %s | %s | %s |\n",
 			markdownCode(name),
 			markdownCell(mustString(p["in"])),
 			schemaTypeText(p, res),
-			requiredLabel(p),
-			describeCell(mustString(p[constants.FieldDescription]), p, p["x-example"], res),
+			requiredCell(required, tag),
+			describeCell(doc, p, p["x-example"], res, tag),
 		)
 		rows = append(rows, row)
 	}
@@ -272,6 +281,8 @@ func buildBodyFieldTable(schema map[string]interface{}, res *refResolver) string
 	}
 	sort.Strings(names)
 
+	namer := newFieldNamer(names)
+
 	var b strings.Builder
 	b.WriteString("| 字段 | 类型 | 必填 | 说明 |\n")
 	b.WriteString("| --- | --- | --- | --- |\n")
@@ -280,15 +291,13 @@ func buildBodyFieldTable(schema map[string]interface{}, res *refResolver) string
 		if !ok {
 			continue
 		}
-		required := "否"
-		if requiredSet[name] {
-			required = "是"
-		}
+		doc, rules := splitValidateDoc(propertyDoc(prop))
+		tag := argusTag{rules: rules, namer: namer}
 		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
 			markdownCode(name),
 			schemaTypeText(prop, res),
-			required,
-			describeCell(propertyDoc(prop), prop, nil, res),
+			requiredCell(requiredSet[name], tag),
+			describeCell(doc, prop, nil, res, tag),
 		))
 	}
 	return b.String()
@@ -324,6 +333,17 @@ func appendDescription(opMap map[string]interface{}, section string) {
 		return
 	}
 	opMap[constants.FieldDescription] = existing + "\n\n---\n\n" + section
+}
+
+// paramNames 取参数名列表，用于建立 argus 规则引用字段的改名表
+func paramNames(params []map[string]interface{}) []string {
+	names := make([]string, 0, len(params))
+	for _, p := range params {
+		if name := mustString(p[constants.FieldName]); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // paramList 提取操作参数列表中的 map 形式参数
@@ -401,20 +421,33 @@ func refName(ref string) string {
 // label, and several hundred characters in one cell turn the table into a wall. This table is
 // the quick glance; Swagger UI's own Parameters and Model blocks sit right below it with the
 // complete text, so nothing is actually lost.
-func describeCell(doc string, schema map[string]interface{}, example interface{}, res *refResolver) string {
+func describeCell(doc string, schema map[string]interface{}, example interface{}, res *refResolver, tag argusTag) string {
 	resolved, _ := res.resolve(schema)
 
-	parts := make([]string, 0, 5)
+	parts := make([]string, 0, 6)
 	if lead := leadParagraph(doc); lead != "" {
 		parts = append(parts, markdownCell(lead))
 	}
-	if values := enumValues(resolved); len(values) > 0 {
+	// 条件必填单独成行：「必填」列只容得下「条件」两个字，容不下条件本身
+	// [EN] The condition gets its own line: the 必填 column has room for the word 条件, not for
+	// the condition itself.
+	for _, condition := range requiredConditions(tag) {
+		parts = append(parts, "必填条件："+condition)
+	}
+	values := enumValues(resolved)
+	if len(values) == 0 {
+		// 没有 OpenAPI enum 时看 argus 的 oneof：string 字段的可选值常常只写在标签里
+		// [EN] With no OpenAPI enum, fall back to argus oneof: for string fields the allowed
+		// values often live only in the tag.
+		values = foldEnumChips(argusEnumValues(tag))
+	}
+	if len(values) > 0 {
 		parts = append(parts, "可选值："+joinCode(values))
 	}
 	if def := scalarString(firstNonNil(schema["default"], resolved["default"])); def != "" {
 		parts = append(parts, "默认值："+markdownCode(def))
 	}
-	if limit := constraintText(schema, resolved); limit != "" {
+	if limit := constraintText(schema, resolved, tag, res); limit != "" {
 		parts = append(parts, "限制："+limit)
 	}
 	if ex := scalarString(example); ex != "" {
@@ -464,14 +497,36 @@ func enumValues(schema map[string]interface{}) []string {
 			values = append(values, value)
 		}
 	}
+	return foldEnumChips(values)
+}
+
+// foldEnumChips 超过 maxEnumChips 个就折叠尾部
+func foldEnumChips(values []string) []string {
 	if len(values) > maxEnumChips {
 		return append(values[:maxEnumChips:maxEnumChips], fmt.Sprintf("…共 %d 项", len(values)))
 	}
 	return values
 }
 
-// constraintText 汇总长度、取值范围、元素个数与格式约束
-func constraintText(schema, resolved map[string]interface{}) string {
+// constraintText 汇总「限制」列：argus 标签优先，没有标签时才回落到 OpenAPI 原生约束
+//
+// 为什么 argus 优先：它是请求真正会被卡住的那一道（见 middleware/i18n/struct_tag_validator.go），
+// OpenAPI 的 minimum/maxLength 只是文档声明，而 proto 产物里基本是空的
+// 两者都存在且对不上时，按运行时的那一份写，否则文档会把人骗进一个必定 400 的请求
+//
+// [EN] argus wins because it is the gate a request actually fails at (see
+// middleware/i18n/struct_tag_validator.go), while OpenAPI's minimum/maxLength is a declaration
+// that proto output rarely carries at all. When both exist and disagree, the document follows
+// the one that runs — otherwise it talks the reader into a request that is certain to 400.
+func constraintText(schema, resolved map[string]interface{}, tag argusTag, res *refResolver) string {
+	if items := argusConstraints(tag, compareScope(schema, res)); len(items) > 0 {
+		return strings.Join(items, "；")
+	}
+	return openAPIConstraintText(schema, resolved)
+}
+
+// openAPIConstraintText 汇总 OpenAPI 原生的长度、取值范围、元素个数与格式约束
+func openAPIConstraintText(schema, resolved map[string]interface{}) string {
 	pick := func(key string) interface{} { return firstNonNil(schema[key], resolved[key]) }
 
 	items := make([]string, 0, 4)
@@ -557,14 +612,6 @@ func schemaTypeText(schema map[string]interface{}, res *refResolver) string {
 		}
 	}
 	return escapeHTML(typ)
-}
-
-// requiredLabel 返回参数必填标记
-func requiredLabel(param map[string]interface{}) string {
-	if required, _ := param["required"].(bool); required {
-		return "是"
-	}
-	return "否"
 }
 
 // formatExampleJSON 将示例值序列化为 JSON 代码块，无法序列化时返回空
