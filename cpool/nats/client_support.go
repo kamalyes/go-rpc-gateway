@@ -72,16 +72,6 @@ func NewNats(ctx context.Context, log logger.ILogger, opts *queue.Nats) *NatsCon
 		)
 	}
 
-	// WorkerPool 原先由第三方封装提供，官方客户端没有对等物
-	// 配置项仍然存在（config/queue/nats.go 的 WithWorkerPoolSize 等），所以这里显式告警
-	// 而不是静默忽略——否则配过这两项的服务会以为消费者池还在工作
-	if opts.WorkerPoolSize > 0 {
-		log.WarnContextKV(ctx, "NATS WorkerPool is no longer available: the official client has no equivalent, setting ignored",
-			"workers", opts.WorkerPoolSize,
-			"queueSize", opts.WorkerQueueSize,
-		)
-	}
-
 	return result
 }
 
@@ -130,15 +120,15 @@ func buildNatsOptions(cfg *queue.Nats, log logger.ILogger) []nats.Option {
 		}),
 	}
 
-	// 如果配置了用户名和密码，添加用户信息认证
-	if cfg.Username != "" && cfg.Password != "" {
-		opts = append(opts, nats.UserInfo(cfg.Username, cfg.Password))
-	}
-
-	// 如果配置了 Token，添加 Token 认证
-	if cfg.Token != "" {
-		opts = append(opts, nats.Token(cfg.Token))
-	}
+	// 认证信息不在这里接线：它写在 URL 的 userinfo 里，由官方客户端的 connectProto 读取
+	// （nats://user:pass@host 或 nats://token@host）。URL 带 userinfo 时 connectProto
+	// 会完全忽略 Options 上的 User/Password/Token，所以在这里追加 nats.UserInfo /
+	// nats.Token 只会是死代码
+	//
+	// [EN] Credentials are not wired here: they live in the URL's userinfo and are read by
+	// the official client's connectProto. Once the URL carries userinfo, connectProto
+	// ignores the Options-level User/Password/Token outright, so appending nats.UserInfo or
+	// nats.Token here would be dead code
 
 	// 官方 nats.Options 对齐项：0 值不传选项，走官方库默认
 	//（官方默认见 nats.go：ReconnectJitter=100ms/PingInterval=2m/MaxPingsOut=2/

@@ -20,6 +20,7 @@ import (
 	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	chclient "github.com/kamalyes/go-rpc-gateway/cpool/clickhouse"
 	"github.com/kamalyes/go-rpc-gateway/cpool/database"
+	mqttclient "github.com/kamalyes/go-rpc-gateway/cpool/mqtt"
 	natsclient "github.com/kamalyes/go-rpc-gateway/cpool/nats"
 	"github.com/kamalyes/go-rpc-gateway/cpool/redis"
 	"github.com/kamalyes/go-rpc-gateway/cpool/smtp"
@@ -121,7 +122,7 @@ func NewManager(log logger.ILogger) *Manager {
 }
 
 // Initialize 初始化所有连接池
-func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
+func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) (err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -129,11 +130,20 @@ func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) error {
 		return fmt.Errorf("pool manager already initialized")
 	}
 
-	m.cfg = cfg
-
 	if m.logger == nil {
 		return fmt.Errorf("logger not initialized")
 	}
+	if cfg == nil {
+		return fmt.Errorf("gateway configuration not initialized")
+	}
+	m.cfg = cfg
+	defer func() {
+		if err != nil {
+			// An enabled MQTT client can fail after other clients have connected.
+			// Release partial initialization before returning the startup error.
+			_ = m.closeConnections()
+		}
+	}()
 
 	// 初始化各个连接池
 	if err := m.initDatabase(ctx); err != nil {
@@ -237,8 +247,15 @@ func (m *Manager) initSMTP(ctx context.Context) error {
 
 // initMQTT 初始化MQTT客户端
 func (m *Manager) initMQTT(ctx context.Context) error {
-	// MQTT客户端初始化暂时跳过，等待具体实现
-	m.logger.InfoContext(ctx, "MQTT initialization skipped (not implemented)")
+	if m.cfg == nil || !m.cfg.Mqtt.IsEnabled() {
+		return nil
+	}
+	client, err := mqttclient.NewClient(ctx, m.cfg.Mqtt, m.logger)
+	if err != nil {
+		return err
+	}
+	m.mqtt = client
+	m.logger.InfoContext(ctx, "MQTT initialized successfully")
 	return nil
 }
 
@@ -402,11 +419,11 @@ func (m *Manager) GetI18n() interface{} {
 func (m *Manager) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.closeConnections()
+}
 
-	if !m.initialized {
-		return nil
-	}
-
+// closeConnections requires m.mu to be held, including during failed initialization.
+func (m *Manager) closeConnections() error {
 	var errs []error
 
 	// 关闭数据库连接
@@ -437,9 +454,8 @@ func (m *Manager) Close() error {
 
 	// 关闭 MQTT
 	if m.mqtt != nil {
-		if m.mqtt.IsConnected() {
-			m.mqtt.Disconnect(250)
-		}
+		// IsConnected may be false while Paho is reconnecting; stop that loop too.
+		m.mqtt.Disconnect(250)
 		m.mqtt = nil
 	}
 
@@ -470,7 +486,9 @@ func (m *Manager) Close() error {
 		return fmt.Errorf("errors closing connections: %v", errs)
 	}
 
-	m.logger.Info("Connection pool manager closed successfully")
+	if m.logger != nil {
+		m.logger.Info("Connection pool manager closed successfully")
+	}
 	return nil
 }
 

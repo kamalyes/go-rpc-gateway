@@ -54,17 +54,17 @@ http-server:
 
 database:
   enabled: true
-  db-name: mydb
-  host: "127.0.0.1"
-  port: 3306
-  username: root
-  password: "secret"
+  type: "mysql"
+  dsn: "root:secret@tcp(127.0.0.1:3306)/mydb?charset=utf8mb4&parseTime=True&loc=Local"
 
 cache:
   enabled: true
-  host: "127.0.0.1"
-  port: 6379
+  redis:
+    url: "redis://127.0.0.1:6379/0"
 ```
+
+> 连接信息统一走单 DSN，每种数据库的 DSN 格式不同（MySQL 不是 URL 形式）。
+> 完整格式与可粘贴示例见 [连接池文档](CONNECTION-POOL.md)
 
 ## Bootstrap 模式拆分
 

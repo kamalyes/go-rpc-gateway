@@ -91,24 +91,23 @@ type UserRule struct {
 }
 
 // StorageConfig 存储配置
+//
+// Type 选 redis 时不需要在这里再配一遍连接信息：Redis 后端的限流器
+// （middleware/resilience 的 SlidingWindowLimiter）直接用网关的共享 Redis 连接
+// global.REDIS，也就是 cache.redis 那条 DSN 建出来的客户端。
+// 原先这里有一个 RedisStorage 结构体（地址、密码、库号、连接池等 9 个字段），
+// 但限流器从头到尾没读过它一次——配了完全不生效，而且会让人以为限流用的是另一个实例，
+// 所以整个收掉
+//
+// [EN] With Type set to redis there is no connection to configure here: the Redis-backed
+// limiter uses the gateway's shared connection, global.REDIS, which is the client built
+// from the cache.redis DSN. This used to carry a RedisStorage struct of nine connection
+// fields that the limiter never read once — filling it in had no effect while suggesting
+// the limiter talked to a separate instance — so it is gone
 type StorageConfig struct {
-	Type          string        `mapstructure:"type" yaml:"type" json:"type"`                              // 存储类型: memory, redis
+	Type          string        `mapstructure:"type" yaml:"type" json:"type"`                              // 存储类型: memory, redis（redis 复用网关共享连接）
 	KeyPrefix     string        `mapstructure:"key-prefix" yaml:"key-prefix" json:"keyPrefix"`             // Key前缀
 	CleanInterval time.Duration `mapstructure:"clean-interval" yaml:"clean-interval" json:"cleanInterval"` // 清理间隔
-	RedisConfig   *RedisStorage `mapstructure:"redis" yaml:"redis" json:"redis"`                           // Redis配置（可选）
-}
-
-// RedisStorage Redis存储配置（复用cache.Redis字段）
-type RedisStorage struct {
-	Addresses    []string      `mapstructure:"addresses" yaml:"addresses" json:"addresses"`              // Redis地址
-	Password     string        `mapstructure:"password" yaml:"password" json:"password"`                 // 密码
-	DB           int           `mapstructure:"db" yaml:"db" json:"db"`                                   // 数据库
-	PoolSize     int           `mapstructure:"pool-size" yaml:"pool-size" json:"poolSize"`               // 连接池
-	MinIdleConns int           `mapstructure:"min-idle-conns" yaml:"min-idle-conns" json:"minIdleConns"` // 最小空闲连接
-	MaxRetries   int           `mapstructure:"max-retries" yaml:"max-retries" json:"maxRetries"`         // 最大重试
-	ReadTimeout  time.Duration `mapstructure:"read-timeout" yaml:"read-timeout" json:"readTimeout"`      // 读超时
-	WriteTimeout time.Duration `mapstructure:"write-timeout" yaml:"write-timeout" json:"writeTimeout"`   // 写超时
-	ClusterMode  bool          `mapstructure:"cluster-mode" yaml:"cluster-mode" json:"clusterMode"`      // 集群模式
 }
 
 // DefaultRateLimit 默认限流配置

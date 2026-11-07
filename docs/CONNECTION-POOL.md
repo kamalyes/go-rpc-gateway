@@ -2,7 +2,7 @@
 
 ## 概述
 
-`cpool.Manager` 是所有连接的唯一管理者，统一管理数据库、Redis、MinIO、ClickHouse、NATS、MQTT、SMTP 等客户端连接的生命周期。
+`cpool.Manager` 是所有连接的唯一管理者，统一管理数据库、Redis、ClickHouse、NATS、MQTT、SMTP 等客户端连接的生命周期。
 
 > 源码：[cpool/manager.go](../cpool/manager.go)
 
@@ -15,7 +15,6 @@ flowchart TD
     subgraph POOLS["连接池（按配置启用）"]
         DB["Database, MySQL / PostgreSQL / SQLite / CockroachDB"]
         REDIS["Redis, go-redis"]
-        OSS["Object Storage, S3 / MinIO / BoltDB"]
         CH["ClickHouse, 时序数据库"]
         NATS["NATS / JetStream, 消息队列"]
         MQTT["MQTT, IoT 消息"]
@@ -27,14 +26,12 @@ flowchart TD
     subgraph GLOBAL_REF["全局便捷引用"]
         G_DB["global.DB"]
         G_REDIS["global.REDIS"]
-        G_MINIO["global.MinIO"]
         G_CH["GetClickHouse()"]
         G_NATS["GetNats()"]
     end
 
     DB --> G_DB
     REDIS --> G_REDIS
-    OSS --> G_MINIO
     CH --> G_CH
     NATS --> G_NATS
 
@@ -42,7 +39,6 @@ flowchart TD
         HC["manager.HealthCheck()"]
         HC_DB["database: true"]
         HC_REDIS["redis: true"]
-        HC_MINIO["minio: false"]
     end
 
     MGR --> HEALTH
@@ -62,10 +58,7 @@ type PoolManager interface {
     Initialize(ctx context.Context, cfg *gwconfig.Gateway) error
 
     GetDB() *gorm.DB
-    GetRedis() *redis.Client
-    GetCache() cachex.CtxCache
-    GetMinIO() *minio.Client
-    GetStorage() oss.StorageHandler
+    GetRedis() redis.UniversalClient
     GetMQTT() mqtt.Client
     GetSnowflake() *snowflake.Node
     GetSMTP() smtp.MailHandler
@@ -74,9 +67,7 @@ type PoolManager interface {
     GetI18n() interface{}
 
     SetDB(db *gorm.DB)
-    SetRedis(rdb *redis.Client)
-    SetCache(cache cachex.CtxCache)
-    SetMinIO(minio *minio.Client)
+    SetRedis(rdb redis.UniversalClient)
     SetMQTT(mqtt mqtt.Client)
     SetSnowflake(node *snowflake.Node)
     SetSMTP(smtp smtp.MailHandler)
@@ -106,11 +97,9 @@ database:
   enabled: true
 cache:
   enabled: true
-oss:
+clickhouse:
   enabled: true
-tsdb:
-  enabled: true
-queue:
+nats:
   enabled: true
 mqtt:
   enabled: true
@@ -118,25 +107,55 @@ smtp:
   enabled: true
 ```
 
+连接信息统一走单 DSN：每个连接池只有一个 `dsn`（Redis 与 NATS 叫 `url`）字段，
+地址与认证写在里面。驱动原生支持的参数由官方解析器解析；MQTT、SMTP 等
+驱动不支持的查询参数由网关解析后接入对应选项。NATS 不支持查询参数，其超时与
+重连选项仍保留独立字段。每种 DSN 的完整参数表与可粘贴示例见对应配置类型注释：
+
+| 模块 | 配置键 | DSN 字段 | 参数表与示例 |
+| --- | --- | --- | --- |
+| 数据库 | `database` | `dsn` | [config/database/database.go](../config/database/database.go) 的 `Database` 类型注释 |
+| Redis | `cache.redis` | `url` | [config/cache/redis.go](../config/cache/redis.go) 的 `Redis` 类型注释 |
+| ClickHouse | `clickhouse` | `dsn` | [config/tsdb/clickhouse.go](../config/tsdb/clickhouse.go) 的 `ClickHouse` 类型注释 |
+| NATS | `nats` | `url` | [config/queue/nats.go](../config/queue/nats.go) 的 `Nats` 类型注释 |
+| MQTT | `mqtt` | `dsn` | [config/queue/mqtt.go](../config/queue/mqtt.go) 的 `Mqtt` 类型注释 |
+| SMTP | `smtp` | `dsn` | [config/smtp/smtp.go](../config/smtp/smtp.go) 的 `Smtp` 类型注释 |
+
 ## 数据库 — MySQL / PostgreSQL / SQLite / CockroachDB
 
 > 源码：[cpool/database/client.go](../cpool/database/client.go)
 
-支持四种数据库驱动，由 `database.Gorm` 根据配置 `type` 字段分发，对应工厂函数 `GormMySQL`、`GormPostgreSQL`、`GormSQLite`、`GormCockroachDB`（CockroachDB 兼容 PostgreSQL 协议）：
+支持四种数据库驱动，由 `database.Gorm` 根据配置 `type` 字段分发：MySQL 走
+`mysqldriver.New`，SQLite 走 `gormSQLiteOpen`（需 `-tags sqlite`），postgres 与
+cockroachdb 走 `gormPostgresOpen`（需 `-tags postgres`，CockroachDB 兼容 PostgreSQL 协议）。
+
+DSN 的格式由 `type` 决定，四种互不相同——MySQL 用的不是 URL 形式，SQLite 的 DSN 就是文件路径：
 
 ```yaml
 database:
   enabled: true
-  db-name: mydb
   type: "mysql"            # mysql | postgres | sqlite | cockroachdb
-  host: "127.0.0.1"
-  port: 3306
-  username: root
-  password: "secret"
+  # mysql：go-sql-driver 专有格式，主机包在 tcp(...) 里，parseTime=True 必带
+  dsn: "gateway:mysql_pwd@tcp(127.0.0.1:3306)/gateway?charset=utf8mb4&parseTime=True&loc=Local"
+  # postgres / cockroachdb：
+  #   dsn: "postgres://gateway:pg_pwd@127.0.0.1:5432/gateway?sslmode=disable&TimeZone=UTC"
+  # sqlite：
+  #   dsn: "file:data/gateway.db?cache=shared&mode=rwc"
+
+  # 连接池参数：database/sql 层的设置，不在 DSN 里
   max-open-conns: 100
   max-idle-conns: 10
-  conn-max-lifetime: 3600  # 秒
+  conn-max-idle-time: 30m
+  conn-max-lifetime: 1h
+
+  # GORM 行为开关
+  log-level: "warn"        # silent | error | warn | info
+  slow-threshold: 200      # 慢查询阈值（毫秒）
+  prepare-stmt: false      # 走 PgBouncer transaction 模式时必须为 false
 ```
+
+> 每种类型的完整示例（含 TLS、Unix socket、PgBouncer、CockroachDB Cloud、内存库）见
+> [config/database/database.go](../config/database/database.go) 的 `Database` 类型注释
 
 获取连接：
 
@@ -150,14 +169,37 @@ db.Find(&users)
 
 > 源码：[cpool/redis/redis.go](../cpool/redis/redis.go)
 
+连接模式由 URL 自己表达，不需要额外开关：带 `master_name` 走哨兵，出现重复的
+`addr` 参数或带 `cluster=true` 走集群，其余走单机。三种模式分别交给 go-redis 的
+`ParseFailoverURL` / `ParseClusterURL` / `ParseURL` 解析，判定结果会写进启动日志的
+`mode` 字段。
+
 ```yaml
 cache:
   enabled: true
-  host: "127.0.0.1"
-  port: 6379
-  password: ""
-  db: 0
+  type: "redis"
+  default-ttl: 30m
+  key-prefix: "cache:"
+  redis:
+    # 单机
+    url: "redis://default:redis_pwd@127.0.0.1:6379/0?pool_size=200&dial_timeout=5s&read_timeout=3s"
+    # 集群（多节点用重复的 addr 追加）
+    #   url: "redis://default:pwd@10.0.0.1:6379?addr=10.0.0.2:6379&addr=10.0.0.3:6379&route_by_latency=true"
+    # 集群（只有一个入口地址时要显式声明）
+    #   url: "redis://default:pwd@redis-cluster.example.com:6379?cluster=true&max_redirects=3"
+    # 哨兵（master_name 非空即哨兵模式）
+    #   url: "redis://sentinel_user:sentinel_pwd@10.0.0.1:26379/0?master_name=mymaster&addr=10.0.0.2:26379&username=default&password=data_pwd"
+    # TLS
+    #   url: "rediss://default:pwd@redis.example.com:6380/0?skip_verify=true"
 ```
+
+go-redis 的 URL 解析器会**拒绝**不认识的查询参数（报 `redis: unexpected option`），
+所以参数名写错是启动即失败，不会静默忽略。四个网关扩展参数（`cluster`、
+`read_buffer_size`、`write_buffer_size`、`context_timeout_enabled`）由
+[cpool/redis/redis.go](../cpool/redis/redis.go) 在交给驱动之前摘出来自行应用。
+
+> 全部可用参数（三种模式各自支持哪些）与可粘贴示例见
+> [config/cache/redis.go](../config/cache/redis.go) 的 `Redis` 类型注释
 
 获取连接：
 
@@ -167,45 +209,34 @@ rdb.Set(ctx, "key", "value", 10*time.Minute)
 val, err := rdb.Get(ctx, "key").Result()
 ```
 
-## 对象存储 — S3 / MinIO / BoltDB
-
-> 源码：[cpool/oss/storage.go](../cpool/oss/storage.go)、[cpool/oss/minio.go](../cpool/oss/minio.go)、[cpool/oss/boltdb.go](../cpool/oss/boltdb.go)
-
-```yaml
-oss:
-  enabled: true
-  type: "minio"            # minio | s3 | boltdb
-  endpoint: "minio:9000"
-  access-key: "minioadmin"
-  secret-key: "minioadmin"
-  bucket: "my-bucket"
-  use-ssl: false
-```
-
-获取连接：
-
-```go
-minioClient := gwglobal.GetMinIO()
-
-// 或使用 StorageHandler 统一接口
-storage := gwglobal.GetPoolManager().GetStorage()
-info, err := storage.PutObject(ctx, bucket, key, reader, size, "application/octet-stream")
-```
-
-`StorageHandler` 统一接口屏蔽 S3 / MinIO / BoltDB 底层差异，由 `oss.NewStorage` 根据配置 `type` 创建对应实现（`MinIOStorage`、`S3Storage`、`BoltDBStorage`）。主要方法包括 Bucket 操作（`ListBuckets`、`BucketExists`、`CreateBucket`、`DeleteBucket`）、Object 操作（`ListObjects`、`GetObject`、`GetObjectBlob`、`PutObject`、`DeleteObject`）、预签名 URL（`GetPresignedDownloadURL`、`GetPresignedUploadURL`）和 `Close`。
-
 ## ClickHouse
 
-> 源码：[cpool/clickhouse/client.go](../cpool/clickhouse/client.go)
+> 源码：[cpool/clickhouse/client_support.go](../cpool/clickhouse/client_support.go)（需 `-tags clickhouse`）
 
 ```yaml
-tsdb:
+clickhouse:
   enabled: true
-  host: "clickhouse:9000"
-  database: "analytics"
-  username: "default"
-  password: ""
+  dsn: "clickhouse://default:ch_pwd@127.0.0.1:9000/analytics?dial_timeout=10s&read_timeout=20s&compress=lz4&max_idle_conns=5&max_open_conns=20&conn_max_lifetime=1h&conn_max_idle_time=5m"
+  # HTTP 协议：  dsn: "http://default:ch_pwd@127.0.0.1:8123/analytics"
+  # ClickHouse Cloud： dsn: "https://default:ch_pwd@xxx.clickhouse.cloud:8443/analytics?secure=true"
+
+  # GORM 行为开关（ORM 层，DSN 表达不了）
+  log-level: "info"
+  slow-threshold: 200
+  skip-default-transaction: true     # ClickHouse 不支持传统事务
+  singular-table: true
+  create-batch-size: 1000
 ```
+
+DSN 里驱动不认识的参数会被当成 ClickHouse 会话 setting 原样下发，所以设置名写错会在
+建连时报 `code: 115 Unknown setting`。两个例外由
+[cpool/clickhouse/client_support.go](../cpool/clickhouse/client_support.go) 处理：
+`conn_max_idle_time` 被摘出来作用到 `sql.DB.SetConnMaxIdleTime`（`clickhouse.Options`
+没有这个字段），`session_timezone` 在 DSN 未写时补 `UTC`（naive `DateTime64` 列用会话时区
+解释，不固定会让 UTC 查询参数被偏移）。
+
+> 全部可用参数与可粘贴示例见 [config/tsdb/clickhouse.go](../config/tsdb/clickhouse.go) 的
+> `ClickHouse` 类型注释
 
 获取连接（返回 `*gorm.DB`，由 `NewClickHouseDB` 创建，内部基于 gorm clickhouse 驱动，并复用 `cpool/database` 的 `GormLogger` 统一 SQL 日志）：
 
@@ -217,14 +248,35 @@ defer rows.Close()
 
 ## NATS / JetStream
 
-> 源码：[cpool/nats/nats.go](../cpool/nats/nats.go)
+> 源码：[cpool/nats/client_support.go](../cpool/nats/client_support.go)（需 `-tags mq`）
 
 ```yaml
-queue:
+nats:
   enabled: true
-  endpoint: "nats://nats:4222"
-  jetstream-enabled: true
+  # 认证信息写在 URL 里；多节点逗号分隔
+  url: "nats://gateway:nats_pwd@127.0.0.1:4222"
+  # Token 认证（只给用户名不给密码即按 Token 解释）：
+  #   url: "nats://s3cr3t_token@nats.example.com:4222"
+  # 集群： url: "nats://gateway:pwd@nats-1:4222,nats://gateway:pwd@nats-2:4222"
+  name: "my-service"
+
+  # 连接级参数：nats.go 不解析 URL 查询参数，只能逐项传 nats.Option，所以保持独立字段
+  connect-timeout: 10       # 秒
+  reconnect-wait: 2         # 秒
+  max-reconnects: 10
+
+  # JetStream 流级运维参数（流名由业务建流时决策）
+  jet-stream: true
+  replicas: 1
+  storage: "file"           # file | memory
+  retention: "limits"       # limits | interest | workqueue
 ```
+
+认证信息只认 URL：官方客户端的 `connectProto` 一旦发现 URL 带 userinfo，就完全忽略
+`nats.Options` 上的 `User`/`Password`/`Token`，两处都配时 URL 静默取胜，所以原先的
+`username` / `password` / `token` 三个字段已移除。
+
+> 完整 URL 格式与可粘贴示例见 [config/queue/nats.go](../config/queue/nats.go) 的 `Nats` 类型注释
 
 获取连接：
 
@@ -247,27 +299,44 @@ type NatsConn struct {
 ```
 
 > 连接池与 JetStream 都取自官方客户端，不再经第三方封装
-> 原先由封装层提供的 `GetNatsX()`、泛型发布/订阅与 WorkerPool 已移除；配置项
-> `worker-pool-size` / `worker-queue-size` 仍可填写但不再生效，填了会在启动时告警
+> 原先由封装层提供的 `GetNatsX()`、泛型发布/订阅与 WorkerPool 已移除；
+> 配置项 `worker-pool-size` / `worker-queue-size` 也已从配置结构体里删除——
+> 它们曾保留着只为在启动时告警，留一个填了必然不生效的配置项没有意义
 
 ## MQTT
 
-> 源码：[cpool/mqtt/mqtt.go](../cpool/mqtt/mqtt.go)
+> 源码：[cpool/mqtt/mqtt_support.go](../cpool/mqtt/mqtt_support.go)
+
+使用 `-tags mq` 构建，并显式设置 `enabled: true`。默认关闭，配置缺省时不连接。
+启用但未带构建标签、DSN 无效或首次连接失败时，`Manager.Initialize` 返回错误并释放
+已经创建的连接；成功后通过 `GetMQTT()` 获取官方 Paho 客户端，`Close()` 负责断开并停止重连。
 
 ```yaml
 mqtt:
   enabled: true
-  endpoint: "tcp://mqtt:1883"
-  client-id: "my-service"
-  protocol-version: 4
-  clean-session: true
+  dsn: "tcp://gateway:mqtt_pwd@mqtt:1883?client_id=my-service&keep_alive=60s&clean_session=true&auto_reconnect=true"
+  # TLS：ssl://gateway:mqtt_pwd@mqtt:8883?client_id=my-service
+  # WebSocket：ws://mqtt:8083/mqtt?client_id=my-service
 ```
 
-获取连接：
+Paho 没有连接选项的 DSN 查询解析器，网关把 `client_id`、`protocol_version`、
+`keep_alive`、`clean_session`、`auto_reconnect`、各超时与遗言参数映射到 Paho setter。
+未配置 `will_topic` 时不启用遗言。完整参数、默认值与 URL 转义规则见
+[config/queue/mqtt.go](../config/queue/mqtt.go)。原来的 `endpoint`、`client-id`、
+`username/password` 及独立超时字段已移除，迁移时须改写为 `dsn` 并设置 `enabled: true`。
 
 ```go
 mqttClient := gwglobal.GetPoolManager().GetMQTT()
+if mqttClient == nil {
+    return fmt.Errorf("MQTT is disabled")
+}
 token := mqttClient.Publish("topic", 0, false, payload)
+if !token.WaitTimeout(5 * time.Second) {
+    return fmt.Errorf("MQTT publish timed out")
+}
+if err := token.Error(); err != nil {
+    return err
+}
 ```
 
 ## SMTP 邮件
@@ -277,11 +346,29 @@ token := mqttClient.Publish("topic", 0, false, payload)
 ```yaml
 smtp:
   enabled: true
-  host: "smtp.example.com"
-  port: 587
-  username: "noreply@example.com"
-  password: "secret"
+  # 用户名里的 @ 必须写成 %40，否则会被当成 userinfo 与主机的分隔符
+  dsn: "smtp://noreply%40example.com:app_password@smtp.example.com:587"
+  # 465 隐式 TLS：  dsn: "smtps://noreply%40example.com:pwd@smtp.example.com:465"
+  # 强制 STARTTLS 且跳过自签证书校验：
+  #   dsn: "smtp://noreply%40corp.lan:pwd@mail.corp.lan:587?starttls=true&skip_verify=true"
+  # 本地中继，无需认证：  dsn: "smtp://127.0.0.1:25"
+
+  # 以下是邮件内容相关字段，不属于连接参数
+  from-address: "noreply@example.com"
+  to-addresses: ["admin@example.com"]
+  headers:
+    X-Gateway: "go-rpc-gateway"
 ```
+
+传输加密方式由 scheme 与 `starttls` 参数共同决定：`smtps://` 走隐式 TLS
+（`SendWithTLS`），`smtp://` + `starttls=true` 走显式 STARTTLS（`SendWithStartTLS`，
+这条路径才吃得到 `skip_verify`），单纯 `smtp://` 走 `net/smtp` 的默认投递——
+服务端声明支持 STARTTLS 就自动升级，不支持就明文。
+
+> 原先的 `pool-size` 字段已移除：`net/smtp` 每次发信自建一条连接、发完即关，
+> 没有连接池可配
+
+> 完整 DSN 格式与可粘贴示例见 [config/smtp/smtp.go](../config/smtp/smtp.go) 的 `Smtp` 类型注释
 
 获取连接：
 
@@ -355,7 +442,6 @@ status := manager.HealthCheck()
 // status = map[string]bool{
 //     "database":    true,
 //     "redis":       true,
-//     "minio":       false,
 //     "mqtt":        true,
 //     "clickhouse":  true,
 //     "nats":        true,
