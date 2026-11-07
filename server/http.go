@@ -12,6 +12,7 @@
 package server
 
 import (
+	"bufio"
 	"compress/gzip"
 	"context"
 	"crypto/tls"
@@ -227,9 +228,31 @@ func (s *Server) initGzipWriterPool() {
 }
 
 // gzipResponseWriter 包装ResponseWriter以支持gzip压缩
+//
+// Flusher / Hijacker / Pusher 必须一个个显式实现，不能指望嵌入带过来
+// 嵌进来的是 http.ResponseWriter 接口，提升上来的方法集只有 Header / Write / WriteHeader，
+// 所以包装之后 w.(http.Flusher) 断言不再成立 —— 而这正是 grpc-gateway 的
+// ForwardResponseStream 的第一步，断言失败时它直接回 500 "unexpected type of web server"
+// 也就是说开了 gzip，所有 server-streaming 接口对默认带 Accept-Encoding: gzip 的客户端
+// （浏览器与多数 HTTP 客户端）一律 500，而不是「慢一点」
+//
+// 同一个仓库里的 core.ResponseWriter 就是显式实现这几个接口的，这里照它补齐
+//
+// [EN] Flusher, Hijacker and Pusher have to be implemented explicitly rather than inherited:
+// what is embedded is the http.ResponseWriter interface, so the promoted method set is only
+// Header, Write and WriteHeader, and w.(http.Flusher) stops asserting once wrapped. That
+// assertion is the first thing grpc-gateway's ForwardResponseStream does, and on failure it
+// answers 500 "unexpected type of web server" — so with gzip enabled every server-streaming
+// endpoint returns 500 to any client sending Accept-Encoding: gzip, which is browsers and most
+// HTTP clients, rather than merely running slower.
+//
+// core.ResponseWriter in this same repository implements them explicitly; this follows it.
 type gzipResponseWriter struct {
 	http.ResponseWriter
 	gzipWriter *gzip.Writer
+	// hijacked 连接已被劫持，不要再通过原 ResponseWriter 写 gzip 尾块
+	// [EN] The connection was hijacked; no gzip trailer through the original writer
+	hijacked bool
 }
 
 // Write 写入压缩数据
@@ -238,8 +261,79 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 }
 
 // Close 关闭 gzip writer
+//
+// 劫持过的连接直接短路：此时原 ResponseWriter 已经交出控制权，
+// 再写尾块只会拿到 http.ErrHijacked，并把一个已 Close 的 writer 放回池子
+//
+// [EN] A hijacked connection short-circuits: the original writer has handed over control, so
+// writing the trailer only yields http.ErrHijacked and returns a closed writer to the pool
 func (w *gzipResponseWriter) Close() error {
+	if w.hijacked {
+		return nil
+	}
 	return w.gzipWriter.Close()
+}
+
+// Flush 实现 http.Flusher 接口（流式响应）
+//
+// 顺序不能反：gzip 把数据攒在自己的 flate 缓冲里，只刷底层 writer 等于什么都没发出去，
+// 流式响应会一路攒到 Close 才一次性到达客户端
+//
+// [EN] The order matters: gzip holds data in its own flate buffer, so flushing only the
+// underlying writer sends nothing and a streaming response piles up until Close
+func (w *gzipResponseWriter) Flush() {
+	_ = w.gzipWriter.Flush()
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+// Hijack 实现 http.Hijacker 接口（WebSocket 升级需要裸连接）
+func (w *gzipResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+	conn, buf, err := hijacker.Hijack()
+	if err == nil {
+		w.hijacked = true
+	}
+	return conn, buf, err
+}
+
+// Push 实现 http.Pusher 接口（HTTP/2 Server Push）
+func (w *gzipResponseWriter) Push(target string, opts *http.PushOptions) error {
+	if pusher, ok := w.ResponseWriter.(http.Pusher); ok {
+		return pusher.Push(target, opts)
+	}
+	return http.ErrNotSupported
+}
+
+// Unwrap 返回底层的 http.ResponseWriter（供 http.ResponseController 使用）
+func (w *gzipResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+// gzipEnabled 判断是否启用 gzip 压缩
+//
+// 判定自带 nil 保护：HTTPServer 是指针，整棵子树可能缺失（程序化构造配置时很容易不填），
+// 而 gzipMiddleware 原先每个请求都裸解引用 s.config.HTTPServer.EnableGzipCompress
+// 同一个文件里的 initGzipWriterPool 专门为这件事加过 nil 判断并写了注释 ——
+// 同一个判定散在三处，就必然出现一处有保护、另两处没有的情况，所以这里收口成一个方法
+//
+// [EN] Nil-safe by construction: HTTPServer is a pointer and the whole subtree may be absent,
+// which is easy to leave unset when the config is built programmatically, while gzipMiddleware
+// used to dereference s.config.HTTPServer.EnableGzipCompress on every request.
+// initGzipWriterPool in this same file already guards exactly that; one decision spelled out in
+// three places is how two of them end up without the guard, so it is funnelled through here.
+func (s *Server) gzipEnabled() bool {
+	return s.config != nil && s.config.HTTPServer != nil && s.config.HTTPServer.EnableGzipCompress
+}
+
+// http2Enabled 判断是否启用 HTTP/2，与 gzipEnabled 同样自带 nil 保护
+// [EN] Whether HTTP/2 is enabled, nil-safe like gzipEnabled
+func (s *Server) http2Enabled() bool {
+	return s.config != nil && s.config.HTTPServer != nil && s.config.HTTPServer.EnableHTTP2
 }
 
 // shouldSkipGzip 判断是否跳过 gzip 压缩
@@ -294,7 +388,7 @@ func pathExt(p string) string {
 func (s *Server) gzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 检查是否启用压缩
-		if !s.config.HTTPServer.EnableGzipCompress {
+		if !s.gzipEnabled() {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -449,7 +543,7 @@ func (s *Server) initHTTPGateway() error {
 
 	// 最后应用Gzip压缩中间件（如果启用）
 	// 注意：Gzip 应该在日志中间件之后执行，否则日志记录的是压缩后的乱码
-	if s.config.HTTPServer.EnableGzipCompress {
+	if s.gzipEnabled() {
 		handler = s.gzipMiddleware(handler)
 		global.LOGGER.InfoMsg("✅ HTTP Gzip压缩已启用")
 	}
@@ -732,10 +826,10 @@ func (s *Server) initNamedListeners() error {
 		if s.middlewareManager != nil {
 			handler = middleware.ApplyMiddlewares(handler, s.middlewareManager.GetMiddlewares()...)
 		}
-		if s.config.HTTPServer.EnableGzipCompress {
+		if s.gzipEnabled() {
 			handler = s.gzipMiddleware(handler)
 		}
-		if s.config.HTTPServer.EnableHTTP2 {
+		if s.http2Enabled() {
 			h2s := s.buildHTTP2Server()
 			handler = h2c.NewHandler(handler, h2s)
 		}
