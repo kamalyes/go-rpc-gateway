@@ -676,8 +676,11 @@ grpc:
 | `DiscoverAllServices` | `func(ctx context.Context, clients map[string]*gwconfig.GRPCClient)` | 并发 discovery 所有服务，注册 FileDescriptorProto |
 | `RegisterDynamicHandlers` | `func(ctx context.Context, mux *runtime.ServeMux, clients map[string]*gwconfig.GRPCClient) ([]string, error)` | 基于 reflection 结果动态注册 HTTP handler |
 | `RediscoverAndRegisterService` | `func(ctx context.Context, mux *runtime.ServeMux, serviceName string) error` | 重新发现并注册单个服务（用于服务恢复健康后重放） |
+| `NewServiceWatcher` | `func(opts ServiceWatchOptions) *ServiceWatcher` | 创建下游发版监视器（连接事件 + 契约指纹兜底） |
+| `WatchedServiceNames` | `func(clients map[string]*gwconfig.GRPCClient) []string` | 从客户端配置提取需要监视的服务名 |
 | `GetReflectionRegistry` | `func(serviceName string) []ReflectionServiceInfo` | 获取已发现的服务列表 |
 | `GetRoutes` | `func() []HTTPRoute` | 获取所有已注册的 HTTP 路由 |
+| `GetStaleServices` | `func() []StaleInfo` | 获取检测到 proto 变更但无法热加载的服务 |
 | `ClearRegistry` | `func()` | 清空 reflection 发现的服务和路由（主要用于测试） |
 
 ```go
@@ -687,6 +690,26 @@ g.healthChecker.SetOnRecover(func(serviceName string) {
 })
 fmt.Println(result.Summary())
 ```
+
+### 下游服务发版感知
+
+`Gateway.AutoRegister` 会自动为每个配置了 `endpoints` 的下游服务启动 `ServiceWatcher`：
+
+- **连接事件**：拦截 `ClientConn` 进入 `Ready` 的上升沿，覆盖 Pod 重启、GOAWAY、断线重连
+- **契约指纹兜底**：默认每 60s 拉一次 reflection，比对「文件名 + 内容 SHA256 + 服务列表」组成的指纹，覆盖多副本滚动发布期间连接全程 `Ready` 的盲区
+- 两条路径都先比指纹再决定是否注册，稳态下不碰 mux、不写注册表
+
+```go
+// 调整兜底轮询间隔（0 表示只依赖连接事件）
+gw.WithServiceWatchInterval(30 * time.Second).AutoRegister()
+
+// 发布侧主动触发，做到秒级收敛
+if w := gw.GetServiceWatcher(); w != nil {
+    w.Trigger("user-service")
+}
+```
+
+新增 proto 文件与新增服务可热注册；修改已有 proto 文件内容无法热加载（`GlobalFiles` 无 Unregister），会通过 `grpcpool.GetStaleServices()` 暴露，需要重启网关。详见 [服务注册 — 下游服务发版感知](./SERVICE-REGISTRATION.md#下游服务发版感知连接事件--契约指纹兜底)。
 
 ## 下一步
 
