@@ -621,13 +621,13 @@ func (e *rateLimitMiddleware) allowRequests(w http.ResponseWriter, r *http.Reque
 	for _, decision := range decisions {
 		limiter := e.getLimiter(decision.Strategy)
 		if limiter == nil {
-			response.WriteAppError(w, errors.NewError(errors.ErrCodeInternalServerError, fmt.Sprintf("unsupported rate limit strategy: %s", decision.Strategy)))
+			response.WriteAppError(w, errors.NewError(errors.ErrCodeInternalServerError, errors.WithDetailsf("unsupported rate limit strategy: %s", decision.Strategy)))
 			return false
 		}
 
 		allowed, err := limiter.Allow(r.Context(), decision.Key, decision.Rule)
 		if err != nil {
-			response.WriteAppError(w, errors.NewError(errors.ErrCodeInternalServerError, err.Error()))
+			response.WriteAppError(w, errors.NewError(errors.ErrCodeInternalServerError, errors.WithDetails(err.Error())))
 			return false
 		}
 

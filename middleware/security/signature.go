@@ -239,7 +239,7 @@ func buildSignatureValidator(config *gcmiddleware.Signature) (core.SignatureVali
 		}
 		validator, err := NewRSAValidator([]byte(config.PublicKeyPEM))
 		if err != nil {
-			return nil, gwerrors.NewError(gwerrors.ErrCodeInternalServerError, fmt.Sprintf("failed to create RSA validator: %v", err))
+			return nil, gwerrors.NewError(gwerrors.ErrCodeInternalServerError, gwerrors.WithDetailsf("failed to create RSA validator: %v", err))
 		}
 		return validator, nil
 	case gcmiddleware.SignatureTypeHMAC:
@@ -247,7 +247,7 @@ func buildSignatureValidator(config *gcmiddleware.Signature) (core.SignatureVali
 	default:
 		validator, err := NewHMACValidator(config.Algorithm)
 		if err != nil {
-			return nil, gwerrors.NewError(gwerrors.ErrCodeInternalServerError, fmt.Sprintf("failed to create HMAC validator: %v", err))
+			return nil, gwerrors.NewError(gwerrors.ErrCodeInternalServerError, gwerrors.WithDetailsf("failed to create HMAC validator: %v", err))
 		}
 		return validator, nil
 	}

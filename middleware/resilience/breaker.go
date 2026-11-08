@@ -484,7 +484,7 @@ func BreakerHTTPMiddleware(manager *BreakerManager) func(http.Handler) http.Hand
 // matching the 503 the HTTP middleware returns. The i18n path (errors.ToGRPCError with a
 // biz code) is deliberately not used — that one is for per-service business codes, while
 // a breaker rejection is a framework-level decision and must not pay a lookup per reject
-var breakerOpenGRPCErr = errors.NewError(errors.ErrCodeCircuitBreakerOpen, "").ToGRPCError()
+var breakerOpenGRPCErr = errors.NewError(errors.ErrCodeCircuitBreakerOpen).ToGRPCError()
 
 // IsBreakerFailureCode 判定一个 gRPC status code 是否算作「下游故障」
 //

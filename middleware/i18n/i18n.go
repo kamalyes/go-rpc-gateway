@@ -244,7 +244,7 @@ func NewLocalizedError(ctx context.Context, key string, args ...any) *LocalizedE
 }
 
 func NewLocalizedAppError(ctx context.Context, code errors.ErrorCode, key string, args ...any) *errors.AppError {
-	appErr := errors.NewError(code, "")
+	appErr := errors.NewError(code)
 	if ctx == nil || key == "" {
 		return appErr
 	}
@@ -258,7 +258,7 @@ func NewLocalizedAppError(ctx context.Context, code errors.ErrorCode, key string
 }
 
 func NewLocalizedAppErrorWithMap(ctx context.Context, code errors.ErrorCode, key string, templateData map[string]any) *errors.AppError {
-	appErr := errors.NewError(code, "")
+	appErr := errors.NewError(code)
 	if ctx == nil || key == "" {
 		return appErr
 	}

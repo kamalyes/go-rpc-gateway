@@ -825,12 +825,12 @@ func TestUnaryServerShedderInterceptor_RejectWithUnavailable(t *testing.T) {
 		t.Errorf("降载拒绝应返回 codes.Unavailable, got %s", got)
 	}
 	// 与 HTTP 侧 503 对应同一个错误码
-	want := errors.NewError(errors.ErrCodeServiceOverloaded, "").ToGRPCError()
+	want := errors.NewError(errors.ErrCodeServiceOverloaded).ToGRPCError()
 	if status.Convert(err).Message() != status.Convert(want).Message() {
 		t.Errorf("降载拒绝消息应取自 ErrCodeServiceOverloaded, got %q want %q",
 			status.Convert(err).Message(), status.Convert(want).Message())
 	}
-	if httpStatus := errors.NewError(errors.ErrCodeServiceOverloaded, "").GetHTTPStatus(); httpStatus != http.StatusServiceUnavailable {
+	if httpStatus := errors.NewError(errors.ErrCodeServiceOverloaded).GetHTTPStatus(); httpStatus != http.StatusServiceUnavailable {
 		t.Errorf("ErrCodeServiceOverloaded 应映射到 HTTP 503, got %d", httpStatus)
 	}
 }

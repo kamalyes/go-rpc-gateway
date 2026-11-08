@@ -21,6 +21,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/config"
 	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	gwerrors "github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-toolbox/pkg/desensitize"
 	"github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/redis/go-redis/v9"
@@ -97,6 +98,10 @@ func EnsureLoggerInitialized() error {
 	// 将新创建的 logger 赋值给全局变量
 	LOGGER = newLogger
 	LOG = newLogger // 兼容别名
+	// errors 包不能引用 global（那会把 cpool 拖进错误码包），改由这里反向注入
+	// [EN] errors cannot import global — that would drag cpool into the error-code
+	// package — so the logger is injected from here instead
+	gwerrors.SetViolationLogger(newLogger)
 	return nil
 }
 
@@ -143,6 +148,7 @@ func CleanupGlobal() {
 	if LOGGER != nil {
 		LOGGER.InfoContext(ctx, "✅ 全局资源清理完成")
 		LOGGER = nil
+		gwerrors.SetViolationLogger(nil)
 	}
 }
 

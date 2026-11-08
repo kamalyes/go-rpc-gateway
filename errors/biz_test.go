@@ -20,9 +20,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// resetRegistry 重置注册表（测试用）
+// resetRegistry 重置注册表（测试用），清空后放回默认映射
 func resetRegistry() {
-	bizCodeRegistry = make(map[string]codes.Code)
+	mappingMu.Lock()
+	mappings = map[string]CodeMapping{}
+	mappingMu.Unlock()
+	registerDefaults()
 }
 
 func TestRegisterBizCode(t *testing.T) {
@@ -142,33 +145,33 @@ func TestNewI18nErrorWithTemplate(t *testing.T) {
 	assert.Equal(t, "error.test_code", msg)
 }
 
-func TestExtractRpcErrorMsg_WithJSON(t *testing.T) {
-	result := ExtractRpcErrorMsg(`rpc error: code = NotFound desc = {"code":5,"msg":"资源未找到"}`)
+func TestExtractEnvelopeMsg_WithJSON(t *testing.T) {
+	result := ExtractEnvelopeMsg(`rpc error: code = NotFound desc = {"code":5,"msg":"资源未找到"}`)
 	assert.Equal(t, "资源未找到", result)
 }
 
-func TestExtractRpcErrorMsg_WithEmptyMsg(t *testing.T) {
-	result := ExtractRpcErrorMsg(`rpc error: code = Internal desc = {"code":13,"msg":""}`)
+func TestExtractEnvelopeMsg_WithEmptyMsg(t *testing.T) {
+	result := ExtractEnvelopeMsg(`rpc error: code = Internal desc = {"code":13,"msg":""}`)
 	assert.Equal(t, `rpc error: code = Internal desc = {"code":13,"msg":""}`, result)
 }
 
-func TestExtractRpcErrorMsg_NoJSON(t *testing.T) {
-	result := ExtractRpcErrorMsg("simple error message")
+func TestExtractEnvelopeMsg_NoJSON(t *testing.T) {
+	result := ExtractEnvelopeMsg("simple error message")
 	assert.Equal(t, "simple error message", result)
 }
 
-func TestExtractRpcErrorMsg_InvalidJSON(t *testing.T) {
-	result := ExtractRpcErrorMsg(`rpc error: {invalid json}`)
+func TestExtractEnvelopeMsg_InvalidJSON(t *testing.T) {
+	result := ExtractEnvelopeMsg(`rpc error: {invalid json}`)
 	assert.Equal(t, `rpc error: {invalid json}`, result)
 }
 
-func TestExtractRpcErrorMsg_EmptyString(t *testing.T) {
-	result := ExtractRpcErrorMsg("")
+func TestExtractEnvelopeMsg_EmptyString(t *testing.T) {
+	result := ExtractEnvelopeMsg("")
 	assert.Equal(t, "", result)
 }
 
-func TestExtractRpcErrorMsg_NoBraces(t *testing.T) {
-	result := ExtractRpcErrorMsg("no braces here")
+func TestExtractEnvelopeMsg_NoBraces(t *testing.T) {
+	result := ExtractEnvelopeMsg("no braces here")
 	assert.Equal(t, "no braces here", result)
 }
 

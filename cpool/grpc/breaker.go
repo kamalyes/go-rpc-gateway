@@ -175,7 +175,7 @@ var DefaultClientBreakerExcludeMethods = []string{
 // most traffic exactly while the breaker is open, so it must not allocate
 var clientBreakerOpenErr = errors.NewError(
 	errors.ErrCodeCircuitBreakerOpen,
-	"downstream call rejected by client-side circuit breaker",
+	errors.WithDetails("downstream call rejected by client-side circuit breaker"),
 ).ToGRPCError()
 
 // DefaultClientBreakerConfig 客户端熔断的默认配置

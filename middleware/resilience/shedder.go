@@ -693,7 +693,7 @@ func ShedderHTTPMiddleware(manager *ShedderManager) func(http.Handler) http.Hand
 // by its own breaker, which is solved by chain order instead: shedding sits outside the
 // breaker, so this process's breaker never sees this code (see server/grpc.go). The i18n
 // path is skipped for the same reason as in the breaker
-var shedderDropGRPCErr = errors.NewError(errors.ErrCodeServiceOverloaded, "").ToGRPCError()
+var shedderDropGRPCErr = errors.NewError(errors.ErrCodeServiceOverloaded).ToGRPCError()
 
 // recordShedderResult 按 handler 返回的 error 记录完成结果
 //

@@ -104,8 +104,9 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/golang/snappy v1.0.0
-	github.com/kamalyes/go-toolbox v0.19.3
-	github.com/kamalyes/go-toolbox/pkg/protox v0.19.3
+	github.com/kamalyes/go-toolbox v0.19.4
+	github.com/kamalyes/go-toolbox/pkg/argus/protoenum v0.19.4
+	github.com/kamalyes/go-toolbox/pkg/protox v0.19.4
 	github.com/segmentio/kafka-go v0.4.51
 	github.com/spf13/viper v1.21.0
 )
