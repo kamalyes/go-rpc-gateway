@@ -11,7 +11,9 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
@@ -26,6 +28,15 @@ import (
 	swaggerMiddleware "github.com/kamalyes/go-rpc-gateway/middleware/swagger"
 	"google.golang.org/grpc"
 )
+
+// managerCloseTimeout 回收后台资源时等待的上限
+//
+// 只有链路追踪的 Shutdown 需要时间：它要把缓冲里还没导出的 span 刷到后端
+// 给上限而不是无限等，是因为热重载不能被一个连不上的 collector 卡住
+//
+// [EN] Only tracing's Shutdown takes time, flushing spans still buffered for export. It is
+// bounded rather than unbounded because a hot reload must not hang on an unreachable collector.
+const managerCloseTimeout = 5 * time.Second
 
 // Manager 中间件管理器 - 使用 go-config 的 middleware 配置
 type Manager struct {
@@ -131,19 +142,50 @@ func NewManager(cfg *gwconfig.Gateway) (*Manager, error) {
 }
 
 // UpdateConfig 更新中间件管理器配置
-// 保留动态提供程序（如限流、签名等）
+//
+// 做法是用新配置整建一个管理器再换上去，所以「跨配置活下来的东西」必须逐项带过去，
+// 「被换下来的东西」必须逐项回收 —— 这两件事各自漏过一项：
+//
+//  1. preRateLimitMiddlewares 没有被带过去 它的文档用途就是放认证中间件
+//     （见 AddPreRateLimitMiddleware），丢掉等于热重载之后认证从 HTTP 链上消失，
+//     而且不报错、不告警，表现是重载后接口突然不需要凭据
+//  2. 旧管理器的后台资源没有被回收，每次热重载泄一份，见 closeResources
+//
+// 另外原先会先对「即将被丢弃的那个」swaggerMiddleware 调一次 UpdateConfig
+// 那个调用没有任何持久效果，因为紧接着 *m = *next 就把它整个换掉了；更糟的是
+// swagger 的 UpdateConfig 内部会重启文件监听，也就是在一个马上要扔掉的实例上
+// 又起了一个 fsnotify 监听 现在改为直接由 NewManager 建好新的，旧的交给 closeResources
+//
+// *m = *next 这种整体覆盖之所以目前是安全的：Manager 的每个方法都只在建链时读字段、
+// 把值捕获进闭包，没有任何方法在返回的 handler 内部再读 m，而建链发生在
+// server 侧持有 s.mu 的重载流程里 哪天有方法改成在请求路径上懒读 m 的字段，
+// 这里就必须换成换指针而不是覆盖结构体
+//
+// [EN] The approach is to build a whole new manager from the new config and swap it in, so
+// everything that must survive the config change has to be carried over item by item, and
+// everything being replaced has to be reclaimed item by item. One item was missed on each side:
+//
+//  1. preRateLimitMiddlewares was not carried over. Its documented purpose is authentication
+//     middleware (see AddPreRateLimitMiddleware), so losing it means authentication silently
+//     disappears from the HTTP chain after a reload, with no error and no warning — the symptom
+//     is endpoints suddenly not requiring credentials.
+//  2. The old manager's background resources were not reclaimed, leaking one set per reload;
+//     see closeResources.
+//
+// There also used to be an UpdateConfig call on the swaggerMiddleware that was about to be
+// discarded. It had no lasting effect, since *m = *next replaced it immediately, and it was
+// actively harmful: swagger's UpdateConfig restarts the file watcher, so it started an fsnotify
+// watcher on an instance that was being thrown away. NewManager now builds the new one and
+// closeResources takes the old one.
+//
+// Overwriting the struct wholesale is safe today because every Manager method reads its fields
+// only while building the chain and captures the values into a closure; none of them read m
+// inside the returned handler, and chain building happens inside the server's reload path while
+// it holds s.mu. If a method ever starts reading m's fields lazily on the request path, this
+// has to become a pointer swap rather than a struct overwrite.
 func (m *Manager) UpdateConfig(cfg *gwconfig.Gateway) error {
 	if m == nil {
 		return nil
-	}
-
-	dynamicRateLimit := m.dynamicRateLimit
-	dynamicSignature := m.dynamicSignature
-
-	if m.swaggerMiddleware != nil && cfg != nil && cfg.Swagger != nil {
-		if err := m.swaggerMiddleware.UpdateConfig(cfg.Swagger); err != nil {
-			return err
-		}
 	}
 
 	next, err := NewManager(cfg)
@@ -151,10 +193,98 @@ func (m *Manager) UpdateConfig(cfg *gwconfig.Gateway) error {
 		return err
 	}
 
-	next.dynamicRateLimit = dynamicRateLimit
-	next.dynamicSignature = dynamicSignature
+	// 跨配置保留：动态提供器与限流前自定义中间件
+	// [EN] Carried across the config change: dynamic providers and pre-rate-limit middlewares
+	next.dynamicRateLimit = m.dynamicRateLimit
+	next.dynamicSignature = m.dynamicSignature
+	next.preRateLimitMiddlewares = m.preRateLimitMiddlewares
+
+	old := *m
 	*m = *next
+
+	// 先换上新的再回收旧的：顺序反过来会在新配置生效之前就关掉还在服务的资源
+	// [EN] Swap first, reclaim second: the other order closes resources still in service
+	old.closeResources()
 	return nil
+}
+
+// stoppableLimiter 需要显式停止的限流器
+//
+// 用可选接口而不是对 *FixedWindowLimiter 做类型断言：限流器是按策略选出来的，
+// 以后新增一种自带后台协程的实现时，只要它有 Stop 就会被一并回收，不用改这里
+//
+// [EN] An optional interface rather than a type assertion on *FixedWindowLimiter: the limiter
+// is chosen by strategy, so a future implementation with its own background goroutine gets
+// reclaimed as long as it has Stop, without touching this code
+type stoppableLimiter interface {
+	Stop()
+}
+
+// Close 回收管理器持有的后台资源
+//
+// 热重载和进程关停都要走这里 不回收的话，每换一次配置就在进程里留下一份：
+//
+//   - TracingManager 的 TracerProvider 带 BatchSpanProcessor 的常驻协程与一条导出连接
+//     Shutdown 在 observability/tracing.go 里一直是写好的，但在这次改动之前没有任何调用方
+//   - FixedWindowLimiter 在构造函数里就 go cleanup()，Stop 同样是写好了没人调
+//   - Swagger 中间件开着文件监听时持有一个 fsnotify 实例，也就是一组 OS 文件描述符
+//     加一个 watchLoop 协程 这一项最危险：inotify 实例数在 Linux 上是进程级 rlimit，
+//     反复热重载会把它耗光，之后任何需要监听文件的功能都起不来
+//
+// 返回值只聚合第一个错误：回收是尽力而为，一项失败不应让其余项不被回收
+//
+// [EN] Both hot reload and process shutdown go through here. Without it every config change
+// leaves one more set behind in the process:
+//
+//   - TracingManager's TracerProvider carries a BatchSpanProcessor goroutine and an exporter
+//     connection. Shutdown has always been written in observability/tracing.go but had no
+//     caller at all before this change.
+//   - FixedWindowLimiter starts go cleanup() in its constructor, and its Stop was likewise
+//     written and never called.
+//   - The swagger middleware with file watching holds an fsnotify instance — a set of OS file
+//     descriptors — plus a watchLoop goroutine. This is the dangerous one: the number of inotify
+//     instances is a per-process rlimit on Linux, so repeated reloads exhaust it and afterwards
+//     anything that needs to watch a file cannot start.
+//
+// Only the first error is returned: reclaiming is best effort and one failure must not stop
+// the remaining items from being reclaimed.
+func (m *Manager) Close() error {
+	if m == nil {
+		return nil
+	}
+	return m.closeResources()
+}
+
+// closeResources 回收这一份管理器快照持有的后台资源
+func (m *Manager) closeResources() error {
+	if m == nil {
+		return nil
+	}
+
+	var firstErr error
+	keep := func(err error) {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	if m.tracingManager != nil {
+		// Shutdown 会把还没导出的 span 刷出去，给它一个有界的时间窗
+		// [EN] Shutdown flushes spans still pending export, so give it a bounded window
+		ctx, cancel := context.WithTimeout(context.Background(), managerCloseTimeout)
+		keep(m.tracingManager.Shutdown(ctx))
+		cancel()
+	}
+
+	if limiter, ok := m.rateLimiter.(stoppableLimiter); ok && limiter != nil {
+		limiter.Stop()
+	}
+
+	if m.swaggerMiddleware != nil {
+		keep(m.swaggerMiddleware.DisableFileWatcher())
+	}
+
+	return firstErr
 }
 
 // HTTPMetricsMiddleware HTTP 监控中间件

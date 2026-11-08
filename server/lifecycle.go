@@ -161,6 +161,17 @@ func (s *Server) Stop() error {
 		s.pprofServer = nil
 	}
 
+	// 回收中间件管理器持有的后台资源（链路追踪导出器、限流清理协程、Swagger 文件监听）
+	// 放在 wg.Wait 之前：这些资源自己带协程，先关掉才等得到 wg 收口
+	// [EN] Reclaim the middleware manager's background resources (tracing exporter, limiter
+	// cleanup goroutine, swagger file watcher) before wg.Wait: they own goroutines of their
+	// own, so closing them first is what lets the wait actually finish
+	if s.middlewareManager != nil {
+		if err := s.middlewareManager.Close(); err != nil {
+			logger.WithError(err).WarnMsg("Failed to close middleware manager")
+		}
+	}
+
 	// 等待所有goroutine结束
 	s.wg.Wait()
 
