@@ -72,6 +72,8 @@ func NewMiddleware(config *goswagger.Swagger, opts ...Option) *Middleware {
 		m.errorResponseFn = defaultErrorResponse
 	}
 
+	m.logAuthState(config)
+
 	if config.IsAggregateEnabled() {
 		m.aggregator = aggregate.NewAggregator(config, m.logger)
 		m.logger.Info("启用Swagger聚合模式")
@@ -136,6 +138,10 @@ func (m *Middleware) isSwaggerPath(path string) bool {
 		m.config.UIPath + constants.JSONPath,
 	}
 
+	if m.config.IsAuthEnabled() {
+		swaggerPaths = append(swaggerPaths, m.config.UIPath+constants.LogoutPath)
+	}
+
 	if m.config.IsAggregateEnabled() {
 		swaggerPaths = append(swaggerPaths,
 			m.config.UIPath+constants.ServicesPath,
@@ -164,6 +170,21 @@ func (m *Middleware) isSwaggerPath(path string) bool {
 // handleSwagger 根据请求路径分发到对应的处理方法
 func (m *Middleware) handleSwagger(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+
+	// 退出登录需在鉴权之前处理：已认证的会话正是要在这里主动失效
+	// [EN] Logout runs before authentication: an authenticated session is exactly what has to be
+	// invalidated here
+	if m.config.IsAuthEnabled() && path == m.config.UIPath+constants.LogoutPath {
+		m.handleAuthLogout(w, r)
+		return
+	}
+
+	// 所有 Swagger 路由（页面、规范、服务、文档、调试端点）统一在此收口鉴权
+	// [EN] Every Swagger route (pages, specs, services, documents, debug endpoint) funnels through
+	// this single authentication gate
+	if !m.authorize(w, r) {
+		return
+	}
 
 	if m.config.IsAggregateEnabled() {
 		if m.tryHandleDocumentJSON(w, r, path) ||
@@ -295,6 +316,13 @@ func (m *Middleware) UpdateConfig(config *goswagger.Swagger) error {
 		return errorx.NewError(serrors.ErrTypeConfigNil)
 	}
 
+	// 认证配置先校验再落地：配置残缺时宁可保持旧配置，也不要换上一把拦不住人的锁
+	// [EN] Validate the auth config before applying it: with an incomplete config it is better to
+	// keep the old one than to swap in a lock that stops nobody
+	if err := validateAuthConfig(config); err != nil {
+		return errorx.NewError(serrors.ErrTypeAuthConfigInvalid, err)
+	}
+
 	if m.watcher != nil {
 		if err := m.DisableFileWatcher(); err != nil {
 			return err
@@ -328,9 +356,34 @@ func (m *Middleware) UpdateConfig(config *goswagger.Swagger) error {
 		}
 	}
 
-	m.logger.Info("Swagger 配置已更新: enabled=%v, hot_reload=%v, aggregate=%v",
-		config.Enabled, config.HotReload, config.IsAggregateEnabled())
+	m.logAuthState(config)
+	m.logger.Info("Swagger 配置已更新: enabled=%v, hot_reload=%v, aggregate=%v, auth=%v",
+		config.Enabled, config.HotReload, config.IsAggregateEnabled(), config.GetAuthType())
 	return nil
+}
+
+// logAuthState 输出认证状态
+// 配置非法时只告警不中断：此时凭据比对必然失败，等价于彻底锁死，不会出现「以为加了锁其实没加」
+//
+// [EN] logAuthState reports the authentication state. An invalid config only warns instead of
+// aborting: credential comparison is then guaranteed to fail, which is equivalent to being fully
+// locked, so there is no way to end up believing a lock is on when it is not
+func (m *Middleware) logAuthState(config *goswagger.Swagger) {
+	if !config.Enabled {
+		return
+	}
+
+	if !config.IsAuthEnabled() {
+		m.logger.Warn("Swagger 文档未启用访问认证，%s 下的全部接口文档可被任意访问", config.UIPath)
+		return
+	}
+
+	if err := validateAuthConfig(config); err != nil {
+		m.logger.Error("Swagger 认证配置无效，文档将拒绝所有访问: %v", err)
+		return
+	}
+
+	m.logger.Info("Swagger 文档访问认证已启用: type=%s", config.GetAuthType())
 }
 
 // ==================== 公共访问方法 ====================
@@ -366,6 +419,10 @@ func (m *Middleware) GetSwaggerPaths() []string {
 		m.config.UIPath + "/",
 		m.config.UIPath + constants.IndexHTML,
 		m.config.UIPath + constants.JSONPath,
+	}
+
+	if m.config.IsAuthEnabled() {
+		paths = append(paths, m.config.UIPath+constants.LogoutPath)
 	}
 
 	if m.config.IsAggregateEnabled() {

@@ -35,6 +35,7 @@ const (
 	ErrTypeSerializeFailed
 	ErrTypeInvalidFileFormat
 	ErrTypeNoServicesConfig
+	ErrTypeAuthConfigInvalid
 )
 
 // ==================== 加载器错误类型（7100-7199） ====================

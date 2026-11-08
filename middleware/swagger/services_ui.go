@@ -180,9 +180,10 @@ func (m *Middleware) buildServicesHTML(aggregatedSpec map[string]interface{}) st
             font-size: 0.75em;
             margin-right: 5px;
         }
+` + authBadgeCSS + `
     </style>
 </head>
-<body>
+<body>` + m.authBadgeHTML() + `
     <div class="header">
         <h1>` + m.config.Title + `</h1>
         <p>` + m.config.Description + `</p>

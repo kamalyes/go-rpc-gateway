@@ -209,9 +209,10 @@ func (m *Middleware) buildDocumentsHTML() string {
             color: #666;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
+` + authBadgeCSS + `
     </style>
 </head>
-<body>
+<body>` + m.authBadgeHTML() + `
     <div class="header">
         <h1>` + m.config.Title + `</h1>
         <p>按 path + method 组合出来的独立 Swagger 子文档</p>
