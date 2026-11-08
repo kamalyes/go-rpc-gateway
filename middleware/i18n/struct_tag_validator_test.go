@@ -21,6 +21,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	validator "github.com/kamalyes/go-toolbox/pkg/argus"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
@@ -509,4 +510,105 @@ func TestStructTagValidatorGatewayMiddleware_BodyRestored(t *testing.T) {
 
 	handler(w, req, nil)
 	assert.Equal(t, originalBody, receivedBody, "body should be restored after validation")
+}
+
+// TestMarshalerMuxIsShared marshaler 用的 ServeMux 必须是共享的一份
+//
+// 回归点：原先每个请求 runtime.MarshalerForRequest(runtime.NewServeMux(), r)，校验失败时
+// runtime.HTTPError 又再 new 一个。NewServeMux 会建一整套 marshaler 注册表与默认选项，
+// 实测每个被校验的请求白付约 130 ns、560 B、4 次分配，失败路径翻倍
+//
+// [EN] Regression: every request built a ServeMux for the marshaler and a validation failure
+// built a second one. NewServeMux creates a whole marshaler registry and default options;
+// measured at roughly 130 ns, 560 B and 4 allocations wasted per validated request, doubled on
+// the failure path.
+func TestMarshalerMuxIsShared(t *testing.T) {
+	if marshalerMux == nil {
+		t.Fatal("共享 ServeMux 未初始化")
+	}
+
+	r := httptest.NewRequest("POST", "/v1/x", nil)
+	r.Header.Set("Content-Type", "application/json")
+
+	first, _ := runtime.MarshalerForRequest(marshalerMux, r)
+	second, _ := runtime.MarshalerForRequest(marshalerMux, r)
+	if first == nil || second == nil {
+		t.Fatal("取不到 marshaler")
+	}
+	// 同一个 mux 对同样的请求必须给出同一个 marshaler 实例
+	if first != second {
+		t.Error("共享 mux 每次给出不同的 marshaler，说明没有真正复用")
+	}
+}
+
+// BenchmarkMarshalerLookup 共享与每请求新建的对比，数字写在 marshalerMux 的注释里
+func BenchmarkMarshalerLookup(b *testing.B) {
+	r := httptest.NewRequest("POST", "/v1/x", nil)
+	r.Header.Set("Content-Type", "application/json")
+
+	b.Run("Shared", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			m, _ := runtime.MarshalerForRequest(marshalerMux, r)
+			_ = m
+		}
+	})
+	b.Run("PerRequestNewServeMux", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			m, _ := runtime.MarshalerForRequest(runtime.NewServeMux(), r)
+			_ = m
+		}
+	})
+}
+
+// closeTrackingBody 记录自己是否被 Close 过
+type closeTrackingBody struct {
+	*bytes.Reader
+	closed bool
+}
+
+func (b *closeTrackingBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+// TestReplayBodyClosesOriginal 回放请求体时必须把 Close 转交给原始 body
+//
+// 回归点：原先是 io.NopCloser(bytes.NewReader(bodyBytes))，原始 body 从此永远不会被 Close
+// 同一个仓库里 observability/logging.go 的 prefixedBody 为这件事专门写了注释
+// （「不用 io.NopCloser 包一层：那样原始 body 永远不会被 Close」），这里原本恰好踩的
+// 就是它点明的那个坑
+//
+// [EN] Regression: it used to be io.NopCloser(bytes.NewReader(bodyBytes)), leaving the original
+// body never closed. prefixedBody in observability/logging.go in this same repository carries a
+// comment about exactly that, and this was precisely the pitfall it points out.
+func TestReplayBodyClosesOriginal(t *testing.T) {
+	payload := []byte(`{"id":"x"}`)
+	orig := &closeTrackingBody{Reader: bytes.NewReader(payload)}
+
+	replay := &replayBody{Reader: bytes.NewReader(payload), orig: orig}
+
+	got, err := io.ReadAll(replay)
+	if err != nil {
+		t.Fatalf("回放读取失败: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("回放内容 = %q, want %q", got, payload)
+	}
+
+	if err := replay.Close(); err != nil {
+		t.Fatalf("Close 返回错误: %v", err)
+	}
+	if !orig.closed {
+		t.Error("原始 body 没有被 Close：HTTP/1.1 的 keep-alive 连接会泄漏")
+	}
+}
+
+// TestReplayBodyNilOriginal orig 为 nil 时 Close 不得 panic
+func TestReplayBodyNilOriginal(t *testing.T) {
+	replay := &replayBody{Reader: bytes.NewReader(nil)}
+	if err := replay.Close(); err != nil {
+		t.Errorf("orig 为 nil 时 Close 返回错误: %v", err)
+	}
 }
