@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
@@ -270,6 +271,16 @@ func (m *PostgreSQLChecker) Check(ctx context.Context) HealthStatus {
 
 // HealthManager 健康检查管理器
 type HealthManager struct {
+	// mu 保护 checkers：RegisterChecker 通常在启动期调用，而 Check 由
+	// HTTP 健康端点并发触发（负载均衡器会同时打多个副本/多次探测）。
+	// 无锁 append 与遍历并发执行时，轻则读到正在扩容的旧底层数组，
+	// 重则触发 runtime 的 slice 越界/数据竞争 —— 而这个端点正是探活路径，
+	// 崩在这里会让整个实例被摘除
+	// [EN] Guards checkers. Registration happens during startup while Check runs
+	// concurrently from the HTTP health endpoint (load balancers probe repeatedly), so an
+	// unlocked append can race with the range: at best a stale backing array, at worst a
+	// data race on the probe path that gets the whole instance pulled out of rotation
+	mu        sync.RWMutex
 	checkers  []HealthChecker
 	startTime time.Time
 }
@@ -283,8 +294,37 @@ func NewHealthManager() *HealthManager {
 }
 
 // RegisterChecker 注册健康检查器
+// nil 直接忽略：否则 Check 在遍历时会对它调用 Check/Name，
+// 把一个可选的注册失误变成健康端点的空指针崩溃
+// [EN] nil is ignored; otherwise Check would call Check/Name on it and turn an optional
+// registration mistake into a nil dereference on the health endpoint
 func (h *HealthManager) RegisterChecker(checker HealthChecker) {
+	if h == nil || checker == nil {
+		return
+	}
+	h.mu.Lock()
 	h.checkers = append(h.checkers, checker)
+	h.mu.Unlock()
+}
+
+// snapshotCheckers 返回当前检查器列表的副本
+// 不在执行检查时持锁：checker.Check 可能走网络（Redis/PostgreSQL），
+// 持锁会让一次慢检查阻塞后续注册，也会把并发探测串行化
+// [EN] Returns a copy instead of holding the lock while checking: Check may do network I/O
+// (Redis/PostgreSQL), and holding the lock would block later registrations and serialize
+// concurrent probes
+func (h *HealthManager) snapshotCheckers() []HealthChecker {
+	if h == nil {
+		return nil
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if len(h.checkers) == 0 {
+		return nil
+	}
+	out := make([]HealthChecker, len(h.checkers))
+	copy(out, h.checkers)
+	return out
 }
 
 // Check 执行健康检查
@@ -323,7 +363,7 @@ func (h *HealthManager) Check(ctx context.Context, detailed bool) HealthCheckRes
 	// 执行所有检查器
 	overallStatus := "ok"
 
-	for _, checker := range h.checkers {
+	for _, checker := range h.snapshotCheckers() {
 		status := checker.Check(ctx)
 		result.Checks[checker.Name()] = status
 

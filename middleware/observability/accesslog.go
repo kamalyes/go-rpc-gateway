@@ -79,30 +79,87 @@ type AccessRecord struct {
 // 约定：必须非阻塞（如写入内存缓冲/channel），框架已带 recover 保护
 type AccessLogHandler func(ctx context.Context, rec *AccessRecord)
 
+// accessLogEntry 包一层指针，使反注册可以按身份从快照里移除
+//
+// 函数值本身除了与 nil 比较之外不可比较，没法在切片里定位；包成指针后
+// unregister 持有自己的 entry，按指针相等删除即可
+// [EN] Function values are only comparable to nil, so they cannot be located in a slice.
+// Wrapping them in a pointer lets unregister hold its own entry and remove it by identity
+type accessLogEntry struct {
+	handler AccessLogHandler
+}
+
+// 访问日志钩子用写时复制（copy-on-write）快照保存：
+//
+//   - DispatchAccessLog 在请求热路径上，Load 一个原子指针即可遍历，无锁无分配；
+//     旧实现先读切片头再解锁遍历，与反注册的 accessLogHandlers[idx] = nil 是数据竞争
+//   - 注册/反注册都是低频操作，复制一个只含指针的小切片成本可以忽略
+//   - 反注册真正把 entry 从当前快照里删掉，而不是在原槽位写 nil：
+//     反复「注册 → 反注册」的插件式调用方不会让切片和遍历成本无界增长
+//
+// 注意快照内容在发布后不再修改，所以派发时拿到的切片可以安全地长时间持有
+// [EN] Copy-on-write snapshot of access-log hooks:
+//   - DispatchAccessLog is on the request hot path and only needs one atomic Load, with no
+//     lock and no allocation; the old code read the slice header, unlocked and then ranged,
+//     which raced with the unregister write of accessLogHandlers[idx] = nil
+//   - register/unregister are rare, so copying a tiny slice of pointers is negligible
+//   - unregister actually removes the entry from the current snapshot instead of writing nil
+//     into its slot, so repeated register/unregister cycles cannot grow the slice forever
+//
+// The snapshot is never mutated after publication, so a slice handed to dispatch is safe to
+// keep iterating even while a concurrent register/unregister publishes a new one
 var (
-	accessLogMu       sync.RWMutex
-	accessLogHandlers []AccessLogHandler
-	accessLogCount    atomic.Int32 // 活跃钩子计数，避免 HasAccessLogHandlers 遍历
+	accessLogEntries atomic.Pointer[[]*accessLogEntry]
+	accessLogCount   atomic.Int32 // 活跃钩子计数，避免 HasAccessLogHandlers 遍历
 )
+
+func init() {
+	empty := make([]*accessLogEntry, 0)
+	accessLogEntries.Store(&empty)
+}
 
 // RegisterAccessLog 注册访问日志钩子，返回反注册函数
 func RegisterAccessLog(h AccessLogHandler) (unregister func()) {
 	if h == nil {
 		return func() {}
 	}
-	accessLogMu.Lock()
-	accessLogHandlers = append(accessLogHandlers, h)
-	idx := len(accessLogHandlers) - 1
-	accessLogMu.Unlock()
-	accessLogCount.Add(1)
+
+	entry := &accessLogEntry{handler: h}
+	for {
+		old := accessLogEntries.Load()
+		next := make([]*accessLogEntry, len(*old)+1)
+		copy(next, *old)
+		next[len(*old)] = entry
+		if accessLogEntries.CompareAndSwap(old, &next) {
+			accessLogCount.Add(1)
+			break
+		}
+	}
 
 	var once sync.Once
 	return func() {
 		once.Do(func() {
-			accessLogMu.Lock()
-			accessLogHandlers[idx] = nil
-			accessLogMu.Unlock()
-			accessLogCount.Add(-1)
+			for {
+				old := accessLogEntries.Load()
+				idx := -1
+				for i, e := range *old {
+					if e == entry {
+						idx = i
+						break
+					}
+				}
+				if idx < 0 {
+					return // 已被移除（理论上 once 已拦住，留作状态不一时的兜底）
+				}
+
+				next := make([]*accessLogEntry, 0, len(*old)-1)
+				next = append(next, (*old)[:idx]...)
+				next = append(next, (*old)[idx+1:]...)
+				if accessLogEntries.CompareAndSwap(old, &next) {
+					accessLogCount.Add(-1)
+					return
+				}
+			}
 		})
 	}
 }
@@ -117,17 +174,14 @@ func DispatchAccessLog(ctx context.Context, rec *AccessRecord) {
 	if rec == nil {
 		return
 	}
-	accessLogMu.RLock()
-	hs := accessLogHandlers
-	accessLogMu.RUnlock()
 
-	for _, h := range hs {
-		if h == nil {
+	for _, entry := range *accessLogEntries.Load() {
+		if entry == nil || entry.handler == nil {
 			continue
 		}
 		func() {
 			defer func() { _ = recover() }()
-			h(ctx, rec)
+			entry.handler(ctx, rec)
 		}()
 	}
 }

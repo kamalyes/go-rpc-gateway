@@ -190,3 +190,79 @@ func TestUpdateConfigOnNilManager(t *testing.T) {
 		t.Errorf("nil 接收者 UpdateConfig 返回错误: %v", err)
 	}
 }
+
+// TestNewManagerNilConfigReturnsError nil 配置应返回明确错误而不是空指针崩溃
+// NewManager 位于启动与热重载的必经路径，nil 配置在旧实现里第一行就 panic
+// [EN] A nil config must produce a clear error instead of a nil dereference: NewManager sits
+// on the startup and hot-reload paths, and the old implementation panicked on its first line
+func TestNewManagerNilConfigReturnsError(t *testing.T) {
+	manager, err := NewManager(nil)
+	if err == nil {
+		t.Fatal("NewManager(nil) 应返回错误")
+	}
+	if manager != nil {
+		t.Error("出错时不应返回管理器")
+	}
+}
+
+// TestNewManagerToleratesMissingConfigSections 缺配置段按未启用处理，不得 panic
+//
+// 回归点：NewManager 直接解引用 cfg.Monitoring/.Middleware/.Swagger/.RateLimit，
+// 而手工拼装或 YAML 缺整段时这些指针都是 nil
+// [EN] Regression: NewManager dereferenced cfg.Monitoring/.Middleware/.Swagger/.RateLimit,
+// all of which are nil for hand-built configs or YAML that omits a whole section
+func TestNewManagerToleratesMissingConfigSections(t *testing.T) {
+	cfg := &gwconfig.Gateway{}
+
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+
+	// 整链构建不能 panic，且只剩无条件启用的 Recovery/RequestContext 两层
+	handler := ApplyMiddlewares(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), m.GetMiddlewares()...)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/ping", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("缺段配置的中间件链应正常响应 200，实际 %d", rec.Code)
+	}
+
+	if paths := m.GetSwaggerPaths(); paths != nil {
+		t.Errorf("未配置 Swagger 时不应返回路径，实际 %v", paths)
+	}
+	if m.GRPCRateLimitUnaryInterceptor() != nil {
+		t.Error("未配置限流时不应返回 gRPC 拦截器")
+	}
+	if m.GRPCUnaryI18nInterceptor() != nil {
+		t.Error("未配置 i18n 时不应返回 gRPC 拦截器")
+	}
+
+	metricsRec := httptest.NewRecorder()
+	m.MetricsHandler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if metricsRec.Code != http.StatusNotFound {
+		t.Errorf("未启用指标时 /metrics 应为 404，实际 %d", metricsRec.Code)
+	}
+
+	// 归一化只能改内部副本：调用方传进来的 nil 段不能被填充
+	if cfg.Middleware != nil || cfg.Monitoring != nil || cfg.Swagger != nil || cfg.RateLimit != nil {
+		t.Error("NewManager 不应修改调用方配置中的 nil 段")
+	}
+}
+
+// TestUpdateConfigNilConfigReturnsError 热重载传入 nil 配置应报错而不是崩溃
+func TestUpdateConfigNilConfigReturnsError(t *testing.T) {
+	cfg := newManagerTestConfig(t)
+
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+
+	if err := m.UpdateConfig(nil); err == nil {
+		t.Fatal("UpdateConfig(nil) 应返回错误")
+	}
+}

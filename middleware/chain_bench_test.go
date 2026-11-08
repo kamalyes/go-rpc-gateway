@@ -12,6 +12,7 @@
 package middleware
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -59,12 +60,42 @@ func benchSetup(t testing.TB) *Manager {
 	return m
 }
 
+// resetReadCloser 可重复读取的请求体，Close 为空操作
+//
+// 不用 io.NopCloser(bytes.NewReader(body)) 每轮重建：那会在每次迭代里多两次分配，
+// 把基准自身的开销计进中间件成本
+// [EN] A rewindable request body whose Close is a no-op. Rebuilding it every iteration with
+// io.NopCloser(bytes.NewReader(body)) would add two allocations per iteration and charge them
+// to the middleware under measurement
+type resetReadCloser struct{ *bytes.Reader }
+
+func (resetReadCloser) Close() error { return nil }
+
 func drive(b *testing.B, h http.Handler) {
-	req := httptest.NewRequest(http.MethodPost, "/bench.BenchService/Echo", strings.NewReader(`{"id":"x","seq":1,"text":"hi"}`))
+	body := []byte(`{"id":"x","seq":1,"text":"hi"}`)
+	reader := bytes.NewReader(body)
+	req := httptest.NewRequest(http.MethodPost, "/bench.BenchService/Echo", reader)
 	req.Header.Set("Content-Type", "application/json")
+	reqBody := resetReadCloser{Reader: reader}
+
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		// 每轮把请求体复位，而不是复用上一轮被中间件包过的 r.Body：
+		// logging 会把 r.Body 换成 prefixedBody{prefix, rest: original}，
+		// 复用同一个 request 就是每轮在旧包装外再套一层。包装链随 b.N 线性增长，
+		// 量到的就成了「链表深度 + 堆增长/GC」而不是中间件成本
+		// （实测同一基准 2k 次 20µs/op、20k 次 175µs/op，典型的伪值）
+		// [EN] Rewind the body each iteration instead of reusing the r.Body wrapped by the
+		// previous iteration: logging replaces r.Body with prefixedBody{prefix, rest: original},
+		// so reusing one request stacks another wrapper every round. The chain grows linearly
+		// with b.N and the benchmark measures chain depth plus heap growth/GC, not middleware
+		// cost (measured: 20µs/op at 2k iterations vs 175µs/op at 20k — a textbook pseudo-value)
+		if _, err := reader.Seek(0, io.SeekStart); err != nil {
+			b.Fatalf("reset request body: %v", err)
+		}
+		req.Body = reqBody
+
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 	}
