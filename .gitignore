@@ -42,3 +42,5 @@ build/*
 generate/*
 .trae/*
 .DS_Store
+
+benchmark/*

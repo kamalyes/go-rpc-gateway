@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 [![Go Report Card](https://img.shields.io/badge/go%20report-A+-brightgreen.svg)]()
-[![Release](https://img.shields.io/badge/release-v2.1.0-blue.svg)
+[![Release](https://img.shields.io/badge/release-v2.1.0-blue.svg)]()
 </div>
 
 ---
@@ -21,7 +21,7 @@
 | **🛡️ 生产可靠** | 高可用保障<br/>自动容错<br/>优雅关闭<br/>热更新 | **99.9%+ 可用性**<br/>熔断/限流<br/>< 30s 关闭<br/>零停机 | 业务持续稳定<br/>异常自动恢复<br/>平滑版本升级<br/>用户无感知 |
 | **🎯 开箱即用** | 零配置启动<br/>链式 API<br/>自动管理<br/>丰富组件 | **3 行代码启动**<br/>流畅调用<br/>依赖自动化<br/>15+ 中间件 | 快速上手开发<br/>代码简洁优雅<br/>降低维护成本<br/>功能开箱可用 |
 | **🏗️ 架构先进** | 分层设计<br/>优先级初始化<br/>功能插件化<br/>配置驱动 | **6 层架构**<br/>4 级优先级<br/>动态启用<br/>统一管理 | 职责清晰易懂<br/>启动顺序可靠<br/>灵活按需加载<br/>配置集中控制 |
-| **🔌 完整集成** | 连接池管理<br/>全局变量<br/>多协议支持<br/>可观测性 | **DB/Redis/MinIO**<br/>6 个全局变量<br/>HTTP/gRPC/WS<br/>日志/监控/追踪 | 资源自动管理<br/>访问简单直接<br/>一套代码多用<br/>问题快速定位 |
+| **🔌 完整集成** | 连接池管理<br/>全局变量<br/>多协议支持<br/>可观测性 | **DB/Redis/ClickHouse<br/>Kafka/NATS/MQTT/OTS**<br/>统一连接池管理<br/>HTTP/gRPC/WS<br/>日志/监控/追踪 | 资源自动管理<br/>访问简单直接<br/>一套代码多用<br/>问题快速定位 |
 | **📦 企业特性** | 中间件体系<br/>安全防护<br/>限流熔断<br/>国际化 | **15+ 中间件**<br/>认证/授权<br/>自动保护<br/>多语言支持 | 功能开箱即用<br/>安全合规保障<br/>系统稳定运行<br/>全球化部署 |
 
 ---
@@ -150,8 +150,8 @@ flowchart TB
         subgraph Pools["连接池"]
             DB_Pool["Database GORM"]
             Redis_Pool["Redis go-redis"]
-            MinIO_Pool["MinIO S3"]
-            MQTT_Pool["MQTT 可选"]
+            CH_Pool["ClickHouse"]
+            MQ_Pool["Kafka / NATS / MQTT"]
         end
         
         PManager --> Pools
@@ -180,7 +180,6 @@ flowchart TB
         G_CTX["CTX"]
         G_DB["DB"]
         G_REDIS["REDIS"]
-        G_MinIO["MinIO"]
         G_Node["Node"]
     end
     
@@ -191,8 +190,8 @@ flowchart TB
         direction LR
         Database[("MySQL PostgreSQL")]
         Cache[("Redis Cluster")]
-        Storage[("MinIO S3")]
-        Queue[("MQTT Kafka")]
+        TSDB[("ClickHouse")]
+        Queue[("Kafka / NATS / MQTT")]
     end
     
     %% 样式定义
@@ -286,9 +285,9 @@ sequenceDiagram
         PM->>G: global.REDIS = redis
     end
     
-    alt 配置启用 MinIO
-        PM->>PM: 初始化 MinIO (S3)
-        PM->>G: global.MinIO = minio
+    alt 配置启用 ClickHouse
+        PM->>PM: 初始化 ClickHouse
+        PM->>PM: 挂到 PoolManager
     end
     
     PM->>G: global.POOL_MANAGER = manager
@@ -362,7 +361,7 @@ graph LR
 | **核心** | [gRPC 客户端](./docs/GRPC-CLIENT.md) | InitClient 泛型、健康检查、负载均衡 |
 | | [请求上下文](./docs/REQUEST-CONTEXT.md) | HTTP → gRPC → Service 全链路传递 |
 | | [中间件系统](./docs/MIDDLEWARE.md) | 15+ 中间件：CORS、限流、熔断、签名等 |
-| | [连接池管理](./docs/CONNECTION-POOL.md) | DB/Redis/MinIO/ClickHouse/NATS 统一管理 |
+| | [连接池管理](./docs/CONNECTION-POOL.md) | DB/Redis/ClickHouse/Kafka/NATS/MQTT/OTS/SMTP 统一管理 |
 | | [全局变量与初始化器](./docs/GLOBAL.md) | InitializerChain、ID 生成器 |
 | | [Server 内部机制](./docs/SERVER.md) | 生命周期、热重载、Swagger |
 | **工具** | [错误体系](./docs/ERRORS.md) | ErrorCode、AppError、三态映射 |

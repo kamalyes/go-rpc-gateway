@@ -22,7 +22,7 @@
 
 HTTP 与 gRPC 共用**同一个** `Shedder` 实例与同一套信号——两侧请求消耗的是同一份 CPU，统计必须合在一起才有意义。
 
-> 源码：[middleware/shedder.go](../middleware/shedder.go)、[middleware/shedder_window.go](../middleware/shedder_window.go)、[middleware/shedder_cpu.go](../middleware/shedder_cpu.go)、[middleware/shedder_config.go](../middleware/shedder_config.go)、[middleware/shedder_metrics.go](../middleware/shedder_metrics.go)
+> 源码：[middleware/shedder.go](../middleware/resilience/shedder.go)、[middleware/shedder_window.go](../middleware/resilience/shedder_window.go)、[middleware/shedder_cpu.go](../middleware/resilience/shedder_cpu.go)、[middleware/shedder_config.go](../middleware/resilience/shedder_config.go)、[middleware/shedder_metrics.go](../middleware/observability/shedder_metrics.go)
 
 ## 判定模型
 
@@ -53,7 +53,7 @@ flowchart TD
 - **只看 CPU 不行**：计算密集但吞吐正常的服务会被误杀，CPU 跑到 90% 本身不是问题，只要请求还在以它的最佳吞吐被处理，就不该丢。
 - **只看飞行请求数不行**：IO 密集型服务（长轮询、慢下游、大查询）天然堆积大量飞行请求而 CPU 很低，此时丢请求纯属自残。这是本实现坚持把 CPU 作为前置条件的根本原因，也是 CPU 信号不可用时自适应判定整体静默的原因。
 
-> 源码：[shedder.go:shouldDrop()](../middleware/shedder.go#L291)
+> 源码：[shedder.go:shouldDrop()](../middleware/resilience/shedder.go)
 
 ## 三个信号的实现
 
@@ -63,7 +63,7 @@ flowchart TD
 
 使用率的分子是「累计消耗的 CPU 时间」，分母是「本进程实际可用的核数」，结果为千分比（0–1000）。
 
-> 源码：[shedder_cpu.go:startCPUSampler()](../middleware/shedder_cpu.go#L80)、[shedder_cpu.go:cpuSampler.loop()](../middleware/shedder_cpu.go#L116)
+> 源码：[shedder_cpu.go:startCPUSampler()](../middleware/resilience/shedder_cpu.go)、[shedder_cpu.go:cpuSampler.loop()](../middleware/resilience/shedder_cpu.go)
 
 ```go
 // 返回最近一次采样值与「当前平台是否支持采样」
@@ -76,11 +76,11 @@ func CPUUsageSource() string
 
 | 平台 | 来源标识 | 分子 | 分母 | 源码 |
 |------|---------|------|------|------|
-| Linux，cgroup v2 | `cgroup2` | `/sys/fs/cgroup/cpu.stat` 的 `usage_usec` | `/sys/fs/cgroup/cpu.max` 的 quota/period | [shedder_cpu_linux.go](../middleware/shedder_cpu_linux.go#L63) |
+| Linux，cgroup v2 | `cgroup2` | `/sys/fs/cgroup/cpu.stat` 的 `usage_usec` | `/sys/fs/cgroup/cpu.max` 的 quota/period | [shedder_cpu_linux.go](../middleware/resilience/shedder_cpu_linux.go) |
 | Linux，cgroup v1 | `cgroup1` | `cpuacct.usage`（纳秒） | `cpu.cfs_quota_us / cpu.cfs_period_us` | 同上 |
 | Linux，无 cgroup | `procstat` | `/proc/stat` 首行 `total - idle - iowait` | `runtime.NumCPU()` | 同上 |
-| darwin / *BSD | `rusage` | `getrusage(RUSAGE_SELF)` 的 utime+stime | `runtime.NumCPU()` | [shedder_cpu_rusage.go](../middleware/shedder_cpu_rusage.go) |
-| 其余（windows 等） | `unsupported` | — | — | [shedder_cpu_unsupported.go](../middleware/shedder_cpu_unsupported.go) |
+| darwin / *BSD | `rusage` | `getrusage(RUSAGE_SELF)` 的 utime+stime | `runtime.NumCPU()` | [shedder_cpu_rusage.go](../middleware/resilience/shedder_cpu_rusage.go) |
+| 其余（windows 等） | `unsupported` | — | — | [shedder_cpu_unsupported.go](../middleware/resilience/shedder_cpu_unsupported.go) |
 
 实现细节与取舍：
 
@@ -105,7 +105,7 @@ avgFlying atomic.Uint64 // EWMA，存 float64 位模式
 - **EWMA 的写入是良性竞争**：`Load` / 计算 / `Store` 之间并发结束的请求可能互相覆盖一次更新，对一个本就用来平滑的指数移动平均没有实际影响，换来的是热路径无锁。
 - **记账必须配平**：`Allow()` 返回 `true` 后必须恰好调用一次 `Pass` 或 `Fail`，否则飞行计数永久偏高，降载器会越来越倾向于丢请求。三个适配层都用 `defer` 保证这一点，**连 handler panic 也不漏**。`settle()` 另有一层兜底：计数被带到负数时 CAS 纠回 0。
 
-> 源码：[shedder.go:settle()](../middleware/shedder.go#L275)
+> 源码：[shedder.go:settle()](../middleware/resilience/shedder.go)
 
 ### 信号三：响应时间滑窗
 
@@ -133,7 +133,7 @@ type shedderWindowStat struct {
 }
 ```
 
-> 源码：[shedder_window.go:record()](../middleware/shedder_window.go#L99)、[shedder_window.go:stat()](../middleware/shedder_window.go#L139)
+> 源码：[shedder_window.go:record()](../middleware/resilience/shedder_window.go)、[shedder_window.go:stat()](../middleware/resilience/shedder_window.go)
 
 ### 承载上限 maxFlight
 
@@ -150,7 +150,7 @@ type shedderWindowStat struct {
 
 举例：单桶最大通过 20 次、每秒 10 个桶 → 最大吞吐 200 QPS；最小平均 RT 50ms → 承载上限 = 200 × 0.05 = **10**。此时即使 CPU 到了 95%，只要飞行请求数不超过 10，就不丢任何请求。
 
-> 源码：[shedder.go:maxFlight()](../middleware/shedder.go#L389)
+> 源码：[shedder.go:maxFlight()](../middleware/resilience/shedder.go)
 
 ## 冷却 / 恢复机制
 
@@ -172,7 +172,7 @@ CPU 使用率是 250ms 采样 + EWMA 的**滞后信号**。一旦开始丢请求
 
 `max-concurrency` 硬上限触发的丢弃**不进入冷却期**：硬上限本身是自限的（飞行数降下来就自然放行），把它和自适应判定的冷却状态耦合只会让两套语义互相干扰。
 
-> 源码：[shedder.go:stillHot()](../middleware/shedder.go#L336)、[shedder.go:markDropped()](../middleware/shedder.go#L350)
+> 源码：[shedder.go:stillHot()](../middleware/resilience/shedder.go)、[shedder.go:markDropped()](../middleware/resilience/shedder.go)
 
 ## 硬并发上限（max-concurrency）
 
@@ -187,7 +187,7 @@ CPU 使用率是 250ms 采样 + EWMA 的**滞后信号**。一旦开始丢请求
 
 ## Shedder — 核心降载器
 
-> 源码：[middleware/shedder.go:Shedder](../middleware/shedder.go#L75)
+> 源码：[middleware/shedder.go:Shedder](../middleware/resilience/shedder.go)
 
 ```go
 type Shedder struct {
@@ -225,20 +225,20 @@ func NewShedderWithCPUFunc(cfg *shedderconfig.Shedder, cpuUsageFn func() (int64,
 
 `cfg` 为 `nil` 时取 `shedderconfig.Default()`；非法字段一律回落默认而不是报错——一份写错的降载配置不该让网关起不来。归一化返回的是配置副本，不会改写传进来的那一份（传进来的通常就是 `cfg.Middleware.Shedder` 本身，就地改写会把回落后的值写回全局配置树）。`cpuUsageFn` 为 `nil` 时按「不支持采样」处理。
 
-> 源码：[shedder.go:NewShedder()](../middleware/shedder.go#L99)、[shedder_config.go:normalizeShedderConfig()](../middleware/shedder_config.go#L61)
+> 源码：[shedder.go:NewShedder()](../middleware/resilience/shedder.go)、[shedder_config.go:normalizeShedderConfig()](../middleware/resilience/shedder_config.go)
 
 ### 核心方法
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `Allow() bool` | 一元请求放行判定；返回 `true` 后必须调用一次 `Pass` 或 `Fail` | [shedder.go:L150](../middleware/shedder.go#L150) |
-| `AllowStream() bool` | 建流判定；不占用飞行计数、不产生 RT 样本 | [shedder.go:L206](../middleware/shedder.go#L206) |
-| `Pass(rt time.Duration)` | 正常完成：归还飞行计数 + RT 进滑窗 | [shedder.go:L232](../middleware/shedder.go#L232) |
-| `Fail()` | 异常结束：只归还飞行计数，不进滑窗 | [shedder.go:L255](../middleware/shedder.go#L255) |
-| `Shedding() bool` | 当前是否处于降载冷却期 | [shedder.go:L416](../middleware/shedder.go#L416) |
-| `InFlight() int64` | 当前飞行请求数 | [shedder.go:L423](../middleware/shedder.go#L423) |
-| `Snapshot() ShedderSnapshot` | 强类型快照（用于指标采集） | [shedder.go:L448](../middleware/shedder.go#L448) |
-| `Reset()` | 重置运行时状态（配置不变） | [shedder.go:L475](../middleware/shedder.go#L475) |
+| `Allow() bool` | 一元请求放行判定；返回 `true` 后必须调用一次 `Pass` 或 `Fail` | [shedder.go](../middleware/resilience/shedder.go) |
+| `AllowStream() bool` | 建流判定；不占用飞行计数、不产生 RT 样本 | [shedder.go](../middleware/resilience/shedder.go) |
+| `Pass(rt time.Duration)` | 正常完成：归还飞行计数 + RT 进滑窗 | [shedder.go](../middleware/resilience/shedder.go) |
+| `Fail()` | 异常结束：只归还飞行计数，不进滑窗 | [shedder.go](../middleware/resilience/shedder.go) |
+| `Shedding() bool` | 当前是否处于降载冷却期 | [shedder.go](../middleware/resilience/shedder.go) |
+| `InFlight() int64` | 当前飞行请求数 | [shedder.go](../middleware/resilience/shedder.go) |
+| `Snapshot() ShedderSnapshot` | 强类型快照（用于指标采集） | [shedder.go](../middleware/resilience/shedder.go) |
+| `Reset()` | 重置运行时状态（配置不变） | [shedder.go](../middleware/resilience/shedder.go) |
 
 **失败请求为什么不进滑窗**：滑窗要估的是「系统健康时能稳定承载多少并发」。把超时、500 这些样本混进去会同时抬高 RT、抬高通过量，算出一个系统根本达不到的承载上限，反过来让降载在真正该动手的时候不动手。
 
@@ -246,7 +246,7 @@ func NewShedderWithCPUFunc(cfg *shedderconfig.Shedder, cpuUsageFn func() (int64,
 
 ### ShedderSnapshot — 强类型快照
 
-> 源码：[middleware/shedder.go:ShedderSnapshot](../middleware/shedder.go#L430)
+> 源码：[middleware/shedder.go:ShedderSnapshot](../middleware/resilience/shedder.go)
 
 ```go
 type ShedderSnapshot struct {
@@ -267,7 +267,7 @@ type ShedderSnapshot struct {
 
 ## ShedderManager — 降载管理器
 
-> 源码：[middleware/shedder.go:ShedderManager](../middleware/shedder.go#L516)
+> 源码：[middleware/shedder.go:ShedderManager](../middleware/resilience/shedder.go)
 
 ```go
 func NewShedderManager(cfg *shedderconfig.Shedder) *ShedderManager
@@ -304,7 +304,7 @@ gRPC 侧排除规则按方法全名（形如 `/user.v1.UserService/GetUser`）�
 
 ## ShedderHTTPMiddleware — HTTP 中间件
 
-> 源码：[middleware/shedder.go:ShedderHTTPMiddleware()](../middleware/shedder.go#L622)
+> 源码：[middleware/shedder.go:ShedderHTTPMiddleware()](../middleware/resilience/shedder.go)
 
 ```go
 func ShedderHTTPMiddleware(manager *ShedderManager) func(http.Handler) http.Handler
@@ -332,7 +332,7 @@ Retry-After: 1
 
 ## gRPC 拦截器
 
-> 源码：[shedder.go:UnaryServerShedderInterceptor()](../middleware/shedder.go#L733)、[shedder.go:StreamServerShedderInterceptor()](../middleware/shedder.go#L773)
+> 源码：[shedder.go:UnaryServerShedderInterceptor()](../middleware/resilience/shedder.go)、[shedder.go:StreamServerShedderInterceptor()](../middleware/resilience/shedder.go)
 
 ```go
 func UnaryServerShedderInterceptor(manager *ShedderManager) grpc.UnaryServerInterceptor
@@ -488,13 +488,13 @@ func (mm *MetricsManager) RegisterShedderCollector(statFn func() *ShedderStat) e
 
 CPU 不可采样时刻意不导出使用率：导出一个 0 会被读成「CPU 空闲」，而真实含义是「这个平台没有这个信号」——后者由 `gateway_shedder_cpu_supported` 单独表达。
 
-注入位置：[server/middleware_init.go:injectMetricsCollectors()](../server/middleware_init.go#L94)，与熔断的 `SetBreakerStatsFn` 在同一处。
+注入位置：[server/middleware_init.go:injectMetricsCollectors()](../server/middleware_init.go)，与熔断的 `SetBreakerStatsFn` 在同一处。
 
-> 源码：[middleware/shedder_metrics.go](../middleware/shedder_metrics.go)
+> 源码：[middleware/shedder_metrics.go](../middleware/observability/shedder_metrics.go)
 
 ## 配置
 
-配置类型定义在 `go-config` 的 `pkg/shedder`（`shedderconfig.Shedder`，`go-config >= v0.25.1`），与熔断配置下沉到 `pkg/breaker` 的惯例一致。本仓库不再自带一份同构类型，`Manager` 直接读 `cfg.Middleware.Shedder`（[middleware/manager.go](../middleware/manager.go#L117)）。
+配置类型定义在 `go-config` 的 `pkg/shedder`（`shedderconfig.Shedder`，`go-config >= v0.25.1`），与熔断配置下沉到 `pkg/breaker` 的惯例一致。本仓库不再自带一份同构类型，`Manager` 直接读 `cfg.Middleware.Shedder`（[middleware/manager.go](../middleware/manager.go)）。
 
 ```yaml
 middleware:
@@ -534,7 +534,7 @@ middleware:
 - **时间字段带 `-ms` 后缀、单位是毫秒**，不沿用熔断 `timeout` 的「int64 纳秒」写法：纳秒值写进 YAML 只能是 `5000000000` 这种数字，既不可读也容易误配成秒。
 - **`enabled` 默认 `false`**（熔断默认 `true`）：降载会在服务还能响应的时候主动丢请求，阈值要结合容量压测结果调，默认开启等于替使用方做了一个会丢流量的决定；熔断只在下游已经坏掉时才动手，默认开启是安全的。
 
-YAML 的解码由 go-config 自己完成（`mapstructure` 标签），本仓库侧只保留两件 go-config 没有、也不该有的事（[middleware/shedder_config.go](../middleware/shedder_config.go)）：
+YAML 的解码由 go-config 自己完成（`mapstructure` 标签），本仓库侧只保留两件 go-config 没有、也不该有的事（[middleware/shedder_config.go](../middleware/resilience/shedder_config.go)）：
 
 | 本仓库保留的 | 作用 |
 |------|------|

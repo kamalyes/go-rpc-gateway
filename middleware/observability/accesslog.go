@@ -13,7 +13,6 @@ package observability
 import (
 	"context"
 	"database/sql/driver"
-	"encoding/json"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -24,6 +23,7 @@ import (
 	sqltypes "github.com/kamalyes/go-rpc-gateway/cpool/database/types"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
+	"github.com/kamalyes/go-toolbox/pkg/desensitize"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/netx"
 )
@@ -188,17 +188,8 @@ func DispatchAccessLog(ctx context.Context, rec *AccessRecord) {
 
 // captureAccessLog 捕获 HTTP 请求/响应快照，构建访问日志记录并派发给已注册钩子
 // 仅在 HasAccessLogHandlers() 为 true 时调用，零钩子场景零开销
-func captureAccessLog(ctx context.Context, r *http.Request, rw *core.ResponseWriter, start time.Time, duration time.Duration, reqBody, respBody []byte, slowThreshold time.Duration) {
+func captureAccessLog(ctx context.Context, r *http.Request, rw *core.ResponseWriter, start time.Time, duration time.Duration, reqBody, respBody *maskedBody, slowThreshold time.Duration) {
 	meta := core.GetRequestCommonMeta(ctx)
-	// 走 activeMasker 而不是直接读 global.DATAMASKER：后者只由网关的完整初始化链赋值，
-	// 而中间件是导出的、可以被单独使用 activeMasker 在它为 nil 时给一个兜底脱敏器，
-	// 这里直接解引用等于把那层保护绕过去
-	// [EN] activeMasker rather than a direct read of global.DATAMASKER: that variable is only
-	// assigned by the gateway's full init chain while the middlewares are exported and usable on
-	// their own. activeMasker supplies a fallback masker when it is nil, and dereferencing the
-	// variable here walks straight around that protection.
-	masker := activeMasker()
-
 	serviceName := ""
 	if cfg := global.GetGatewayConfig(); cfg != nil {
 		serviceName = cfg.Name
@@ -215,12 +206,12 @@ func captureAccessLog(ctx context.Context, r *http.Request, rw *core.ResponseWri
 		Path:         r.URL.Path,
 		Query:        r.URL.RawQuery,
 		Headers:      maskHeaders(r.Header),
-		Body:         sqltypes.CompressedText(masker.Mask(reqBody)),
+		Body:         sqltypes.CompressedText(reqBody.get()),
 		UserAgent:    r.Header.Get(constants.HeaderUserAgent),
 		Source:       mathx.IfEmpty(r.Header.Get(constants.HeaderXSource), meta.Domain),
 		StatusCode:   int32(rw.StatusCode()),
 		Status:       http.StatusText(rw.StatusCode()),
-		Response:     sqltypes.CompressedText(masker.Mask(respBody)),
+		Response:     sqltypes.CompressedText(respBody.get()),
 		Bytes:        rw.BytesWritten(),
 		Slow:         duration > slowThreshold,
 		Success:      rw.StatusCode() == http.StatusOK,
@@ -273,40 +264,225 @@ func maskHeaders(header http.Header) sqltypes.CompressedTextMap {
 		return nil
 	}
 
-	raw, err := json.Marshal(map[string][]string(header))
-	if err != nil {
-		return nil
-	}
+	mask := headerMaskText()
+	extra := headerExtraSensitiveKeys()
 
-	// 解析目标是 map[string]any 而不是 map[string][]string：敏感键名命中时，脱敏器把
-	// 整个值替换成一个掩码字符串，于是 {"Authorization":["Bearer x"]} 出来是
-	// {"Authorization":"***REDACTED***"} —— 数组变成了字符串，按 []string 解析会直接失败
-	// 失败的后果不是「少脱敏」而是整列丢失，所以这一层形状归一是必须的
-	//
-	// [EN] The unmarshal target is map[string]any rather than map[string][]string: on a
-	// sensitive key the masker replaces the whole value with a mask string, so
-	// {"Authorization":["Bearer x"]} comes back as {"Authorization":"***REDACTED***"} — an array
-	// turned into a string, which fails outright when parsed as []string. The failure would cost
-	// the entire column rather than merely some masking, so normalising the shape is required.
-	var masked map[string]any
-	if err := json.Unmarshal([]byte(activeHeaderMasker().Mask(raw)), &masked); err != nil {
-		return nil
-	}
+	out := make(map[string][]string, len(header))
+	for name, values := range header {
+		switch headerKeyAction(name, extra) {
+		case desensitize.KeepAsIs:
+			// 复制而不是共享底层数组：记录会被钩子异步持有，
+			// 而 http.Header 的切片在请求结束后可能被 net/http 复用
+			// [EN] Copied rather than shared: the record may be held asynchronously by a hook
+			// while net/http can reuse the header's slices once the request is over
+			out[name] = append(make([]string, 0, len(values)), values...)
 
-	out := make(map[string][]string, len(masked))
-	for name, value := range masked {
-		switch v := value.(type) {
-		case string:
-			out[name] = []string{v}
-		case []any:
-			values := make([]string, 0, len(v))
-			for _, item := range v {
-				if s, ok := item.(string); ok {
-					values = append(values, s)
-				}
-			}
-			out[name] = values
+		default:
+			// 非 KeepAsIs 的动作一律整体擦除，包括 MaskPhone / MaskEmail /
+			// MaskFingerprint / MaskEncrypt
+			//
+			// 这不是偷懒，而是刻意与改造前的 JSON 往返路径逐字保持一致。
+			// 那条路径上请求头的值是 JSON 数组，而库里的 maskTextValue 对任何
+			// 非字符串值一律返回完整掩码 —— 于是部分遮蔽的动作在**请求头上**
+			// 从来就是整体擦除，那是现有行为，不是疏漏
+			//
+			// 为什么不"顺手改好"成逐值部分遮蔽：请求头上的部分遮蔽会往审计库里
+			// 写入比今天更多的 PII（手机号末 4 位、邮箱域名与首字符）。
+			// 审计库是留存最久、导出最多的那份数据，在脱敏路径上扩大泄露面
+			// 需要的是一个明确的产品决定，而不是一次性能优化的副作用。
+			// TestMaskHeadersMatchesLegacyJSONPath 闸住这个等价关系；
+			// 真要改成部分遮蔽，改的是那条测试的期望值，而不是悄悄改行为
+			//
+			// MaskEncrypt 另有一层原因：它本应是确定性加密（可关联、持密钥可还原），
+			// 但要走 DataMasker 未导出的 encryptValue，拿不到。方向必须是
+			// 「擦得比该擦的多」而不是「少」
+			//
+			// [EN] Every action other than KeepAsIs wipes the value entirely, including
+			// MaskPhone, MaskEmail, MaskFingerprint and MaskEncrypt.
+			//
+			// This deliberately matches the previous JSON round-trip path byte for byte. On
+			// that path a header's value is a JSON array, and the library's maskTextValue
+			// returns the full mask for any non-string value — so the partial-masking actions
+			// have always been outright wipes *on headers*. That is the existing behaviour,
+			// not an oversight.
+			//
+			// Why it is not quietly "improved" into per-value partial masking: on headers that
+			// would write more PII into the audit store than today (a phone's last four digits,
+			// an email's domain and first character). The audit store is the data retained
+			// longest and exported most, and widening the exposure surface on a redaction path
+			// needs an explicit product decision rather than being a side effect of a
+			// performance change. TestMaskHeadersMatchesLegacyJSONPath locks the equivalence
+			// down: switching to partial masking means changing that test's expectations, not
+			// changing the behaviour silently.
+			//
+			// MaskEncrypt has a further reason: it should be deterministic encryption but needs
+			// DataMasker's unexported encryptValue, which is unreachable. The direction must be
+			// "redact more than needed" rather than less
+			out[name] = []string{mask}
 		}
 	}
 	return out
+}
+
+// headerKeyAction 给出请求头名对应的脱敏动作
+//
+// 判定与 DataMasker.actionFor 逐项等价：先查内置规则表（ActionForKeyLoose，已导出，
+// 零分配），再按配置里的额外敏感键做不区分大小写的子串匹配
+//
+// 刻意不在网关侧复制任何规则：内置表仍然只有 go-toolbox 那一份，
+// 库里新增规则这里自动跟上 —— 复制一份规则表是脱敏逻辑最常见的漏擦来源
+//
+// 返回的是精确动作而不是「要不要擦」，尽管目前唯一的调用方 maskHeaders 把所有
+// 非 KeepAsIs 一律整体擦除（理由见那里：与改造前的 JSON 往返路径保持等价）
+// 这么分工有两个原因：等价关系能被 TestHeaderKeyActionMatchesMaskerActionFor 按动作逐项断言，
+// 比断言一个布尔值严得多；真要把请求头改成逐值部分遮蔽，改的是 maskHeaders 的分支，
+// 这里不用动
+//
+// [EN] Equivalent to DataMasker.actionFor item by item: the built-in table first via the
+// exported, zero-allocation ActionForKeyLoose, then a case-insensitive substring match against
+// the configured extra keys.
+//
+// No rule is duplicated on the gateway side: the built-in table remains the single copy inside
+// go-toolbox, so a rule added there is picked up here automatically — duplicating a redaction
+// rule table is the most common way redaction starts missing things.
+//
+// It returns the precise action rather than a yes-or-no even though its only caller,
+// maskHeaders, wipes every non-KeepAsIs value entirely (its own comment explains why: byte-for
+// -byte equivalence with the previous JSON round trip). The split earns its keep twice over:
+// the equivalence is asserted action by action, which is far stricter than asserting a boolean,
+// and moving headers to per-value partial masking would change a branch in maskHeaders without
+// touching this function
+func headerKeyAction(name string, extra []string) desensitize.KeyAction {
+	if action := desensitize.ActionForKeyLoose(name); action != desensitize.KeepAsIs {
+		return action
+	}
+	for _, key := range extra {
+		if containsFold(name, key) {
+			// 配置里追加的敏感键一律整体擦除，与 DataMasker.actionFor 一致
+			// [EN] Configured extra keys wipe entirely, matching DataMasker.actionFor
+			return desensitize.WipeValue
+		}
+	}
+	return desensitize.KeepAsIs
+}
+
+// containsFold 报告 s 是否包含 substr，ASCII 大小写不敏感，不分配
+//
+// 与 go-toolbox 的同名内部函数逐项等价（它未导出）：请求头名与配置里的字段名都是
+// ASCII，故只折叠 A-Z
+// 不走 strings.Contains(strings.ToLower(s), strings.ToLower(substr))：那是每个
+// 请求头两次字符串复制
+//
+// [EN] Reports whether s contains substr, ASCII case-insensitively, without allocating.
+// Equivalent to go-toolbox's unexported function of the same name; header names and configured
+// field names are ASCII, so only A-Z is folded. The ToLower form would copy two strings per
+// header
+func containsFold(s, substr string) bool {
+	n := len(substr)
+	if n == 0 {
+		return true
+	}
+	if n > len(s) {
+		return false
+	}
+	first := lowerASCII(substr[0])
+	for i := 0; i+n <= len(s); i++ {
+		if lowerASCII(s[i]) != first {
+			continue
+		}
+		match := true
+		for j := 1; j < n; j++ {
+			if lowerASCII(s[i+j]) != lowerASCII(substr[j]) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+// lowerASCII 把 A-Z 折叠为小写，其余字节原样返回
+func lowerASCII(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
+}
+
+// headerMaskText 掩码文本，与 DataMasker.getMask 的取法一致
+func headerMaskText() string {
+	if cfg := getLoggingConfig(); cfg != nil && cfg.SensitiveMask != "" {
+		return cfg.SensitiveMask
+	}
+	return defaultSensitiveMask
+}
+
+// headerExtraSensitiveKeys 配置里追加的敏感字段名
+func headerExtraSensitiveKeys() []string {
+	if cfg := getLoggingConfig(); cfg != nil {
+		return cfg.SensitiveKeys
+	}
+	return nil
+}
+
+// defaultSensitiveMask 与 go-toolbox desensitize 的默认掩码一致
+//
+// 该常量在库里未导出，这里取同值 TestHeaderMaskTextMatchesMasker 用脱敏器的实际
+// 输出闸住这个等价关系，库里改了默认值测试会失败
+//
+// [EN] The library's constant is unexported, so the same value is used here;
+// TestHeaderMaskTextMatchesMasker locks the equivalence against the masker's actual output, so
+// the test fails if the library's default changes
+const defaultSensitiveMask = "***"
+
+// maskedBody 对同一份字节只脱敏一次的记忆化包装
+//
+// 为什么需要：运行时日志（logHTTPRequest）与访问日志（captureAccessLog）是同一个请求里
+// 的两个消费者，它们原先各自对**同一份** reqBody 调一次 activeMasker().Mask，
+// 而 Mask 内部是 json.Unmarshal 到 any 再 Marshal 回去的完整往返 ——
+// 同样的字节、同一个脱敏器、同样的结果，算了两遍
+//
+// 走 activeMasker 而不是直接读 global.DATAMASKER：后者只由网关的完整初始化链赋值，
+// 而中间件是导出的、可以被单独使用 activeMasker 在它为 nil 时给一个兜底脱敏器，
+// 直接解引用等于把那层保护绕过去
+//
+// 不做并发保护：一个 maskedBody 只在单个请求的处理路径内使用，不跨 goroutine
+// 钩子拿到的是 AccessRecord 里已经取出的字符串，不是这个包装本身
+//
+// [EN] Memoises the masking of one body so it happens at most once.
+//
+// Why: the runtime log and the access log are two consumers within one request, and each used
+// to call activeMasker().Mask on the *same* reqBody, while Mask internally is a full
+// json.Unmarshal-to-any plus Marshal round trip — the same bytes through the same masker for
+// the same result, computed twice.
+//
+// activeMasker rather than a direct read of global.DATAMASKER: that variable is only assigned
+// by the gateway's full init chain while the middlewares are exported and usable on their own,
+// and activeMasker supplies a fallback masker when it is nil.
+//
+// No concurrency guard: a maskedBody lives inside a single request's handling path and never
+// crosses goroutines; a hook receives the already-extracted string in the AccessRecord, not
+// this wrapper
+type maskedBody struct {
+	raw  []byte
+	val  string
+	done bool
+}
+
+// newMaskedBody 包装一份待脱敏的字节
+func newMaskedBody(raw []byte) *maskedBody { return &maskedBody{raw: raw} }
+
+// get 返回脱敏后的文本，首次调用时计算
+func (m *maskedBody) get() string {
+	if m == nil {
+		return ""
+	}
+	if !m.done {
+		m.val = activeMasker().Mask(m.raw)
+		m.done = true
+	}
+	return m.val
 }

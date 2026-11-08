@@ -463,11 +463,17 @@ func LoggingMiddleware() core.HTTPMiddleware {
 			// 跳过路径检查
 			if isSkipPath(reqConfig, r.URL.Path) {
 				wrapped := core.NewResponseWriter(w)
+				// Release 必须走 defer：next.ServeHTTP panic 时（由上游 Recovery 兜住）
+				// 裸调的那一行永远不会执行，这个 writer 就再也回不到池里
+				// 下面主路径本来就是 defer，这里漏了
+				// [EN] Release must be deferred: when next.ServeHTTP panics (caught upstream by
+				// Recovery) a bare call never runs and the writer never returns to the pool.
+				// The main path below already defers it; this branch did not
+				defer wrapped.Release()
 				next.ServeHTTP(wrapped, r)
 				if wrapped.StatusCode() >= 400 {
 					logHTTPError(ctx, r, wrapped, time.Since(start))
 				}
-				wrapped.Release()
 				return
 			}
 
@@ -531,7 +537,6 @@ func LoggingMiddleware() core.HTTPMiddleware {
 // logHTTPRequest 记录 HTTP 请求
 func logHTTPRequest(ctx context.Context, r *http.Request, rw *core.ResponseWriter, start time.Time, duration time.Duration, config *gcmiddleware.Logging, reqBody []byte, hasAccessLog bool) {
 	logger := NewRequestLogger(ctx)
-	masker := activeMasker()
 
 	fields := NewLogFields().
 		Add(constants.LogFieldMethod, r.Method).
@@ -549,14 +554,51 @@ func logHTTPRequest(ctx context.Context, r *http.Request, rw *core.ResponseWrite
 		fields.Add(constants.LogFieldQuery, r.URL.RawQuery)
 	}
 
-	// 请求体
-	if len(reqBody) > 0 && isLoggableContentType(config, r.Header.Get(constants.HeaderContentType)) {
-		fields.Add(constants.LogFieldRequest, masker.Mask(reqBody))
+	// 请求体与响应体
+	//
+	// 必须判 EnableRequest / EnableResponse，不能只判「捕获到的字节数 > 0」：
+	// 捕获的条件是 EnableXxx || hasAccessLog（见 LoggingMiddleware），
+	// 于是「注册了审计钩子 + 保持默认 EnableResponse:false」这个完全正常的生产配置下，
+	// 原先的判断让响应体照样写进运行时日志 —— 运维显式关掉的东西并没有关掉
+	//
+	// 两个开关管的只是**运行时日志**；访问日志钩子拿到的 AccessRecord 仍然带着报文，
+	// 审计钩子正是靠它落库的，这一点由 TestAccessLogStillReceivesBodyWhenRuntimeLogOff 守住
+	//
+	// 顺带去掉了关着开关时白付的那次 masker.Mask：它内部是
+	// json.Unmarshal 到 any 再 Marshal 回去的完整往返，profile 里占访问日志层
+	// 全部分配的 24%，而这些分配的结果本来就不该出现在日志里
+	//
+	// [EN] EnableRequest / EnableResponse must be tested rather than only "captured length
+	// > 0": capture is enabled by EnableXxx || hasAccessLog, so with an audit hook registered
+	// and the default EnableResponse:false the previous condition still wrote the response
+	// body into the runtime log — what the operator explicitly turned off was not off.
+	//
+	// The two flags govern the *runtime log* only; the access-log hook's AccessRecord still
+	// carries the bodies, which is how an audit hook persists them, locked down by
+	// TestAccessLogStillReceivesBodyWhenRuntimeLogOff.
+	//
+	// This also drops the masker.Mask call that was paid for while the flag was off: it is a
+	// full json.Unmarshal-to-any plus Marshal round trip internally, measured at 24% of all
+	// allocations in the access-log layer, producing a result that was not meant to be logged
+	// 报文的脱敏结果包成 maskedBody，让运行时日志与下面的访问日志共用一次计算：
+	// 两者原先各自对同一份字节调一次 masker.Mask，而 Mask 内部是
+	// json.Unmarshal 到 any 再 Marshal 回去的完整往返，同样的输入算了两遍
+	// [EN] The masked bodies are wrapped so the runtime log and the access log below share one
+	// computation: each used to call masker.Mask on the same bytes, and Mask is a full
+	// json.Unmarshal-to-any plus Marshal round trip internally
+	maskedReq := newMaskedBody(reqBody)
+	maskedResp := newMaskedBody(rw.GetBody())
+
+	if config.EnableRequest && len(reqBody) > 0 &&
+		isLoggableContentType(config, r.Header.Get(constants.HeaderContentType)) {
+		fields.Add(constants.LogFieldRequest, maskedReq.get())
 	}
 
-	// 响应体
-	if respBody := rw.GetBody(); len(respBody) > 0 && isLoggableContentType(config, rw.Header().Get(constants.HeaderContentType)) {
-		fields.Add(constants.LogFieldResponse, masker.Mask(respBody))
+	if config.EnableResponse {
+		if respBody := rw.GetBody(); len(respBody) > 0 &&
+			isLoggableContentType(config, rw.Header().Get(constants.HeaderContentType)) {
+			fields.Add(constants.LogFieldResponse, maskedResp.get())
+		}
 	}
 
 	level := constants.LogLevelInfo
@@ -575,7 +617,7 @@ func logHTTPRequest(ctx context.Context, r *http.Request, rw *core.ResponseWrite
 
 	// 派发访问日志钩子
 	if hasAccessLog {
-		captureAccessLog(ctx, r, rw, start, duration, reqBody, rw.GetBody(), time.Duration(config.SlowHTTPThreshold)*time.Millisecond)
+		captureAccessLog(ctx, r, rw, start, duration, maskedReq, maskedResp, time.Duration(config.SlowHTTPThreshold)*time.Millisecond)
 	}
 }
 

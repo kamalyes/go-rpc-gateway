@@ -51,7 +51,7 @@ flowchart TD
 
 ### WriteResult — 标准化 Result 响应
 
-> 源码：[response/writer.go:WriteResult()](../response/writer.go#L34)
+> 源码：[response/writer.go:WriteResult()](../response/writer.go)
 
 ```go
 func WriteResult(w http.ResponseWriter, httpStatus int, result *commonapis.Result)
@@ -76,7 +76,7 @@ response.WriteResult(w, http.StatusOK, result)
 
 ### WriteJSONResponse — 自定义 JSON 响应
 
-> 源码：[response/writer.go:WriteJSONResponse()](../response/writer.go#L50)
+> 源码：[response/writer.go:WriteJSONResponse()](../response/writer.go)
 
 ```go
 func WriteJSONResponse(w http.ResponseWriter, httpStatus int, data any)
@@ -93,7 +93,7 @@ response.WriteJSONResponse(w, http.StatusOK, map[string]any{
 
 ### WriteErrorResponse — 标准化错误响应（Server 包）
 
-> 源码：[response/server.go:WriteErrorResponse()](../response/server.go#L25)
+> 源码：[response/server.go:WriteErrorResponse()](../response/server.go)
 
 ```go
 func WriteErrorResponse(w http.ResponseWriter, appErr *errors.AppError)
@@ -103,7 +103,7 @@ func WriteErrorResponse(w http.ResponseWriter, appErr *errors.AppError)
 
 ### WriteResultResponse — Server 内部使用
 
-> 源码：[response/server.go:WriteResultResponse()](../response/server.go#L31)
+> 源码：[response/server.go:WriteResultResponse()](../response/server.go)
 
 ```go
 func WriteResultResponse(w http.ResponseWriter, httpStatus int, result *commonapis.Result)
@@ -113,7 +113,7 @@ func WriteResultResponse(w http.ResponseWriter, httpStatus int, result *commonap
 
 ### WriteSimpleError — 简单错误响应
 
-> 源码：[response/server.go:WriteSimpleError()](../response/server.go#L41)
+> 源码：[response/server.go:WriteSimpleError()](../response/server.go)
 
 ```go
 func WriteSimpleError(w http.ResponseWriter, httpStatus int, statusCode commonapis.StatusCode, message string)
@@ -127,7 +127,7 @@ func WriteSimpleError(w http.ResponseWriter, httpStatus int, statusCode commonap
 
 ### WriteSuccessResult
 
-> 源码：[success.go:WriteSuccessResult()](../response/success.go#L22)
+> 源码：[success.go:WriteSuccessResult()](../response/success.go)
 
 ```go
 response.WriteSuccessResult(w, "user created successfully")
@@ -141,7 +141,7 @@ response.WriteSuccessResult(w, "user created successfully")
 
 ### WriteVersionResponse
 
-> 源码：[success.go:WriteVersionResponse()](../response/success.go#L30)
+> 源码：[success.go:WriteVersionResponse()](../response/success.go)
 
 ```go
 response.WriteVersionResponse(w, "1.0.0", "main", "abc1234", "2025-01-01T00:00:00Z")
@@ -155,7 +155,7 @@ response.WriteVersionResponse(w, "1.0.0", "main", "abc1234", "2025-01-01T00:00:0
 
 ### WriteCSRFTokenResponse
 
-> 源码：[success.go:WriteCSRFTokenResponse()](../response/success.go#L40)
+> 源码：[success.go:WriteCSRFTokenResponse()](../response/success.go)
 
 ```go
 response.WriteCSRFTokenResponse(w, "csrf-token-value")
@@ -169,18 +169,18 @@ response.WriteCSRFTokenResponse(w, "csrf-token-value")
 
 | 函数 | HTTP 状态码 | Proto StatusCode | 源码 |
 |------|------------|------------------|------|
-| `WriteErrorResult(w, status, msg, code)` | 自定义 | 自定义 | [error.go:L22](../response/error.go#L22) |
-| `WriteBadRequestResult(w, msg)` | 400 | `InvalidArgument` | [error.go:L42](../response/error.go#L42) |
-| `WriteUnauthorizedResult(w, msg)` | 401 | `Unauthenticated` | [error.go:L52](../response/error.go#L52) |
-| `WriteForbiddenResult(w, msg)` | 403 | `PermissionDenied` | [error.go:L57](../response/error.go#L57) |
-| `WriteNotFoundResult(w, msg)` | 404 | `NotFound` | [error.go:L47](../response/error.go#L47) |
-| `WriteTooManyRequestsResult(w, msg)` | 429 | `ResourceExhausted` | [error.go:L62](../response/error.go#L62) |
-| `WriteInternalServerErrorResult(w, msg)` | 500 | `Internal` | [error.go:L32](../response/error.go#L32) |
-| `WriteServiceUnavailableResult(w, msg)` | 503 | `Unavailable` | [error.go:L37](../response/error.go#L37) |
+| `WriteErrorResult(w, status, msg, code)` | 自定义 | 自定义 | [error.go](../response/error.go) |
+| `WriteBadRequestResult(w, msg)` | 400 | `InvalidArgument` | [error.go](../response/error.go) |
+| `WriteUnauthorizedResult(w, msg)` | 401 | `Unauthenticated` | [error.go](../response/error.go) |
+| `WriteForbiddenResult(w, msg)` | 403 | `PermissionDenied` | [error.go](../response/error.go) |
+| `WriteNotFoundResult(w, msg)` | 404 | `NotFound` | [error.go](../response/error.go) |
+| `WriteTooManyRequestsResult(w, msg)` | 429 | `ResourceExhausted` | [error.go](../response/error.go) |
+| `WriteInternalServerErrorResult(w, msg)` | 500 | `Internal` | [error.go](../response/error.go) |
+| `WriteServiceUnavailableResult(w, msg)` | 503 | `Unavailable` | [error.go](../response/error.go) |
 
 ### AppError 响应
 
-> 源码：[error.go:WriteAppError()](../response/error.go#L67)、[error.go:WriteAppErrorf()](../response/error.go#L73)
+> 源码：[error.go:WriteAppError()](../response/error.go)、[error.go:WriteAppErrorf()](../response/error.go)
 
 ```go
 // 直接写入 AppError
@@ -193,7 +193,7 @@ response.WriteAppErrorf(w, errors.ErrCodeBadRequest, "invalid field: %s", fieldN
 
 ### 带错误码的错误响应
 
-> 源码：[error.go:WriteErrorResponseWithCode()](../response/error.go#L79)
+> 源码：[error.go:WriteErrorResponseWithCode()](../response/error.go)
 
 ```go
 response.WriteErrorResponseWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "email format invalid")
@@ -203,7 +203,7 @@ response.WriteErrorResponseWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR"
 
 ## 健康检查响应
 
-> 源码：[response/health.go:WriteHealthCheckResult()](../response/health.go#L21)
+> 源码：[response/health.go:WriteHealthCheckResult()](../response/health.go)
 
 ```go
 response.WriteHealthCheckResult(w, true, "redis", "connection ok", map[string]any{

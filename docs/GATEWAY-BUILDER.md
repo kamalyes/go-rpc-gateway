@@ -2,13 +2,13 @@
 
 ## 概述
 
-`GatewayBuilder` 使用链式调用 API 构建 Gateway 实例。源码位于 [gateway.go:GatewayBuilder](../gateway.go#L64)。
+`GatewayBuilder` 使用链式调用 API 构建 Gateway 实例。源码位于 [gateway.go:GatewayBuilder](../gateway.go)。
 
 ## 链式 API
 
 ### NewGateway()
 
-> 源码：[gateway.go:NewGateway()](../gateway.go#L119)
+> 源码：[gateway.go:NewGateway()](../gateway.go)
 
 ```go
 gw, err := gateway.NewGateway().
@@ -23,24 +23,24 @@ gw, err := gateway.NewGateway().
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `WithConfigPath(path)` | 直接指定配置文件路径 | [gateway.go:L127](../gateway.go#L127) |
-| `WithSearchPath(path)` | 设置配置文件搜索目录 | [gateway.go:L133](../gateway.go#L133) |
-| `WithEnvironment(env)` | 设置运行环境 | [gateway.go:L140](../gateway.go#L140) |
-| `WithPrefix(prefix)` | 设置配置文件前缀 | [gateway.go:L146](../gateway.go#L146) |
-| `WithPattern(pattern)` | 设置文件匹配模式 | [gateway.go:L153](../gateway.go#L153) |
-| `WithHotReload(config)` | 启用热更新（nil 使用默认） | [gateway.go:L160](../gateway.go#L160) |
-| `WithContext(ctx)` | 设置上下文 | [gateway.go:L169](../gateway.go#L169) |
-| `WithContextOptions(opts)` | 设置上下文选项 | [gateway.go:L177](../gateway.go#L177) |
-| `Silent()` | 静默启动（不显示 banner） | [gateway.go:L183](../gateway.go#L183) |
-| `WithGrpcGatewayMiddleware(mw)` | 添加 gRPC-Gateway 中间件 | [gateway.go:L189](../gateway.go#L189) |
+| `WithConfigPath(path)` | 直接指定配置文件路径 | [gateway.go](../gateway.go) |
+| `WithSearchPath(path)` | 设置配置文件搜索目录 | [gateway.go](../gateway.go) |
+| `WithEnvironment(env)` | 设置运行环境 | [gateway.go](../gateway.go) |
+| `WithPrefix(prefix)` | 设置配置文件前缀 | [gateway.go](../gateway.go) |
+| `WithPattern(pattern)` | 设置文件匹配模式 | [gateway.go](../gateway.go) |
+| `WithHotReload(config)` | 启用热更新（nil 使用默认） | [gateway.go](../gateway.go) |
+| `WithContext(ctx)` | 设置上下文 | [gateway.go](../gateway.go) |
+| `WithContextOptions(opts)` | 设置上下文选项 | [gateway.go](../gateway.go) |
+| `Silent()` | 静默启动（不显示 banner） | [gateway.go](../gateway.go) |
+| `WithGrpcGatewayMiddleware(mw)` | 添加 gRPC-Gateway 中间件 | [gateway.go](../gateway.go) |
 
 ### 构建方法
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `Build()` | 构建 Gateway（不启动） | [gateway.go:L195](../gateway.go#L195) |
-| `BuildAndStart(ctx ...context.Context)` | 构建并启动 | [gateway.go:L290](../gateway.go#L290) |
-| `MustBuildAndStart(ctx ...context.Context)` | 构建并启动（失败 panic） | [gateway.go:L311](../gateway.go#L311) |
+| `Build()` | 构建 Gateway（不启动） | [gateway.go](../gateway.go) |
+| `BuildAndStart(ctx ...context.Context)` | 构建并启动 | [gateway.go](../gateway.go) |
+| `MustBuildAndStart(ctx ...context.Context)` | 构建并启动（失败 panic） | [gateway.go](../gateway.go) |
 
 ## 配置发现策略
 
@@ -65,7 +65,7 @@ flowchart TD
     style ERROR fill:#ffcdd2
 ```
 
-> 源码：[gateway.go:Build()](../gateway.go#L195) 中的 switch-case 逻辑
+> 源码：[gateway.go:Build()](../gateway.go) 中的 switch-case 逻辑
 
 ## 示例
 
@@ -123,7 +123,7 @@ flowchart TD
         I1["① LoggerInitializer, 优先级 1, → global.LOGGER"]
         I2["② ContextInitializer, 优先级 2, → global.CTX / CANCEL"]
         I3["③ SnowflakeInitializer, 优先级 5, → global.Node"]
-        I4["④ PoolManagerInitializer, 优先级 10, → global.DB / REDIS / MinIO"]
+        I4["④ PoolManagerInitializer, 优先级 10, → global.DB / REDIS + PoolManager"]
         I1 --> I2 --> I3 --> I4
     end
 
@@ -137,23 +137,27 @@ flowchart TD
     style I4 fill:#fce4ec
 ```
 
-> 源码：[initializer.go:GetDefaultInitializerChain()](../global/initializer.go#L388)
+> 源码：[initializer.go:GetDefaultInitializerChain()](../global/initializer.go)
 
 | 优先级 | 初始化器 | 说明 | 源码 |
 |--------|---------|------|------|
-| 1 | LoggerInitializer | 日志器 | [initializer.go:L229](../global/initializer.go#L229) |
-| 2 | ContextInitializer | 全局上下文 | [initializer.go:L343](../global/initializer.go#L343) |
-| 5 | SnowflakeInitializer | 雪花 ID 生成器 | [initializer.go:L255](../global/initializer.go#L255) |
-| 10 | PoolManagerInitializer | 连接池管理器 | [initializer.go:L289](../global/initializer.go#L289) |
+| 1 | LoggerInitializer | 日志器 | [initializer.go](../global/initializer.go) |
+| 2 | ContextInitializer | 全局上下文 | [initializer.go](../global/initializer.go) |
+| 5 | SnowflakeInitializer | 雪花 ID 生成器 | [initializer.go](../global/initializer.go) |
+| 10 | PoolManagerInitializer | 连接池管理器 | [initializer.go](../global/initializer.go) |
 
 初始化完成后，以下全局变量自动可用：
 
 ```go
 gwglobal.LOGGER    // 日志器
-gwglobal.DB        // 数据库连接
-gwglobal.REDIS     // Redis 连接
-gwglobal.MinIO     // MinIO 连接
+gwglobal.DB        // 数据库连接（便捷引用）
+gwglobal.REDIS     // Redis 连接（便捷引用）
 gwglobal.Node      // 雪花 ID 节点
+
+// 其余连接都挂在 PoolManager 上，没有包级便捷变量
+pm := gwglobal.GetPoolManager()
+pm.GetClickHouse()
+pm.GetNats()
 ```
 
 ## 热更新
@@ -173,7 +177,7 @@ gw, err := gateway.NewGateway().
 - 变更后自动重新初始化日志器
 - 配置变更回调优先级：-100（高优先级）
 
-> 源码：[gateway.go:registerGlobalConfigCallbacks()](../gateway.go#L370)
+> 源码：[gateway.go:registerGlobalConfigCallbacks()](../gateway.go)
 
 ## Gateway 实例方法
 
@@ -183,96 +187,92 @@ gw, err := gateway.NewGateway().
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `RegisterService(fn)` | 注册 gRPC 服务 | [gateway.go:L426](../gateway.go#L426) |
-| `RegisterGatewayHandler(fn)` | 注册 gRPC-Gateway Handler（本地调用） | [gateway.go:L441](../gateway.go#L441) |
-| `RegisterProxyHandler(fn, endpoint, dialOpts...)` | 注册代理处理器（远程 endpoint） | [gateway.go:L462](../gateway.go#L462) |
-| `RegisterProxyHandlerByServiceName(serviceName, fn)` | 通过服务名注册代理处理器（共享连接） | [gateway.go:L495](../gateway.go#L495) |
-| `GetGRPCEndpoint(serviceName)` | 获取 gRPC 客户端端点地址 | [gateway.go:L560](../gateway.go#L560) |
-| `AutoRegister()` | 自动注册所有 gRPC 客户端与 HTTP Handler | [gateway.go:L617](../gateway.go#L617) |
-| `AutoRegisterWithHealthCheck(checker)` | 自动注册（带健康检查器） | [gateway.go:L623](../gateway.go#L623) |
+| `RegisterService(fn)` | 注册 gRPC 服务 | [gateway.go](../gateway.go) |
+| `RegisterGatewayHandler(fn)` | 注册 gRPC-Gateway Handler（本地调用） | [gateway.go](../gateway.go) |
+| `RegisterProxyHandler(fn, endpoint, dialOpts...)` | 注册代理处理器（远程 endpoint） | [gateway.go](../gateway.go) |
+| `RegisterProxyHandlerByServiceName(serviceName, fn)` | 通过服务名注册代理处理器（共享连接） | [gateway.go](../gateway.go) |
+| `GetGRPCEndpoint(serviceName)` | 获取 gRPC 客户端端点地址 | [gateway.go](../gateway.go) |
+| `AutoRegister()` | 自动注册所有 gRPC 客户端与 HTTP Handler | [gateway.go](../gateway.go) |
+| `AutoRegisterWithHealthCheck(checker)` | 自动注册（带健康检查器） | [gateway.go](../gateway.go) |
 
 ### HTTP 路由
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `RegisterHandler(pattern, handler)` | 注册自定义 HTTP 路由 | [gateway.go:L584](../gateway.go#L584) |
-| `RegisterHTTPRoute(pattern, fn)` | 注册 HTTP 路由（便捷） | [gateway.go:L593](../gateway.go#L593) |
-| `RegisterHTTPRoutes(routes)` | 批量注册 HTTP 路由 | [gateway.go:L602](../gateway.go#L602) |
+| `RegisterHandler(pattern, handler)` | 注册自定义 HTTP 路由 | [gateway.go](../gateway.go) |
+| `RegisterHTTPRoute(pattern, fn)` | 注册 HTTP 路由（便捷） | [gateway.go](../gateway.go) |
+| `RegisterHTTPRoutes(routes)` | 批量注册 HTTP 路由 | [gateway.go](../gateway.go) |
 
 ### 中间件
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `AddGrpcGatewayMiddleware(mw)` | 添加 gRPC-Gateway 中间件 | [gateway.go:L683](../gateway.go#L683) |
-| `AddGrpcGatewayMiddlewareProvider(fn)` | 添加中间件提供器 | [gateway.go:L690](../gateway.go#L690) |
-| `RebuildHTTPGateway()` | 重建 HTTP Gateway | [gateway.go:L697](../gateway.go#L697) |
-| `SetDynamicSignatureProvider(p)` | 设置动态签名提供器 | [gateway.go:L751](../gateway.go#L751) |
-| `SetDynamicRateLimitProvider(p)` | 设置动态限流提供器 | [gateway.go:L759](../gateway.go#L759) |
+| `AddGrpcGatewayMiddleware(mw)` | 添加 gRPC-Gateway 中间件 | [gateway.go](../gateway.go) |
+| `AddGrpcGatewayMiddlewareProvider(fn)` | 添加中间件提供器 | [gateway.go](../gateway.go) |
+| `RebuildHTTPGateway()` | 重建 HTTP Gateway | [gateway.go](../gateway.go) |
+| `SetDynamicSignatureProvider(p)` | 设置动态签名提供器 | [gateway.go](../gateway.go) |
+| `SetDynamicRateLimitProvider(p)` | 设置动态限流提供器 | [gateway.go](../gateway.go) |
 
 ### 配置与监听器
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `GetConfig()` | 获取网关配置 | [gateway.go:L746](../gateway.go#L746) |
-| `GetGatewayConfig()` | 获取网关配置（直接字段） | [gateway.go:L925](../gateway.go#L925) |
-| `GetListener(name)` | 按名称获取监听器配置 | [gateway.go:L930](../gateway.go#L930) |
-| `GetListenerEndpoint(name)` | 按名称获取监听器端点地址 | [gateway.go:L938](../gateway.go#L938) |
-| `RegisterConfigCallbacks()` | 注册配置变更回调 | [gateway.go:L946](../gateway.go#L946) |
-| `Context()` | 获取 Gateway 上下文 | [gateway.go:L767](../gateway.go#L767) |
+| `GetConfig()` | 获取网关配置 | [gateway.go](../gateway.go) |
+| `GetGatewayConfig()` | 获取网关配置（直接字段） | [gateway.go](../gateway.go) |
+| `GetListener(name)` | 按名称获取监听器配置 | [gateway.go](../gateway.go) |
+| `GetListenerEndpoint(name)` | 按名称获取监听器端点地址 | [gateway.go](../gateway.go) |
+| `RegisterConfigCallbacks()` | 注册配置变更回调 | [gateway.go](../gateway.go) |
+| `Context()` | 获取 Gateway 上下文 | [gateway.go](../gateway.go) |
 
 ### 生命周期
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `Run()` | 启动并等待关闭信号 | [gateway.go:L798](../gateway.go#L798) |
-| `Start()` | 启动（显示 banner） | [gateway.go:L783](../gateway.go#L783) |
-| `StartSilent()` | 静默启动 | [gateway.go:L788](../gateway.go#L788) |
-| `StartWithBanner()` | 启动并显示 banner | [gateway.go:L807](../gateway.go#L807) |
-| `Stop()` | 停止服务 | [gateway.go:L841](../gateway.go#L841) |
-| `WaitForShutdown()` | 等待关闭信号并优雅关闭 | [gateway.go:L1232](../gateway.go#L1232) |
-| `OnShutdown(fn)` | 注册应用级关闭回调（Stop 前执行） | [gateway.go:L1242](../gateway.go#L1242) |
+| `Run()` | 启动并等待关闭信号 | [gateway.go](../gateway.go) |
+| `Start()` | 启动（显示 banner） | [gateway.go](../gateway.go) |
+| `StartSilent()` | 静默启动 | [gateway.go](../gateway.go) |
+| `StartWithBanner()` | 启动并显示 banner | [gateway.go](../gateway.go) |
+| `Stop()` | 停止服务 | [gateway.go](../gateway.go) |
+| `WaitForShutdown()` | 等待关闭信号并优雅关闭 | [gateway.go](../gateway.go) |
+| `OnShutdown(fn)` | 注册应用级关闭回调（Stop 前执行） | [gateway.go](../gateway.go) |
 
 ### 连接池与资源
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `GetPoolManager()` | 获取连接池管理器 | [gateway.go:L1100](../gateway.go#L1100) |
-| `GetDB()` | 获取数据库连接 | [gateway.go:L1105](../gateway.go#L1105) |
-| `InitDatabaseModels(models...)` | 初始化数据库模型（AutoMigrate） | [gateway.go:L1119](../gateway.go#L1119) |
-| `GetRedis()` | 获取 Redis 客户端 | [gateway.go:L1141](../gateway.go#L1141) |
-| `GetMinIO()` | 获取 MinIO 客户端 | [gateway.go:L1149](../gateway.go#L1149) |
-| `GetSnowflake()` | 获取雪花 ID 生成器 | [gateway.go:L1157](../gateway.go#L1157) |
-| `HealthCheck()` | 获取所有连接的健康状态 | [gateway.go:L1165](../gateway.go#L1165) |
+| `GetPoolManager()` | 获取连接池管理器 | [gateway.go](../gateway.go) |
+| `GetDB()` | 获取数据库连接 | [gateway.go](../gateway.go) |
+| `GetRedis()` | 获取 Redis 客户端 | [gateway.go](../gateway.go) |
+| `GetSnowflake()` | 获取雪花 ID 生成器 | [gateway.go](../gateway.go) |
+| `HealthCheck()` | 获取所有连接的健康状态 | [gateway.go](../gateway.go) |
 
 ### 诊断与信息
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `PrintStartupInfo()` | 打印启动信息 | [gateway.go:L864](../gateway.go#L864) |
-| `PrintShutdownInfo()` | 打印关闭信息 | [gateway.go:L871](../gateway.go#L871) |
-| `PrintShutdownComplete()` | 打印关闭完成信息 | [gateway.go:L878](../gateway.go#L878) |
-| `PrintAPIRegistrationSummary()` | 打印 API 注册汇总 | [gateway.go:L885](../gateway.go#L885) |
+| `PrintStartupInfo()` | 打印启动信息 | [gateway.go](../gateway.go) |
+| `PrintShutdownInfo()` | 打印关闭信息 | [gateway.go](../gateway.go) |
+| `PrintShutdownComplete()` | 打印关闭完成信息 | [gateway.go](../gateway.go) |
+| `PrintAPIRegistrationSummary()` | 打印 API 注册汇总 | [gateway.go](../gateway.go) |
 
 ### WebSocket
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `GetWebSocketService()` | 获取 WebSocket 服务实例 | [gateway.go:L1285](../gateway.go#L1285) |
-| `IsWebSocketEnabled()` | 检查 WebSocket 是否启用 | [gateway.go:L1293](../gateway.go#L1293) |
 
 ### 其他（继承自 Server）
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `EnableSwagger()` | 启用 Swagger 文档 | [server/swagger.go:L19](../server/swagger.go#L19) |
+| — | Swagger 由配置 `swagger.enabled` 控制，没有对应方法 |  |
 
 ## 包级便捷函数
 
 | 函数 | 说明 | 源码 |
 |------|------|------|
-| `QuickStart(configPath ...string)` | 快速启动（默认配置路径与自动发现） | [gateway.go:L1177](../gateway.go#L1177) |
-| `QuickStartWithConfigFile(path)` | 使用指定配置文件快速启动 | [gateway.go:L1199](../gateway.go#L1199) |
-| `QuickStartWithConfigFilePrefix(path, prefix)` | 使用指定配置文件和前缀快速启动 | [gateway.go:L1215](../gateway.go#L1215) |
+| `QuickStart(configPath ...string)` | 快速启动（默认配置路径与自动发现） | [gateway.go](../gateway.go) |
+| `QuickStartWithConfigFile(path)` | 使用指定配置文件快速启动 | [gateway.go](../gateway.go) |
+| `QuickStartWithConfigFilePrefix(path, prefix)` | 使用指定配置文件和前缀快速启动 | [gateway.go](../gateway.go) |
 
 ## 下一步
 

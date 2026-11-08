@@ -77,11 +77,11 @@ Manager 内部管理的组件：
 
 | 组件 | 源码 | 说明 |
 | ------ | ------ | ------ |
-| MetricsManager | [observability.go](../middleware/observability.go) | Prometheus 指标 |
-| TracingManager | [tracing.go](../middleware/tracing.go) | OpenTelemetry 链路追踪 |
-| RateLimiter | [ratelimit.go](../middleware/ratelimit.go) | 多策略限流 |
-| BreakerManager | [breaker.go](../middleware/breaker.go) | 熔断器（按路径隔离） |
-| I18nManager | [i18n.go](../middleware/i18n.go) | 国际化 |
+| MetricsManager | [observability.go](../middleware/observability/observability.go) | Prometheus 指标 |
+| TracingManager | [tracing.go](../middleware/observability/tracing.go) | OpenTelemetry 链路追踪 |
+| RateLimiter | [ratelimit.go](../middleware/resilience/ratelimit.go) | 多策略限流 |
+| BreakerManager | [breaker.go](../middleware/resilience/breaker.go) | 熔断器（按路径隔离） |
+| I18nManager | [i18n.go](../middleware/i18n/i18n.go) | 国际化 |
 | SwaggerMiddleware | go-swagger | Swagger 文档 |
 
 动态提供器（运行时注入）：
@@ -120,11 +120,11 @@ gateway.SetDynamicSignatureProvider(provider)
 gateway.SetDynamicRateLimitProvider(provider)
 ```
 
-> 源码：[dynamic.go:DynamicSignatureProvider](../middleware/dynamic.go#L29)、[dynamic.go:DynamicRateLimitProvider](../middleware/dynamic.go#L46)
+> 源码：[dynamic.go:DynamicSignatureProvider](../middleware/core/dynamic.go)、[dynamic.go:DynamicRateLimitProvider](../middleware/core/dynamic.go)
 
 ### DynamicSignatureProvider — 动态签名提供器
 
-> 源码：[middleware/dynamic.go](../middleware/dynamic.go)
+> 源码：[middleware/dynamic.go](../middleware/core/dynamic.go)
 
 允许在运行时按请求动态决定签名验证策略，而非使用全局静态配置。
 
@@ -176,7 +176,7 @@ gateway.SetDynamicSignatureProvider(&MySignatureProvider{})
 
 ### DynamicRateLimitProvider — 动态限流提供器
 
-> 源码：[middleware/dynamic.go](../middleware/dynamic.go)
+> 源码：[middleware/dynamic.go](../middleware/core/dynamic.go)
 
 允许在运行时按请求动态决定限流策略，支持多规则组合。
 
@@ -233,7 +233,7 @@ gateway.SetDynamicRateLimitProvider(&MyRateLimitProvider{})
 
 ### ContextScopeReader — 作用域读取适配器
 
-> 源码：[middleware/scope_reader.go](../middleware/scope_reader.go)
+> 源码：[middleware/scope_reader.go](../middleware/security/scope_reader.go)
 
 将 go-rpc-gateway 的请求上下文适配为外部作用域读取接口，供限流等中间件获取租户/角色等维度信息：
 
@@ -245,11 +245,11 @@ func (ContextScopeReader) GetTenantID(ctx context.Context) string // 从 context
 func (ContextScopeReader) GetRoleCode(ctx context.Context) string // 从 context 获取 RoleCode
 ```
 
-> 源码：[scope_reader.go:L17-L29](../middleware/scope_reader.go#L17)
+> 源码：[scope_reader.go](../middleware/security/scope_reader.go)
 
 ## 类型定义与责任链
 
-> 源码：[middleware/types.go](../middleware/types.go)
+> 源码：[middleware/types.go](../middleware/core/types.go)
 
 ```go
 type MiddlewareFunc func(http.Handler) http.Handler
@@ -262,7 +262,7 @@ func ChainFunc(middlewares ...MiddlewareFunc) MiddlewareFunc
 
 ### RecoveryMiddleware — Panic 恢复
 
-> 源码：[middleware/recovery.go](../middleware/recovery.go)
+> 源码：[middleware/recovery.go](../middleware/core/recovery.go)
 
 捕获 HTTP handler 中的 panic，返回 500 错误响应而非崩溃。
 
@@ -274,7 +274,7 @@ middleware:
 
 ### LoggingMiddleware — 统一日志
 
-> 源码：[middleware/logging.go](../middleware/logging.go)
+> 源码：[middleware/logging.go](../middleware/observability/logging.go)
 
 记录 HTTP 和 gRPC 请求的统一日志，包含请求方法、路径、状态码、耗时等信息。
 
@@ -291,7 +291,7 @@ logger.Log(constants.LogLevelInfo, constants.LogMsgHTTPRequest, fields)
 
 ### CORSMiddleware — 跨域资源共享
 
-> 源码：[middleware/security.go:L34](../middleware/security.go#L34)
+> 源码：[middleware/security.go](../middleware/security/security.go)
 
 ```yaml
 cors:
@@ -307,7 +307,7 @@ cors:
 
 ### SCPMiddleware — 安全头 / CSP
 
-> 源码：[middleware/security.go](../middleware/security.go)
+> 源码：[middleware/security.go](../middleware/security/security.go)
 
 从配置读取 CSP 策略，设置基础安全头部（X-Content-Type-Options、X-Frame-Options、X-XSS-Protection、HSTS、Referrer-Policy、Content-Security-Policy）。
 
@@ -324,7 +324,7 @@ func SCPMiddleware(cspConfig *security.CSP) HTTPMiddleware
 
 ### RateLimitMiddleware — 多策略限流
 
-> 源码：[middleware/ratelimit.go](../middleware/ratelimit.go)
+> 源码：[middleware/ratelimit.go](../middleware/resilience/ratelimit.go)
 
 支持多种限流策略和多级别限流：
 
@@ -361,7 +361,7 @@ func RateLimitMiddlewareWithProvider(config *ratelimit.RateLimit, provider Dynam
 
 ### ShedderMiddleware — 自适应降载
 
-> 源码：[middleware/shedder.go](../middleware/shedder.go)
+> 源码：[middleware/shedder.go](../middleware/resilience/shedder.go)
 
 进程唯一的降载器，在服务端自身过载时主动丢请求。判定只用三个本地信号（不走 Redis）：CPU 使用率、飞行请求数、响应时间滑窗；两个条件必须同时成立才丢弃——`CPU 超阈值（或仍在冷却期）` 且 `飞行请求数超过滑窗估出的承载上限`：
 
@@ -408,7 +408,7 @@ middleware:
 
 ### BreakerMiddleware — 熔断器
 
-> 源码：[middleware/breaker.go](../middleware/breaker.go)
+> 源码：[middleware/breaker.go](../middleware/resilience/breaker.go)
 
 三态断路器（`BreakerClosed` / `BreakerOpen` / `BreakerHalfOpen`），按 key 维护独立断路器实例。HTTP 中间件由 `BreakerHTTPMiddleware(manager *BreakerManager) func(http.Handler) http.Handler` 提供，打开时返回 503 JSON：
 
@@ -449,7 +449,7 @@ middleware:
 
 ### SignatureMiddleware — 签名验证
 
-> 源码：[middleware/signature.go](../middleware/signature.go)
+> 源码：[middleware/signature.go](../middleware/security/signature.go)
 
 支持 HMAC 和 RSA 两种签名算法，签名数据格式为 `timestamp + queryString + body`（从 `RequestCommonMeta` 读取 Timestamp/Signature）：
 
@@ -491,7 +491,7 @@ middleware:
 
 ### NonceMiddleware — 防重放
 
-> 源码：[middleware/nonce.go](../middleware/nonce.go)
+> 源码：[middleware/nonce.go](../middleware/security/nonce.go)
 
 使用 Redis INCR 原子操作记录 Nonce 使用次数，检测重放攻击。Nonces 从 `RequestCommonMeta.Nonce` 读取，受 `require-nonce` 开关控制。旧客户端未携带 Nonce 时，基于请求指纹（Authorization + AccessKey + Timestamp + Query + Body 的 MD5）自动派生，原样重放会被拦截；Timestamp 同时缺失则跳过防重放检查：
 
@@ -501,7 +501,7 @@ func NonceMiddleware(config *signature.Signature) HTTPMiddleware
 
 ### TimestampMiddleware — 时间戳验证
 
-> 源码：[middleware/timestamp.go](../middleware/timestamp.go)
+> 源码：[middleware/timestamp.go](../middleware/security/timestamp.go)
 
 验证请求时间戳是否在有效时间窗口内，防止重放攻击。时间戳从 `RequestCommonMeta.Timestamp` 读取，受 `require-timestamp` 开关控制：
 
@@ -511,7 +511,7 @@ func TimestampMiddleware(config *signature.Signature) HTTPMiddleware
 
 ### WhitelistManager — 白名单规则引擎
 
-> 源码：[middleware/whitelist.go](../middleware/whitelist.go)
+> 源码：[middleware/whitelist.go](../middleware/security/whitelist.go)
 
 通用白名单规则引擎（独立的规则管理器，非 HTTP 中间件链的一环），支持灵活的规则配置：
 
@@ -550,7 +550,7 @@ isAllowedWithIP := manager.IsWhitelistedWithIP("GET", "/api/v1/public/health", "
 
 ### Tracing — 链路追踪
 
-> 源码：[middleware/tracing.go](../middleware/tracing.go)
+> 源码：[middleware/tracing.go](../middleware/observability/tracing.go)
 
 集成 OpenTelemetry，支持 zipkin、otlphttp、otlpgrpc、otlp、console、noop 导出器。中间件构造函数为 `Tracing`（返回 `MiddlewareFunc`），由 `Manager.HTTPTracingMiddleware()` 暴露：
 
@@ -572,7 +572,7 @@ middleware:
 
 ### MetricsManager — 可观测性
 
-> 源码：[middleware/observability.go](../middleware/observability.go)
+> 源码：[middleware/observability.go](../middleware/observability/observability.go)
 
 统一管理 Prometheus 指标（HTTP + gRPC）。HTTP 指标中间件由 `HTTPMetricsMiddleware(m *MetricsManager) MiddlewareFunc` 提供，亦可通过 `Manager.HTTPMetricsMiddleware()` 获取：
 
@@ -592,7 +592,9 @@ func (mm *MetricsManager) Handler() http.Handler            // Prometheus 抓取
 func (mm *MetricsManager) RecordRateLimitRejected(strategy string)
 func (mm *MetricsManager) SetPoolHealthFn(fn func() map[string]bool)
 func (mm *MetricsManager) SetBreakerStatsFn(fn func() []BreakerStat)
-func (mm *MetricsManager) SetWSCStatsFn(fn func() *WSCStats)
+func (mm *MetricsManager) GetRegistry() *prometheus.Registry   // 注册自定义 Collector
+func (mm *MetricsManager) RecordHTTPRequest(method, path string, statusCode int, duration time.Duration, requestSize, responseSize int64)
+func (mm *MetricsManager) RecordGRPCRequest(duration time.Duration)
 ```
 
 ```yaml
@@ -604,7 +606,7 @@ monitoring:
 
 ### I18nMiddleware — 国际化
 
-> 源码：[middleware/i18n.go](../middleware/i18n.go)
+> 源码：[middleware/i18n.go](../middleware/i18n/i18n.go)
 
 ```go
 // 创建 i18n 管理器
@@ -633,7 +635,7 @@ gRPC 拦截器：`UnaryServerI18nInterceptor(manager)`、`StreamServerI18nInterc
 
 ### HealthManager — 健康检查
 
-> 源码：[middleware/health.go](../middleware/health.go)
+> 源码：[middleware/health.go](../middleware/observability/health.go)
 
 ```go
 type HealthChecker interface {
@@ -662,7 +664,7 @@ handler := healthManager.HTTPHandler()  // 返回 http.HandlerFunc
 
 ### PProfServer — 性能分析
 
-> 源码：[middleware/pprof.go](../middleware/pprof.go)
+> 源码：[middleware/pprof.go](../middleware/observability/pprof.go)
 
 独立端口的 pprof 服务器，支持采样配置、认证与 IP 白名单：
 
@@ -674,15 +676,17 @@ func StartPProfServer(cfg *gopprof.PProf) error // 便捷启动
 ```
 
 ```yaml
-pprof:
-  enabled: true
-  port: 6060
-  path-prefix: "/debug/pprof"
+# pprof 挂在 middleware 下，不是顶层键
+middleware:
+  pprof:
+    enabled: true
+    port: 6060
+    path-prefix: "/debug/pprof"
 ```
 
 ### PathNormalizer — 智能路径规范化
 
-> 源码：[middleware/path_normalizer.go](../middleware/path_normalizer.go)
+> 源码：[middleware/path_normalizer.go](../middleware/core/path_normalizer.go)
 
 基于前缀匹配自动学习动态参数模式：
 
@@ -711,7 +715,7 @@ gRPC 拦截器以独立函数形式提供，并由 `Manager` 暴露为便捷方�
 
 ### StructTagValidator — struct tag gRPC 校验
 
-> 源码：[middleware/struct_tag_validator.go](../middleware/struct_tag_validator.go)
+> 源码：[middleware/struct_tag_validator.go](../middleware/i18n/struct_tag_validator.go)
 
 基于 go-argus 的 struct tag 校验拦截器，配合 protoc-go-inject-tag 在 pb 生成代码字段上注入 `validate:"..."` 标签，支持 Unary、Stream 与 grpc-gateway HTTP 三种模式：
 
@@ -735,7 +739,7 @@ middleware.RegisterGatewayMessageType(http.MethodPost, "/v1/platforms", func() a
 
 ### ResponseWriter — 统一响应写入器
 
-> 源码：[middleware/response_writer.go](../middleware/response_writer.go)
+> 源码：[middleware/response_writer.go](../middleware/core/response_writer.go)
 
 ```go
 type ResponseWriter struct {

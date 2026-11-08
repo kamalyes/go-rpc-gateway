@@ -352,7 +352,7 @@ func (s *UserService) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.
 }
 ```
 
-> 源码参考：[errors/error.go:NewError()](../errors/error.go#L293)、[errors/error.go:Wrapf()](../errors/error.go#L395)
+> 源码参考：[errors/error.go:NewError()](../errors/error.go)、[errors/error.go:Wrapf()](../errors/error.go)
 
 ## 第四步：注册到 Gateway
 
@@ -387,7 +387,7 @@ flowchart TD
 
 服务自己实现 gRPC 接口，同时注册 gRPC Server 和 HTTP Handler。
 
-> 源码：[gateway.go:RegisterService()](../gateway.go#L426)、[gateway.go:RegisterGatewayHandler()](../gateway.go#L441)
+> 源码：[gateway.go:RegisterService()](../gateway.go)、[gateway.go:RegisterGatewayHandler()](../gateway.go)
 
 ```go
 // 1. 注册 gRPC 服务（提供 gRPC 调用能力）
@@ -449,7 +449,7 @@ if err := g.gateway.RegisterGatewayHandler(func(ctx context.Context, mux *runtim
 
 ### RegisterService — gRPC 服务注册
 
-> 源码：[gateway.go:RegisterService()](../gateway.go#L426)
+> 源码：[gateway.go:RegisterService()](../gateway.go)
 
 ```go
 func (g *Gateway) RegisterService(registerFunc ServiceRegisterFunc)
@@ -465,7 +465,7 @@ g.gateway.RegisterService(func(srv *grpc.Server) {
 
 ### RegisterGatewayHandler — HTTP Handler 注册（本地调用方式）
 
-> 源码：[gateway.go:RegisterGatewayHandler()](../gateway.go#L441)
+> 源码：[gateway.go:RegisterGatewayHandler()](../gateway.go)
 
 ```go
 func (g *Gateway) RegisterGatewayHandler(registerFunc ServerHandlerRegisterFunc) error
@@ -489,7 +489,7 @@ if err := g.gateway.RegisterGatewayHandler(func(ctx context.Context, mux *runtim
 
 ### RegisterProxyHandler — 代理处理器注册（手动端点）
 
-> 源码：[gateway.go:RegisterProxyHandler()](../gateway.go#L462)
+> 源码：[gateway.go:RegisterProxyHandler()](../gateway.go)
 
 通过 `endpoint + dialOpts` 注册 gRPC-Gateway 代理处理器，将 HTTP 请求转发到远程 gRPC 服务。未传 `dialOpts` 时使用 `Server.GetDialOptions()` 默认值。
 
@@ -507,7 +507,7 @@ if err := g.gateway.RegisterProxyHandler(func(ctx context.Context, mux *runtime.
 
 ### RegisterProxyHandlerByServiceName — 代理处理器注册（按服务名，推荐）
 
-> 源码：[gateway.go:RegisterProxyHandlerByServiceName()](../gateway.go#L495)
+> 源码：[gateway.go:RegisterProxyHandlerByServiceName()](../gateway.go)
 
 从网关配置的 `grpc.clients` 中查找服务端点并构建完整的 dial options，无需手动指定。同一服务名共享一个 gRPC 连接，多个 handler 复用同一连接。优先从连接池获取已有连接（由 `InitClient` 创建）。
 
@@ -525,7 +525,7 @@ if err := g.gateway.RegisterProxyHandlerByServiceName("user-service", func(ctx c
 
 ### GetGRPCEndpoint — 查询 gRPC 客户端端点
 
-> 源码：[gateway.go:GetGRPCEndpoint()](../gateway.go#L560)
+> 源码：[gateway.go:GetGRPCEndpoint()](../gateway.go)
 
 从网关配置中按服务名获取 gRPC 客户端端点地址，未找到返回 `("", false)`。
 
@@ -542,7 +542,7 @@ if !ok {
 
 ### RegisterHandler / RegisterHTTPRoute — 自定义 HTTP 路由
 
-> 源码：[gateway.go:RegisterHandler()](../gateway.go#L584)、[gateway.go:RegisterHTTPRoute()](../gateway.go#L593)、[gateway.go:RegisterHTTPRoutes()](../gateway.go#L602)
+> 源码：[gateway.go:RegisterHandler()](../gateway.go)、[gateway.go:RegisterHTTPRoute()](../gateway.go)、[gateway.go:RegisterHTTPRoutes()](../gateway.go)
 
 ```go
 // 单个路由
@@ -630,7 +630,7 @@ func (g *MyGateway) Run() error {
 
 ## AutoRegister — 基于 Reflection 自动注册
 
-> 源码：[gateway.go:AutoRegister()](../gateway.go#L617)、[gateway.go:AutoRegisterWithHealthCheck()](../gateway.go#L623)、[cpool/grpc/auto_register.go](../cpool/grpc/auto_register.go)
+> 源码：[gateway.go:AutoRegister()](../gateway.go)、[gateway.go:AutoRegisterWithHealthCheck()](../gateway.go)、[cpool/grpc/auto_register.go](../cpool/grpc/auto_register.go)
 
 基于 gRPC Server Reflection 自动发现服务并动态注册 HTTP Handler，业务层无需写任何注册代码。前提：远程 gRPC server 需启用 reflection（`reflection.Register(server)`）。
 
@@ -723,7 +723,7 @@ if w := gw.GetServiceWatcher(); w != nil {
 
 ### AutoRegisterResult
 
-> 源码：[cpool/grpc/auto_register.go:AutoRegisterResult](../cpool/grpc/auto_register.go#L70)
+> 源码：[cpool/grpc/auto_register.go:AutoRegisterResult](../cpool/grpc/auto_register.go)
 
 ```go
 type AutoRegisterResult struct {
@@ -743,12 +743,12 @@ func (r *AutoRegisterResult) Summary() string
 
 | 函数 | 签名 | 源码 |
 |------|------|------|
-| `InitConnectionsAndDiscover` | `func(ctx context.Context, healthChecker *HealthChecker, clients map[string]*gwconfig.GRPCClient) []string` | [auto_register.go:L990](../cpool/grpc/auto_register.go#L990) |
-| `DiscoverAllServices` | `func(ctx context.Context, clients map[string]*gwconfig.GRPCClient)` | [auto_register.go:L363](../cpool/grpc/auto_register.go#L363) |
-| `RegisterDynamicHandlers` | `func(ctx context.Context, mux *runtime.ServeMux, clients map[string]*gwconfig.GRPCClient) ([]string, error)` | [auto_register.go:L578](../cpool/grpc/auto_register.go#L578) |
-| `RediscoverAndRegisterService` | `func(ctx context.Context, mux *runtime.ServeMux, serviceName string) error` | [auto_register.go:L671](../cpool/grpc/auto_register.go#L671) |
+| `InitConnectionsAndDiscover` | `func(ctx context.Context, healthChecker *HealthChecker, clients map[string]*gwconfig.GRPCClient) []string` | [auto_register.go](../cpool/grpc/auto_register.go) |
+| `DiscoverAllServices` | `func(ctx context.Context, clients map[string]*gwconfig.GRPCClient)` | [auto_register.go](../cpool/grpc/auto_register.go) |
+| `RegisterDynamicHandlers` | `func(ctx context.Context, mux *runtime.ServeMux, clients map[string]*gwconfig.GRPCClient) ([]string, error)` | [auto_register.go](../cpool/grpc/auto_register.go) |
+| `RediscoverAndRegisterService` | `func(ctx context.Context, mux *runtime.ServeMux, serviceName string) error` | [auto_register.go](../cpool/grpc/auto_register.go) |
 
-`HTTPRoute` 描述一个 HTTP 路由映射（源码 [auto_register.go:HTTPRoute](../cpool/grpc/auto_register.go#L61)）：
+`HTTPRoute` 描述一个 HTTP 路由映射（源码 [auto_register.go:HTTPRoute](../cpool/grpc/auto_register.go)）：
 
 ```go
 type HTTPRoute struct {
@@ -764,7 +764,7 @@ type HTTPRoute struct {
 
 ### 启用 Swagger
 
-> 源码：[server/swagger.go:EnableSwagger()](../server/swagger.go#L19)
+> 源码：[server/swagger.go:EnableSwagger()](../server/swagger.go)
 
 ```go
 // 在注册完所有 Handler 后启用 Swagger

@@ -51,7 +51,7 @@ flowchart TD
 
 ## PoolManager 接口
 
-> 源码：[cpool/manager.go:PoolManager](../cpool/manager.go#L30)
+> 源码：[cpool/manager.go:PoolManager](../cpool/manager.go)
 
 ```go
 type PoolManager interface {

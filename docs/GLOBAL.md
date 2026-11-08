@@ -12,48 +12,65 @@
 
 ```go
 var (
-    GATEWAY        *gwconfig.Gateway                 // 网关配置
-    LOGGER         logger.ILogger                    // 日志器
-    POOL_MANAGER   *cpool.Manager                    // 连接池管理器（所有连接的唯一管理者）
-    CONFIG_MANAGER *goconfig.IntegratedConfigManager // 统一配置管理器
-    CTX            context.Context                   // 全局上下文
-    CANCEL         context.CancelFunc                // 上下文取消函数
-    WSCHUB         *gowsc.Hub                        // 全局 WebSocket 服务实例
-    Node           *snowflake.Node                   // 雪花算法节点（用于分布式 ID 生成）
-    LOG            logger.ILogger                    // 日志器别名（兼容旧代码）
-    DB             *gorm.DB                          // 数据库连接（便捷引用，实际由 PoolManager 管理）
-    REDIS          *redis.Client                     // Redis 连接（便捷引用，实际由 PoolManager 管理）
-    MinIO          *minio.Client                     // MinIO 连接（便捷引用，实际由 PoolManager 管理）
-    DATAMASKER     *desensitize.DataMasker           // 数据脱敏器
-    SERVER_NODE    string                            // 当前服务节点标识（K8s 环境下为 Pod 名称），用于响应头和 gRPC metadata 透传
-    GPerFix        string                   = "gw_"  // 全局表前缀
+    // GATEWAY 网关配置
+    //
+    // 仅为兼容保留 它是普通包级变量，与热重载的写入构成数据竞态，
+    // 框架内部一律走 GetGatewayConfig() / GetConfig()，不要新增对它的直接读取
+    GATEWAY        *gwconfig.Gateway
+    LOGGER         logger.ILogger                  // 日志器
+    POOL_MANAGER   *cpool.Manager                  // 连接池管理器（所有连接的唯一管理者）
+    CONFIG_MANAGER *config.IntegratedConfigManager // 统一配置管理器
+    CTX            context.Context                 // 全局上下文
+    CANCEL         context.CancelFunc              // 上下文取消函数
+    Node           *snowflake.Node                 // 雪花算法节点（用于分布式 ID 生成）
+    LOG            logger.ILogger                  // 日志器别名（兼容旧代码）
+    DB             *gorm.DB                        // 数据库连接（便捷引用，实际由 PoolManager 管理）
+    REDIS          redis.UniversalClient           // Redis 连接（便捷引用，实际由 PoolManager 管理）
+    DATAMASKER     *desensitize.DataMasker         // 数据脱敏器
+    SERVER_NODE    string                          // 当前服务节点标识（K8s 环境下为 Pod 名称）
+    GPerFix        string                 = "gw_"  // 全局表前缀
 )
 ```
 
-> 源码：[global.go:L33-L49](../global/global.go#L33)
+> 源码：[global/global.go](../global/global.go)
 
 ### 便捷访问函数
 
-| 函数 | 返回类型 | 源码 |
-|------|---------|------|
-| `EnsureLoggerInitialized()` | `error` | [global.go:L52](../global/global.go#L52) |
-| `GetConfig()` | `*gwconfig.Gateway` | [global.go:L118](../global/global.go#L118) |
-| `GetLogger()` | `logger.ILogger` | [global.go:L123](../global/global.go#L123) |
-| `GetPoolManager()` | `*cpool.Manager` | [global.go:L128](../global/global.go#L128) |
-| `GetContext()` | `context.Context` | [global.go:L133](../global/global.go#L133) |
-| `GetDB()` | `*gorm.DB` | [global.go:L138](../global/global.go#L138) |
-| `GetRedis()` | `*redis.Client` | [global.go:L143](../global/global.go#L143) |
-| `GetMinIO()` | `*minio.Client` | [global.go:L148](../global/global.go#L148) |
-| `GetClickHouse()` | `*gorm.DB` | [global.go:L154](../global/global.go#L154) |
-| `GetNats()` | `*natsclient.NatsConn` | [global.go:L163](../global/global.go#L163) |
-| `GetSnowflakeNode()` | `*snowflake.Node` | [global.go:L181](../global/global.go#L181) |
-| `GetServerNode()` | `string` | [global.go:L187](../global/global.go#L187) |
-| `GetWebSocketService()` | `*gowsc.Hub` | [global.go:L192](../global/global.go#L192) |
-| `GetGatewayConfig()` | `*gwconfig.Gateway` | [global.go:L197](../global/global.go#L197) |
-| `GetConfigManager()` | `*goconfig.IntegratedConfigManager` | [global.go:L202](../global/global.go#L202) |
-| `IsInitialized()` | `bool` | [global.go:L207](../global/global.go#L207) |
-| `ReloadConfig()` | `error` | [global.go:L212](../global/global.go#L212) |
-| `GetEnvironment()` | `goconfig.EnvironmentType` | [global.go:L230](../global/global.go#L230) |
+| 函数 | 返回类型 |
+|------|---------|
+| `EnsureLoggerInitialized()` | `error` |
+| `GetConfig()` | `*gwconfig.Gateway` |
+| `GetGatewayConfig()` | `*gwconfig.Gateway` |
+| `SetGatewayConfig(cfg)` | — |
+| `GetLogger()` | `logger.ILogger` |
+| `GetPoolManager()` | `*cpool.Manager` |
+| `GetContext()` | `context.Context` |
+| `GetDB()` | `*gorm.DB` |
+| `GetRedis()` | `redis.UniversalClient` |
+| `GetSnowflakeNode()` | `*snowflake.Node` |
+| `GetSnowflakeWorkerID()` | `int64` |
+| `GetSnowflakeDatacenterID()` | `int64` |
+| `GetShortFlakeNodeID()` | `int64` |
+| `GetServerNode()` | `string` |
+| `GetConfigManager()` | `*config.IntegratedConfigManager` |
+| `GetEnvironment()` | `config.EnvironmentType` |
+| `GetDefaultInitializerChain()` | `*InitializerChain` |
+| `IsInitialized()` | `bool` |
+| `ReloadConfig()` | `error` |
+| `CleanupGlobal()` | — |
+
+> 源码：[global/global.go](../global/global.go)
+>
+> 表里刻意不写行号：行号会随每次改动漂移，而漂移了的行号比没有行号更糟 ——
+> 它会把读者带到一段无关的代码上。按函数名在文件里搜即可。
+
+**ClickHouse 与 NATS 没有 global 包级访问器**，它们挂在 `*cpool.Manager` 上：
+
+```go
+pm := gwglobal.GetPoolManager()
+chConn := pm.GetClickHouse()  // *gorm.DB
+natsConn := pm.GetNats()      // *natsclient.NatsConn
+```
 
 ### 示例
 
@@ -66,11 +83,10 @@ db.Find(&users)
 rdb := gwglobal.GetRedis()
 rdb.Set(ctx, "key", "value", 10*time.Minute)
 
-// 获取 ClickHouse（从 PoolManager 获取，无独立全局变量）
-chConn := gwglobal.GetClickHouse()
-
-// 获取 NATS
-natsConn := gwglobal.GetNats()
+// 获取 ClickHouse 与 NATS：没有 global 包级访问器，走 PoolManager
+pm := gwglobal.GetPoolManager()
+chConn := pm.GetClickHouse()
+natsConn := pm.GetNats()
 
 // 获取服务节点标识（K8s 环境下为 Pod 名称）
 serverNode := gwglobal.GetServerNode()
@@ -83,7 +99,7 @@ if gwglobal.IsInitialized() {
 
 ### 资源清理
 
-> 源码：[global.go:CleanupGlobal()](../global/global.go#L72)
+> 源码：[global/global.go · CleanupGlobal()](../global/global.go)
 
 ```go
 gwglobal.CleanupGlobal()
@@ -91,13 +107,13 @@ gwglobal.CleanupGlobal()
 
 清理顺序：
 1. 取消全局上下文（CANCEL）
-2. 关闭 PoolManager（自动关闭所有连接：DB、Redis、MinIO、ClickHouse、NATS 等）
+2. 关闭 PoolManager（自动关闭所有连接：DB、Redis、ClickHouse、NATS、MQTT、Kafka 等）
 3. 停止配置管理器
 4. 全局变量置空
 
 ### 日志器初始化
 
-> 源码：[global.go:EnsureLoggerInitialized()](../global/global.go#L52)
+> 源码：[global/global.go · EnsureLoggerInitialized()](../global/global.go)
 
 ```go
 // 在主流程初始化前确保 LOGGER/LOG 可用，避免 nil panic
@@ -110,7 +126,7 @@ if err := gwglobal.EnsureLoggerInitialized(); err != nil {
 
 ### 配置热重载
 
-> 源码：[global.go:ReloadConfig()](../global/global.go#L212)
+> 源码：[global/global.go · ReloadConfig()](../global/global.go)
 
 ```go
 if err := gwglobal.ReloadConfig(); err != nil {
@@ -126,7 +142,7 @@ if err := gwglobal.ReloadConfig(); err != nil {
 
 ### Initializer 接口
 
-> 源码：[initializer.go:Initializer](../global/initializer.go#L30)
+> 源码：[initializer.go:Initializer](../global/initializer.go)
 
 ```go
 type Initializer interface {
@@ -144,11 +160,11 @@ type Initializer interface {
 
 | 优先级 | 名称 | 说明 | 源码 |
 |--------|------|------|------|
-| 1 | Logger | 日志器 | [initializer.go:L230](../global/initializer.go#L230) |
-| 2 | Context | 全局上下文 | [initializer.go:L344](../global/initializer.go#L344) |
-| 3 | ServerNode | 服务节点标识（K8s 环境下为 Pod 名称） | [initializer.go:L366](../global/initializer.go#L366) |
-| 5 | Snowflake | 雪花 ID 生成器 | [initializer.go:L256](../global/initializer.go#L256) |
-| 10 | PoolManager | 连接池管理器 | [initializer.go:L290](../global/initializer.go#L290) |
+| 1 | Logger | 日志器 | [initializer.go](../global/initializer.go) |
+| 2 | Context | 全局上下文 | [initializer.go](../global/initializer.go) |
+| 3 | ServerNode | 服务节点标识（K8s 环境下为 Pod 名称） | [initializer.go](../global/initializer.go) |
+| 5 | Snowflake | 雪花 ID 生成器 | [initializer.go](../global/initializer.go) |
+| 10 | PoolManager | 连接池管理器 | [initializer.go](../global/initializer.go) |
 
 ### 自定义初始化器
 
@@ -171,7 +187,7 @@ chain.Register(&MyInitializer{})
 
 ### 初始化流程
 
-> 源码：[initializer.go:InitializeAll()](../global/initializer.go#L98)
+> 源码：[initializer.go:InitializeAll()](../global/initializer.go)
 
 ```mermaid
 flowchart TD
@@ -203,7 +219,7 @@ err := global.InitializeWithDefaults(ctx, cfg)
 
 ### 清理流程
 
-> 源码：[initializer.go:CleanupAll()](../global/initializer.go#L174)
+> 源码：[initializer.go:CleanupAll()](../global/initializer.go)
 
 ```mermaid
 flowchart TD
@@ -266,7 +282,7 @@ workerID := gwglobal.GetSnowflakeWorkerID()
 dcID := gwglobal.GetSnowflakeDatacenterID()
 ```
 
-> 源码：[idgen.go:NewSnowflakeID()](../global/idgen.go#L31)、[idgen.go:NewSnowflakeID12()](../global/idgen.go#L36)、[idgen.go:NewSnowflakeIDWithLength()](../global/idgen.go#L41)、[idgen.go:GetSnowflakeWorkerID()](../global/idgen.go#L46)、[idgen.go:GetSnowflakeDatacenterID()](../global/idgen.go#L51)
+> 源码：[idgen.go:NewSnowflakeID()](../global/idgen.go)、[idgen.go:NewSnowflakeID12()](../global/idgen.go)、[idgen.go:NewSnowflakeIDWithLength()](../global/idgen.go)、[idgen.go:GetSnowflakeWorkerID()](../global/idgen.go)、[idgen.go:GetSnowflakeDatacenterID()](../global/idgen.go)
 
 ### ShortFlake 短 ID
 
@@ -286,7 +302,7 @@ rawID := gwglobal.NewShortFlakeRawID()
 nodeID := gwglobal.GetShortFlakeNodeID()
 ```
 
-> 源码：[idgen.go:NewShortFlakeID()](../global/idgen.go#L64)、[idgen.go:NewShortFlakeRequestID()](../global/idgen.go#L69)、[idgen.go:NewShortFlakeRawID()](../global/idgen.go#L74)、[idgen.go:GetShortFlakeNodeID()](../global/idgen.go#L79)
+> 源码：[idgen.go:NewShortFlakeID()](../global/idgen.go)、[idgen.go:NewShortFlakeRequestID()](../global/idgen.go)、[idgen.go:NewShortFlakeRawID()](../global/idgen.go)、[idgen.go:GetShortFlakeNodeID()](../global/idgen.go)
 
 ## 扩展配置读取
 
@@ -306,8 +322,8 @@ val := global.GetEnvOrExtension("MY_API_KEY", "api-key")
 
 | 函数 | 签名 | 源码 |
 |------|------|------|
-| `GetExtensionAs[T]` | `func GetExtensionAs[T types.Convertible](key string) (T, bool)` | [extensions.go:L28](../global/extensions.go#L28) |
-| `GetEnvOrExtension` | `func GetEnvOrExtension(envKey, extKey string) string` | [extensions.go:L38](../global/extensions.go#L38) |
+| `GetExtensionAs[T]` | `func GetExtensionAs[T types.Convertible](key string) (T, bool)` | [extensions.go](../global/extensions.go) |
+| `GetEnvOrExtension` | `func GetEnvOrExtension(envKey, extKey string) string` | [extensions.go](../global/extensions.go) |
 
 ## 下一步
 

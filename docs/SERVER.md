@@ -8,7 +8,7 @@
 
 ## Server 结构
 
-> 源码：[server/server.go:Server](../server/server.go#L32)
+> 源码：[server/server.go:Server](../server/server.go)
 
 ```go
 type Server struct {
@@ -40,19 +40,19 @@ type Server struct {
     // 连接池管理器
     poolManager cpool.PoolManager
 
-    // WebSocket 服务
-    webSocketService *WebSocketService
-
     // 端点信息收集器
     endpointCollector *EndpointCollector
 
     // Gzip writer 对象池（用于 HTTP 压缩优化）
     gzipWriterPool *sync.Pool
 
-    // Gzip 跳过路径和扩展名的快速查找表
-    gzipSkipPathsMap      map[string]bool
-    gzipSkipExtensionsMap map[string]bool
-    httpRoutePatterns     map[string]struct{}
+    // Gzip 跳过规则（启动时预处理，避免每请求读配置切片）
+    // 前缀必须逐个 HasPrefix，用切片；扩展名在「每项都是单个点开头」时
+    // 另建一张 map 做单次查找，否则退回逐个 HasSuffix 以保住 .min.js 的语义
+    gzipSkipPrefixes  []string
+    gzipSkipSuffixes  []string
+    gzipSkipExtMap    map[string]struct{}
+    httpRoutePatterns map[string]struct{}
 
     // 数据脱敏器（用于日志敏感数据脱敏）
     dataMasker *desensitize.DataMasker
@@ -70,36 +70,37 @@ type Server struct {
 
 ### 访问器方法
 
-| 方法 | 返回类型 | 源码 |
-|------|---------|------|
-| `GetGatewayMux()` | `*runtime.ServeMux` | [server.go:L89](../server/server.go#L89) |
-| `GetConfig()` | `*gwconfig.Gateway` | [server.go:L145](../server/server.go#L145) |
-| `GetMiddlewareManager()` | `*middleware.Manager` | [server.go:L150](../server/server.go#L150) |
-| `GetBannerManager()` | `*BannerManager` | [server.go:L155](../server/server.go#L155) |
-| `GetPoolManager()` | `cpool.PoolManager` | [server.go:L160](../server/server.go#L160) |
-| `GetWebSocketService()` | `*WebSocketService` | [server.go:L165](../server/server.go#L165) |
-| `GetEndpointCollector()` | `*EndpointCollector` | [server.go:L170](../server/server.go#L170) |
-| `GetDataMasker()` | `*desensitize.DataMasker` | [server.go:L175](../server/server.go#L175) |
-| `GetGRPCServer()` | `*grpc.Server` | [server.go:L180](../server/server.go#L180) |
-| `GetEndpoint()` | `string` | [server.go:L185](../server/server.go#L185) |
-| `GetContext()` | `context.Context` | [server.go:L193](../server/server.go#L193) |
-| `GetDialOptions()` | `[]grpc.DialOption` | [server.go:L201](../server/server.go#L201) |
+| 方法 | 返回类型 |
+|------|---------|
+| `GetGatewayMux()` | `*runtime.ServeMux` |
+| `GetConfig()` | `*gwconfig.Gateway` |
+| `GetMiddlewareManager()` | `*middleware.Manager` |
+| `GetBannerManager()` | `*BannerManager` |
+| `GetPoolManager()` | `cpool.PoolManager` |
+| `GetEndpointCollector()` | `*EndpointCollector` |
+| `GetDataMasker()` | `*desensitize.DataMasker` |
+| `GetGRPCServer()` | `*grpc.Server` |
+| `GetEndpoint()` | `string` |
+| `GetContext()` | `context.Context` |
+| `GetDialOptions()` | `[]grpc.DialOption` |
+
+> 源码：[server/server.go](../server/server.go)
 
 ### 注册方法
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `RegisterGRPCService(fn)` | 注册 gRPC 服务 | [server.go:L210](../server/server.go#L210) |
-| `AddGrpcGatewayMiddleware(mw)` | 添加 gRPC-Gateway 中间件 | [server.go:L218](../server/server.go#L218) |
-| `AddGrpcGatewayMiddlewareProvider(fn)` | 添加延迟中间件提供器 | [server.go:L224](../server/server.go#L224) |
-| `RegisterHTTPRoute(pattern, handler)` | 注册 HTTP 路由 | [http.go:L559](../server/http.go#L559) |
-| `RegisterHTTPHandlerFunc(pattern, fn)` | 注册 HTTP 处理函数 | [http.go:L583](../server/http.go#L583) |
+| `RegisterGRPCService(fn)` | 注册 gRPC 服务 | [server.go](../server/server.go) |
+| `AddGrpcGatewayMiddleware(mw)` | 添加 gRPC-Gateway 中间件 | [server.go](../server/server.go) |
+| `AddGrpcGatewayMiddlewareProvider(fn)` | 添加延迟中间件提供器 | [server.go](../server/server.go) |
+| `RegisterHTTPRoute(pattern, handler)` | 注册 HTTP 路由 | [http.go](../server/http.go) |
+| `RegisterHTTPHandlerFunc(pattern, fn)` | 注册 HTTP 处理函数 | [http.go](../server/http.go) |
 
 ## 核心组件
 
 ### 核心初始化 — core.go
 
-> 源码：[server/core.go:initCore()](../server/core.go#L20)
+> 源码：[server/core.go:initCore()](../server/core.go)
 
 ```go
 func (s *Server) initCore() error {
@@ -115,17 +116,17 @@ func (s *Server) initCore() error {
 
 ### gRPC 服务器 — grpc.go
 
-> 源码：[server/grpc.go:initGRPCServer()](../server/grpc.go#L32)
+> 源码：[server/grpc.go:initGRPCServer()](../server/grpc.go)
 
 初始化流程：
 
-1. 检查 `grpc.server.enable` 配置 → [grpc.go:L37](../server/grpc.go#L37)
-2. 监控消息大小配置（1MB–100MB 推荐范围） → [grpc.go:L43-L62](../server/grpc.go#L43)
-3. Keepalive 参数配置 → [grpc.go:L79-L89](../server/grpc.go#L79)
-4. 连接超时与 Enforcement Policy → [grpc.go:L92-L101](../server/grpc.go#L92)
-5. 挂载 Unary 拦截器链 → [grpc.go:L106-L139](../server/grpc.go#L106)
-6. 挂载 Stream 拦截器链 → [grpc.go:L142-L164](../server/grpc.go#L142)
-7. 启用 gRPC 反射（reflection） → [grpc.go:L170-L173](../server/grpc.go#L170)
+1. 检查 `grpc.server.enable` 配置 → [grpc.go](../server/grpc.go)
+2. 监控消息大小配置（1MB–100MB 推荐范围） → [grpc.go](../server/grpc.go)
+3. Keepalive 参数配置 → [grpc.go](../server/grpc.go)
+4. 连接超时与 Enforcement Policy → [grpc.go](../server/grpc.go)
+5. 挂载 Unary 拦截器链 → [grpc.go](../server/grpc.go)
+6. 挂载 Stream 拦截器链 → [grpc.go](../server/grpc.go)
+7. 启用 gRPC 反射（reflection） → [grpc.go](../server/grpc.go)
 
 Unary 拦截器链（按执行顺序）：
 
@@ -140,9 +141,9 @@ Unary 拦截器链（按执行顺序）：
 | 7 | `GRPCStructTagValidatorInterceptor` | 否 | struct tag 参数校验 |
 | 8 | `UnaryServerCompressionInterceptor` | 是 | 响应压缩 |
 
-启动 gRPC 服务器：[grpc.go:startGRPCServer()](../server/grpc.go#L195)
+启动 gRPC 服务器：[grpc.go:startGRPCServer()](../server/grpc.go)
 
-停止 gRPC 服务器：[grpc.go:stopGRPCServer()](../server/grpc.go#L225)
+停止 gRPC 服务器：[grpc.go:stopGRPCServer()](../server/grpc.go)
 
 ### HTTP 服务器 — http.go
 
@@ -150,7 +151,7 @@ Unary 拦截器链（按执行顺序）：
 
 #### JSON 序列化配置
 
-> 源码：[http.go:buildServeMuxOptions()](../server/http.go#L43)
+> 源码：[http.go:buildServeMuxOptions()](../server/http.go)
 
 ```go
 func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
@@ -194,7 +195,7 @@ func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
 
 #### Gzip 压缩
 
-> 源码：[http.go:initGzipWriterPool()](../server/http.go#L151)、[http.go:gzipMiddleware()](../server/http.go#L224)
+> 源码：[http.go:initGzipWriterPool()](../server/http.go)、[http.go:gzipMiddleware()](../server/http.go)
 
 - 使用 `sync.Pool` 复用 gzip.Writer
 - 预处理跳过路径和扩展名为 map（O(1) 查找）
@@ -202,7 +203,7 @@ func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
 
 #### 数据脱敏
 
-> 源码：[http.go:initDataMasker()](../server/http.go#L264)
+> 源码：[http.go:initDataMasker()](../server/http.go)
 
 ```go
 func (s *Server) initDataMasker() {
@@ -218,24 +219,24 @@ func (s *Server) initDataMasker() {
 
 #### HTTP Gateway 初始化
 
-> 源码：[http.go:initHTTPGateway()](../server/http.go#L276)
+> 源码：[http.go:initHTTPGateway()](../server/http.go)
 
 初始化流程：
 
-1. 创建 gRPC-Gateway ServeMux（含 JSON 序列化 + Header 传递） → [http.go:L278](../server/http.go#L278)
-2. 收集 gRPC-Gateway 中间件（静态 + 动态提供器），去重 → [http.go:L281-L310](../server/http.go#L281)
-3. 自动注入 struct tag 校验中间件 → [http.go:L314-L317](../server/http.go#L314)
-4. 创建 HTTP Mux，注册默认路由 `/` → gwMux → [http.go:L335-L340](../server/http.go#L335)
-5. 注册健康检查端点 → [http.go:L345-L354](../server/http.go#L345)
-6. 注册 Prometheus 指标端点 → [http.go:L357-L369](../server/http.go#L357)
-7. 应用 HTTP 中间件链 → [http.go:L372-L378](../server/http.go#L372)
-8. 应用 Gzip 压缩中间件 → [http.go:L382-L385](../server/http.go#L382)
-9. 应用 HTTP/2 (h2c) → [http.go:L388-L392](../server/http.go#L388)
-10. 创建 HTTP Server（含超时、TLS 配置） → [http.go:L395-L404](../server/http.go#L395)
+1. 创建 gRPC-Gateway ServeMux（含 JSON 序列化 + Header 传递） → [http.go](../server/http.go)
+2. 收集 gRPC-Gateway 中间件（静态 + 动态提供器），去重 → [http.go](../server/http.go)
+3. 自动注入 struct tag 校验中间件 → [http.go](../server/http.go)
+4. 创建 HTTP Mux，注册默认路由 `/` → gwMux → [http.go](../server/http.go)
+5. 注册健康检查端点 → [http.go](../server/http.go)
+6. 注册 Prometheus 指标端点 → [http.go](../server/http.go)
+7. 应用 HTTP 中间件链 → [http.go](../server/http.go)
+8. 应用 Gzip 压缩中间件 → [http.go](../server/http.go)
+9. 应用 HTTP/2 (h2c) → [http.go](../server/http.go)
+10. 创建 HTTP Server（含超时、TLS 配置） → [http.go](../server/http.go)
 
 #### 重建 HTTP 网关
 
-> 源码：[http.go:RebuildHTTPGateway()](../server/http.go#L410)
+> 源码：[http.go:RebuildHTTPGateway()](../server/http.go)
 
 ```go
 func (s *Server) RebuildHTTPGateway() error {
@@ -248,7 +249,7 @@ func (s *Server) RebuildHTTPGateway() error {
 
 #### 健康检查处理器
 
-> 源码：[http.go:healthCheckHandler()](../server/http.go#L502)、[http.go:componentHealthCheck()](../server/http.go#L524)
+> 源码：[http.go:healthCheckHandler()](../server/http.go)、[http.go:componentHealthCheck()](../server/http.go)
 
 - `/health` — 综合健康检查
 - `/health/redis` — Redis 组件检查
@@ -256,7 +257,7 @@ func (s *Server) RebuildHTTPGateway() error {
 
 #### TLS 配置
 
-> 源码：[http.go:buildTLSConfig()](../server/http.go#L603)
+> 源码：[http.go:buildTLSConfig()](../server/http.go)
 
 ```go
 func (s *Server) buildTLSConfig() *tls.Config {
@@ -272,7 +273,7 @@ func (s *Server) buildTLSConfig() *tls.Config {
 
 #### HTTP/2 配置
 
-> 源码：[http.go:buildHTTP2Server()](../server/http.go#L627)
+> 源码：[http.go:buildHTTP2Server()](../server/http.go)
 
 ```go
 func (s *Server) buildHTTP2Server() *http2.Server {
@@ -286,7 +287,7 @@ func (s *Server) buildHTTP2Server() *http2.Server {
 
 #### 命名监听器（多端口支持）
 
-> 源码：[http.go:namedListener](../server/http.go#L639)
+> 源码：[http.go:namedListener](../server/http.go)
 
 ```go
 type namedListener struct {
@@ -298,9 +299,9 @@ type namedListener struct {
 
 每个命名监听器复用主 HTTP 网关的 `gwMux` 和中间件链，但监听独立的 Host:Port，适用于 Ops/Tenant 端口分离等场景。
 
-- 初始化：[http.go:initNamedListeners()](../server/http.go#L648)
-- 启动：[http.go:startNamedListeners()](../server/http.go#L697)
-- 停止：[http.go:stopNamedListeners()](../server/http.go#L721)
+- 初始化：[http.go:initNamedListeners()](../server/http.go)
+- 启动：[http.go:startNamedListeners()](../server/http.go)
+- 停止：[http.go:stopNamedListeners()](../server/http.go)
 
 ### 生命周期 — lifecycle.go
 
@@ -310,18 +311,18 @@ type namedListener struct {
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `Start()` | 启动服务器（gRPC + HTTP + WebSocket + PProf） | [lifecycle.go:L28](../server/lifecycle.go#L28) |
-| `Stop()` | 停止服务器 | [lifecycle.go:L146](../server/lifecycle.go#L146) |
-| `Restart()` | 重启服务器（Stop + Start） | [lifecycle.go:L198](../server/lifecycle.go#L198) |
-| `Shutdown()` | 优雅关闭（等价于 Stop） | [lifecycle.go:L210](../server/lifecycle.go#L210) |
-| `IsRunning()` | 检查服务器是否运行中 | [lifecycle.go:L215](../server/lifecycle.go#L215) |
-| `Wait()` | 等待所有 goroutine 结束 | [lifecycle.go:L222](../server/lifecycle.go#L222) |
-| `WaitForShutdown()` | 等待关闭信号并优雅关闭 | [lifecycle.go:L227](../server/lifecycle.go#L227) |
-| `Run()` | 一键启动并等待信号（Start + WaitForShutdown） | [lifecycle.go:L251](../server/lifecycle.go#L251) |
+| `Start()` | 启动服务器（gRPC + HTTP + WebSocket + PProf） | [lifecycle.go](../server/lifecycle.go) |
+| `Stop()` | 停止服务器 | [lifecycle.go](../server/lifecycle.go) |
+| `Restart()` | 重启服务器（Stop + Start） | [lifecycle.go](../server/lifecycle.go) |
+| `Shutdown()` | 优雅关闭（等价于 Stop） | [lifecycle.go](../server/lifecycle.go) |
+| `IsRunning()` | 检查服务器是否运行中 | [lifecycle.go](../server/lifecycle.go) |
+| `Wait()` | 等待所有 goroutine 结束 | [lifecycle.go](../server/lifecycle.go) |
+| `WaitForShutdown()` | 等待关闭信号并优雅关闭 | [lifecycle.go](../server/lifecycle.go) |
+| `Run()` | 一键启动并等待信号（Start + WaitForShutdown） | [lifecycle.go](../server/lifecycle.go) |
 
 #### 启动流程
 
-> 源码：[lifecycle.go:Start()](../server/lifecycle.go#L28)
+> 源码：[lifecycle.go:Start()](../server/lifecycle.go)
 
 ```mermaid
 flowchart TD
@@ -345,7 +346,7 @@ flowchart TD
 
 #### 停止流程
 
-> 源码：[lifecycle.go:Stop()](../server/lifecycle.go#L146)
+> 源码：[lifecycle.go:Stop()](../server/lifecycle.go)
 
 ```mermaid
 flowchart TD
@@ -365,7 +366,7 @@ flowchart TD
 
 #### 一键启动
 
-> 源码：[lifecycle.go:Run()](../server/lifecycle.go#L251)
+> 源码：[lifecycle.go:Run()](../server/lifecycle.go)
 
 ```go
 func (s *Server) Run() error {
@@ -380,7 +381,7 @@ func (s *Server) Run() error {
 
 #### 优雅关闭
 
-> 源码：[lifecycle.go:WaitForShutdown()](../server/lifecycle.go#L227)
+> 源码：[lifecycle.go:WaitForShutdown()](../server/lifecycle.go)
 
 监听 `SIGINT`、`SIGTERM` 信号，触发优雅关闭。
 
@@ -403,20 +404,20 @@ func (s *Server) initMiddleware() error {
 }
 ```
 
-健康检查初始化：[middleware_init.go:initHealthManager()](../server/middleware_init.go#L40)
+健康检查初始化：[middleware_init.go:initHealthManager()](../server/middleware_init.go)
 
-- 注册 Redis 健康检查器 → [middleware_init.go:L46](../server/middleware_init.go#L46)
-- 注册 MySQL 健康检查器 → [middleware_init.go:L52](../server/middleware_init.go#L52)
+- 注册 Redis 健康检查器 → [middleware_init.go](../server/middleware_init.go)
+- 注册 MySQL 健康检查器 → [middleware_init.go](../server/middleware_init.go)
 
-服务器组件初始化：[middleware_init.go:initServers()](../server/middleware_init.go#L63)
+服务器组件初始化：[middleware_init.go:initServers()](../server/middleware_init.go)
 
-- 初始化 gRPC 服务器 → [middleware_init.go:L65](../server/middleware_init.go#L65)
-- 初始化 HTTP Gateway → [middleware_init.go:L70](../server/middleware_init.go#L70)
-- 初始化命名监听器（失败不中断） → [middleware_init.go:L75](../server/middleware_init.go#L75)
-- 初始化 WebSocket 服务（失败不中断） → [middleware_init.go:L80](../server/middleware_init.go#L80)
-- 注入扩展指标采集函数 → [middleware_init.go:L87](../server/middleware_init.go#L87)
+- 初始化 gRPC 服务器 → [middleware_init.go](../server/middleware_init.go)
+- 初始化 HTTP Gateway → [middleware_init.go](../server/middleware_init.go)
+- 初始化命名监听器（失败不中断） → [middleware_init.go](../server/middleware_init.go)
+- 初始化 WebSocket 服务（失败不中断） → [middleware_init.go](../server/middleware_init.go)
+- 注入扩展指标采集函数 → [middleware_init.go](../server/middleware_init.go)
 
-扩展指标采集（[middleware_init.go:injectMetricsCollectors()](../server/middleware_init.go#L94)）注入连接池健康检查、熔断器统计、WebSocket 统计采集函数，在 Prometheus scrape 时按需调用。
+扩展指标采集（[middleware_init.go:injectMetricsCollectors()](../server/middleware_init.go)）注入连接池健康检查、熔断器统计、WebSocket 统计采集函数，在 Prometheus scrape 时按需调用。
 
 ### 配置热重载 — reload.go
 
@@ -424,7 +425,7 @@ func (s *Server) initMiddleware() error {
 
 #### ApplyConfig — 更新内存配置
 
-> 源码：[reload.go:ApplyConfig()](../server/reload.go#L24)
+> 源码：[reload.go:ApplyConfig()](../server/reload.go)
 
 ```go
 func (s *Server) ApplyConfig(cfg *gwconfig.Gateway) {
@@ -439,7 +440,7 @@ func (s *Server) ApplyConfig(cfg *gwconfig.Gateway) {
 
 #### ReloadHTTPGateway — 重建 HTTP 网关
 
-> 源码：[reload.go:ReloadHTTPGateway()](../server/reload.go#L35)
+> 源码：[reload.go:ReloadHTTPGateway()](../server/reload.go)
 
 签名：`ReloadHTTPGateway(cfg *gwconfig.Gateway, replay func() error) error`
 
@@ -460,7 +461,7 @@ flowchart TD
 
 #### ReloadGRPCServer — 重建 gRPC 服务器
 
-> 源码：[reload.go:ReloadGRPCServer()](../server/reload.go#L78)
+> 源码：[reload.go:ReloadGRPCServer()](../server/reload.go)
 
 签名：`ReloadGRPCServer(cfg *gwconfig.Gateway, registrars []func(*grpc.Server)) error`
 
@@ -468,13 +469,13 @@ flowchart TD
 
 #### ReloadPProfServer — 重建 PProf 服务器
 
-> 源码：[reload.go:ReloadPProfServer()](../server/reload.go#L119)
+> 源码：[reload.go:ReloadPProfServer()](../server/reload.go)
 
 签名：`ReloadPProfServer(cfg *gwconfig.Gateway) error`
 
 ### Swagger 文档 — swagger.go
 
-> 源码：[server/swagger.go:EnableSwagger()](../server/swagger.go#L19)
+> 源码：[server/swagger.go:EnableSwagger()](../server/swagger.go)
 
 ```go
 func (s *Server) EnableSwagger() error {
@@ -491,8 +492,8 @@ func (s *Server) EnableSwagger() error {
 }
 ```
 
-- 支持单服务 Swagger 和聚合模式 → [swagger.go:L26](../server/swagger.go#L26)
-- 自动修正 UIPath 避免路由冲突 → [swagger.go:L34](../server/swagger.go#L34)
+- 支持单服务 Swagger 和聚合模式 → [swagger.go](../server/swagger.go)
+- 自动修正 UIPath 避免路由冲突 → [swagger.go](../server/swagger.go)
 
 ### Swagger 文件嵌入 — swagger_embed.go
 
@@ -500,7 +501,7 @@ func (s *Server) EnableSwagger() error {
 
 #### SwaggerFileProvider 接口
 
-> 源码：[swagger_embed.go:SwaggerFileProvider](../server/swagger_embed.go#L22)
+> 源码：[swagger_embed.go:SwaggerFileProvider](../server/swagger_embed.go)
 
 ```go
 type SwaggerFileProvider interface {
@@ -511,75 +512,56 @@ type SwaggerFileProvider interface {
 
 #### EmbeddedSwaggerProvider
 
-> 源码：[swagger_embed.go:EmbeddedSwaggerProvider](../server/swagger_embed.go#L30)
+> 源码：[swagger_embed.go:EmbeddedSwaggerProvider](../server/swagger_embed.go)
 
 嵌入式 Swagger 文件提供器，从 `embed.FS` 加载的文件供 `EndpointCollector` 解析。
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `NewEmbeddedSwaggerProvider(files)` | 创建嵌入式提供器 | [swagger_embed.go:L35](../server/swagger_embed.go#L35) |
-| `GetSwaggerFiles()` | 获取所有文件 | [swagger_embed.go:L42](../server/swagger_embed.go#L42) |
-| `GetSwaggerFile(path)` | 获取指定文件 | [swagger_embed.go:L47](../server/swagger_embed.go#L47) |
-| `GetSwaggerFilesByPattern(pattern)` | 按模式获取文件 | [swagger_embed.go:L91](../server/swagger_embed.go#L91) |
+| `NewEmbeddedSwaggerProvider(files)` | 创建嵌入式提供器 | [swagger_embed.go](../server/swagger_embed.go) |
+| `GetSwaggerFiles()` | 获取所有文件 | [swagger_embed.go](../server/swagger_embed.go) |
+| `GetSwaggerFile(path)` | 获取指定文件 | [swagger_embed.go](../server/swagger_embed.go) |
+| `GetSwaggerFilesByPattern(pattern)` | 按模式获取文件 | [swagger_embed.go](../server/swagger_embed.go) |
 
-### WebSocket — wsc.go
+### WebSocket
 
-> 源码：[server/wsc.go:WebSocketService](../server/wsc.go#L42)
+**内置的 `WebSocketService`（go-wsc 封装）已从框架移除。** 早先版本有一个
+`server/wsc.go` 提供 Hub、心跳与离线消息等能力，现在不再随框架提供 ——
+WebSocket 的使用方式改为「你自己注册 handler，框架保证升级这条路径可用」。
 
-```go
-type WebSocketService struct {
-    hub        *wsc.Hub
-    config     *wscconfig.WSC
-    httpServer *http.Server
-    ctx        context.Context
-    cancel     context.CancelFunc
-    running    atomic.Bool
-}
-```
-
-go-wsc 的薄封装，职责：
-
-1. HTTP 服务器生命周期管理 → [wsc.go:Start()](../server/wsc.go#L155)
-2. 应用层配置和依赖注入 → [wsc.go:NewWebSocketService()](../server/wsc.go#L57)
-3. 直接暴露 go-wsc Hub 的所有 API
-
-#### 生命周期与访问器方法
-
-| 方法 | 说明 | 源码 |
-|------|------|------|
-| `NewWebSocketService(cfg)` | 创建 WebSocket 服务 | [wsc.go:L57](../server/wsc.go#L57) |
-| `Start()` | 启动 HTTP 服务器 | [wsc.go:L155](../server/wsc.go#L155) |
-| `Stop()` | 停止服务 | [wsc.go:L211](../server/wsc.go#L211) |
-| `IsRunning()` | 检查运行状态 | [wsc.go:L238](../server/wsc.go#L238) |
-| `GetHub()` | 获取底层 go-wsc Hub 实例 | [wsc.go:L248](../server/wsc.go#L248) |
-| `GetConfig()` | 获取 WSC 配置 | [wsc.go:L253](../server/wsc.go#L253) |
-| `SendToUserWithRetry(ctx, userID, msg)` | 带重试发送消息并返回结果 | [wsc.go:L259](../server/wsc.go#L259) |
-
-`SendToUserWithRetry` 签名：
+做法是用 `RegisterHTTPRoute` 挂一个普通 `http.Handler`，在里面用任意 WebSocket
+库（gorilla/websocket、nhooyr/websocket 等）完成升级：
 
 ```go
-func (ws *WebSocketService) SendToUserWithRetry(ctx context.Context, userID string, msg *wsc.HubMessage) *wsc.SendResult
+gw.RegisterHTTPRoute("/ws", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    conn, err := upgrader.Upgrade(w, r, nil)   // 需要 http.Hijacker
+    if err != nil {
+        return
+    }
+    defer conn.Close()
+    // 你的读写循环
+}))
 ```
 
-#### 回调注册方法
+升级要拿到裸 TCP 连接，也就是要求整条中间件链上**每一层** `ResponseWriter`
+包装器都实现 `http.Hijacker` —— 这些包装器的 `Hijack` 是逐层往内委托的，
+中间任何一层不实现，断言就在那里失败、升级返回
+`http.ErrNotSupported`，而且没有任何报错。
 
-| 方法 | 说明 | 源码 |
-|------|------|------|
-| `OnClientConnect(cb)` | 客户端连接回调 | [wsc.go:L279](../server/wsc.go#L279) |
-| `OnClientDisconnect(cb)` | 客户端断开回调 | [wsc.go:L295](../server/wsc.go#L295) |
-| `OnMessageReceived(cb)` | 消息接收回调 | [wsc.go:L311](../server/wsc.go#L311) |
-| `OnError(cb)` | 错误处理回调 | [wsc.go:L327](../server/wsc.go#L327) |
-| `OnHeartbeatTimeout(cb)` | 心跳超时回调 | [wsc.go:L347](../server/wsc.go#L347) |
-| `OnHeartbeatReport(cb)` | 心跳上报回调 | [wsc.go:L363](../server/wsc.go#L363) |
-| `OnBeforeHeartbeat(cb)` | 心跳处理前回调 | [wsc.go:L382](../server/wsc.go#L382) |
-| `OnAfterHeartbeat(cb)` | 心跳处理后回调 | [wsc.go:L397](../server/wsc.go#L397) |
-| `OnOfflineMessagePush(cb)` | 离线消息推送回调 | [wsc.go:L412](../server/wsc.go#L412) |
-| `OnMessageSend(cb)` | 消息发送完成回调 | [wsc.go:L431](../server/wsc.go#L431) |
-| `OnQueueFull(cb)` | 队列满回调 | [wsc.go:L446](../server/wsc.go#L446) |
+框架内的三个包装器都已显式实现 `Hijacker`（连同 `Flusher`、`Pusher`、`Unwrap`）：
+
+| 包装器 | 位置 |
+|--------|------|
+| `core.ResponseWriter`（日志、熔断、降载共用） | [middleware/core/response_writer.go](../middleware/core/response_writer.go) |
+| `metricsResponseWriter`（指标） | [middleware/observability/observability.go](../middleware/observability/observability.go) |
+| `gzipResponseWriter`（压缩） | [server/http.go](../server/http.go) |
+
+> gzip 侧还额外处理了一件事：连接被劫持之后不再通过原 `ResponseWriter` 写 gzip 尾块，
+> 否则只会拿到 `http.ErrHijacked`，并把一个已 `Close` 的 writer 放回对象池。
 
 ### Banner — banner.go
 
-> 源码：[server/banner.go:BannerManager](../server/banner.go#L25)
+> 源码：[server/banner.go:BannerManager](../server/banner.go)
 
 ```go
 type BannerManager struct {
@@ -596,29 +578,29 @@ type BannerManager struct {
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `NewBannerManager(config)` | 创建横幅管理器 | [banner.go:L33](../server/banner.go#L33) |
-| `WithContext(ctx)` | 设置上下文（链式） | [banner.go:L42](../server/banner.go#L42) |
-| `AddFeature(feature)` | 添加功能特性 | [banner.go:L48](../server/banner.go#L48) |
-| `PrintStartupChecks()` | 打印启动前检查 | [startup.go:L108](../server/startup.go#L108) |
-| `PrintStartupReport()` | 打印启动成功后的完整报告 | [startup.go:L119](../server/startup.go#L119) |
-| `PrintShutdownBanner()` | 打印关闭横幅 | [banner.go:L96](../server/banner.go#L96) |
-| `PrintShutdownComplete()` | 打印关闭完成 | [banner.go:L103](../server/banner.go#L103) |
+| `NewBannerManager(config)` | 创建横幅管理器 | [banner.go](../server/banner.go) |
+| `WithContext(ctx)` | 设置上下文（链式） | [banner.go](../server/banner.go) |
+| `AddFeature(feature)` | 添加功能特性 | [banner.go](../server/banner.go) |
+| `PrintStartupChecks()` | 打印启动前检查 | [startup.go](../server/startup.go) |
+| `PrintStartupReport()` | 打印启动成功后的完整报告 | [startup.go](../server/startup.go) |
+| `PrintShutdownBanner()` | 打印关闭横幅 | [banner.go](../server/banner.go) |
+| `PrintShutdownComplete()` | 打印关闭完成 | [banner.go](../server/banner.go) |
 
 #### 展示区块
 
 | 区块 | 方法 | 源码 |
 |------|------|------|
-| 基础信息 | `printFieldSection("📋 基础信息", ...)` | [banner.go:L64](../server/banner.go#L64) |
-| 构建信息 | `printFieldSection("🔨 构建信息", ...)` | [banner.go:L71](../server/banner.go#L71) |
-| Git 信息 | `printFieldSection("🔖 Git信息", ...)` | [banner.go:L76](../server/banner.go#L76) |
-| 服务器配置 | `serverFields()` | [banner.go:L81](../server/banner.go#L81) |
-| 企业级功能 | `featureLabels()` | [banner.go:L82](../server/banner.go#L82) |
-| 核心端点 | `endpointFields()` | [banner.go:L83](../server/banner.go#L83) |
-| 系统信息 | `printFieldSection("💻 系统信息", ...)` | [banner.go:L84](../server/banner.go#L84) |
+| 基础信息 | `printFieldSection("📋 基础信息", ...)` | [banner.go](../server/banner.go) |
+| 构建信息 | `printFieldSection("🔨 构建信息", ...)` | [banner.go](../server/banner.go) |
+| Git 信息 | `printFieldSection("🔖 Git信息", ...)` | [banner.go](../server/banner.go) |
+| 服务器配置 | `serverFields()` | [banner.go](../server/banner.go) |
+| 企业级功能 | `featureLabels()` | [banner.go](../server/banner.go) |
+| 核心端点 | `endpointFields()` | [banner.go](../server/banner.go) |
+| 系统信息 | `printFieldSection("💻 系统信息", ...)` | [banner.go](../server/banner.go) |
 
 ### 端点收集器 — endpoint_utils.go
 
-> 源码：[server/endpoint_utils.go:EndpointCollector](../server/endpoint_utils.go#L41)
+> 源码：[server/endpoint_utils.go:EndpointCollector](../server/endpoint_utils.go)
 
 ```go
 type EndpointCollector struct {
@@ -637,27 +619,27 @@ type EndpointInfo struct {
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `NewEndpointCollector()` | 创建端点收集器 | [endpoint_utils.go:L47](../server/endpoint_utils.go#L47) |
-| `AddEndpoint(info)` | 添加端点（自动去重） | [endpoint_utils.go:L54](../server/endpoint_utils.go#L54) |
-| `GetAllEndpoints()` | 获取所有端点（排序后副本） | [endpoint_utils.go:L72](../server/endpoint_utils.go#L72) |
-| `Clear()` | 清空所有端点 | [endpoint_utils.go:L92](../server/endpoint_utils.go#L92) |
-| `LoadEndpointsFromSwaggerFile(path)` | 从 Swagger YAML 加载 | [endpoint_utils.go:L115](../server/endpoint_utils.go#L115) |
-| `LoadEndpointsFromSwaggerFiles(dir)` | 批量加载目录下 `.swagger.yaml` | [endpoint_utils.go:L133](../server/endpoint_utils.go#L133) |
-| `CollectFromSwagger(data)` | 从 Swagger 数据收集端点 | [endpoint_utils.go:L164](../server/endpoint_utils.go#L164) |
-| `LoadEndpointsFromProvider(provider)` | 从 SwaggerFileProvider 加载 | [swagger_embed.go:L55](../server/swagger_embed.go#L55) |
-| `LoadEndpointsFromYAMLContent(yaml)` | 从 YAML 内容加载 | [swagger_embed.go:L80](../server/swagger_embed.go#L80) |
-| `ToJSON()` | 导出 JSON | [endpoint_utils.go:L223](../server/endpoint_utils.go#L223) |
-| `CreateHTTPHandler()` | 创建 HTTP 处理器 | [endpoint_utils.go:L232](../server/endpoint_utils.go#L232) |
+| `NewEndpointCollector()` | 创建端点收集器 | [endpoint_utils.go](../server/endpoint_utils.go) |
+| `AddEndpoint(info)` | 添加端点（自动去重） | [endpoint_utils.go](../server/endpoint_utils.go) |
+| `GetAllEndpoints()` | 获取所有端点（排序后副本） | [endpoint_utils.go](../server/endpoint_utils.go) |
+| `Clear()` | 清空所有端点 | [endpoint_utils.go](../server/endpoint_utils.go) |
+| `LoadEndpointsFromSwaggerFile(path)` | 从 Swagger YAML 加载 | [endpoint_utils.go](../server/endpoint_utils.go) |
+| `LoadEndpointsFromSwaggerFiles(dir)` | 批量加载目录下 `.swagger.yaml` | [endpoint_utils.go](../server/endpoint_utils.go) |
+| `CollectFromSwagger(data)` | 从 Swagger 数据收集端点 | [endpoint_utils.go](../server/endpoint_utils.go) |
+| `LoadEndpointsFromProvider(provider)` | 从 SwaggerFileProvider 加载 | [swagger_embed.go](../server/swagger_embed.go) |
+| `LoadEndpointsFromYAMLContent(yaml)` | 从 YAML 内容加载 | [swagger_embed.go](../server/swagger_embed.go) |
+| `ToJSON()` | 导出 JSON | [endpoint_utils.go](../server/endpoint_utils.go) |
+| `CreateHTTPHandler()` | 创建 HTTP 处理器 | [endpoint_utils.go](../server/endpoint_utils.go) |
 
 包级工具函数：
 
 | 函数 | 说明 | 源码 |
 |------|------|------|
-| `GenerateEndpointInfo(method, path, summary, operationID, tags)` | 生成端点信息 | [endpoint_utils.go:L100](../server/endpoint_utils.go#L100) |
+| `GenerateEndpointInfo(method, path, summary, operationID, tags)` | 生成端点信息 | [endpoint_utils.go](../server/endpoint_utils.go) |
 
 ## Server 创建流程
 
-> 源码：[server/server.go:NewServer()](../server/server.go#L94)
+> 源码：[server/server.go:NewServer()](../server/server.go)
 
 ```mermaid
 flowchart TD
@@ -696,11 +678,11 @@ func NewServer() (*Server, error) {
 
 | 步骤 | 方法 | 说明 | 源码 |
 |------|------|------|------|
-| 1 | `initGzipWriterPool()` | 初始化 Gzip writer 对象池 | [server.go:L118](../server/server.go#L118) |
-| 2 | `initDataMasker()` | 初始化数据脱敏器 | [server.go:L121](../server/server.go#L121) |
-| 3 | `initCore()` | 绑定 PoolManager、初始化端点收集器 | [server.go:L124](../server/server.go#L124) |
-| 4 | `initMiddleware()` | 创建中间件管理器、注册健康检查 | [server.go:L130](../server/server.go#L130) |
-| 5 | `initServers()` | 初始化 gRPC/HTTP/WebSocket 服务器 | [server.go:L136](../server/server.go#L136) |
+| 1 | `initGzipWriterPool()` | 初始化 Gzip writer 对象池 | [server.go](../server/server.go) |
+| 2 | `initDataMasker()` | 初始化数据脱敏器 | [server.go](../server/server.go) |
+| 3 | `initCore()` | 绑定 PoolManager、初始化端点收集器 | [server.go](../server/server.go) |
+| 4 | `initMiddleware()` | 创建中间件管理器、注册健康检查 | [server.go](../server/server.go) |
+| 5 | `initServers()` | 初始化 gRPC/HTTP/WebSocket 服务器 | [server.go](../server/server.go) |
 
 ## 下一步
 
