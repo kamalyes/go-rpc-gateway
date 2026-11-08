@@ -12,6 +12,7 @@
 package core
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/kamalyes/go-rpc-gateway/config/cache"
@@ -20,6 +21,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/config/kafka"
 	"github.com/kamalyes/go-rpc-gateway/config/middleware"
 	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
+	"github.com/kamalyes/go-rpc-gateway/config/ots"
 	"github.com/kamalyes/go-rpc-gateway/config/queue"
 	"github.com/kamalyes/go-rpc-gateway/config/smtp"
 	"github.com/kamalyes/go-rpc-gateway/config/swagger"
@@ -32,39 +34,43 @@ import (
 
 // Gateway网关统一配置
 type Gateway struct {
-	ModuleName     string                   `mapstructure:"module-name" yaml:"module-name" json:"moduleName"`             // 模块名称
-	Name           string                   `mapstructure:"name" yaml:"name" json:"name"`                                 // 网关名称
-	Enabled        bool                     `mapstructure:"enabled" yaml:"enabled" json:"enabled"`                        // 是否启用网关
-	Debug          bool                     `mapstructure:"debug" yaml:"debug" json:"debug"`                              // 是否启用调试模式
-	Version        string                   `mapstructure:"version" yaml:"version" json:"version"`                        // 版本号
-	Environment    string                   `mapstructure:"environment" yaml:"environment" json:"environment"`            // 环境 (dev, test, prod)
-	BuildTime      string                   `mapstructure:"build-time" yaml:"build-time" json:"buildTime"`                // 构建时间
-	BuildUser      string                   `mapstructure:"build-user" yaml:"build-user" json:"buildUser"`                // 构建用户
-	GoVersion      string                   `mapstructure:"go-version" yaml:"go-version" json:"goVersion"`                // Go版本
-	GitCommit      string                   `mapstructure:"git-commit" yaml:"git-commit" json:"gitCommit"`                // Git提交哈希
-	GitBranch      string                   `mapstructure:"git-branch" yaml:"git-branch" json:"gitBranch"`                // Git分支
-	GitTag         string                   `mapstructure:"git-tag" yaml:"git-tag" json:"gitTag"`                         // Git标签
-	JSON           *JSON                    `mapstructure:"json" yaml:"json" json:"json"`                                 // JSON序列化配置
-	HTTPServer     *HTTPServer              `mapstructure:"http" yaml:"http" json:"http"`                                 // HTTP服务器配置（主监听器）
-	Listeners      []*Listener              `mapstructure:"listeners" yaml:"listeners" json:"listeners"`                  // 命名监听器列表（支持多端口，如 Ops/Tenant 分离）
-	GRPC           *GRPC                    `mapstructure:"grpc" yaml:"grpc" json:"grpc"`                                 // GRPC配置
-	Cache          *cache.Cache             `mapstructure:"cache" yaml:"cache" json:"cache"`                              // 缓存配置(包含Redis)
-	Database       *database.Database       `mapstructure:"database" yaml:"database" json:"database"`                     // 数据库统一配置
-	ClickHouse     *tsdb.ClickHouse         `mapstructure:"clickhouse" yaml:"clickhouse" json:"clickhouse"`               // ClickHouse数据库配置
-	Kafka          *kafka.Kafka             `mapstructure:"kafka" yaml:"kafka" json:"kafka"`                              // Kafka配置
-	Mqtt           *queue.Mqtt              `mapstructure:"mqtt" yaml:"mqtt" json:"mqtt"`                                 // MQTT配置
-	Nats           *queue.Nats              `mapstructure:"nats" yaml:"nats" json:"nats"`                                 // NATS配置
-	Smtp           *smtp.Smtp               `mapstructure:"smtp" yaml:"smtp" json:"smtp"`                                 // SMTP邮件服务配置
-	Health         *Health                  `mapstructure:"health" yaml:"health" json:"health"`                           // 健康检查配置
-	Monitoring     *gcmiddleware.Monitoring `mapstructure:"monitoring" yaml:"monitoring" json:"monitoring"`               // 监控配置
-	Security       *gcmiddleware.Security   `mapstructure:"security" yaml:"security" json:"security"`                     // 安全配置
-	RequestContext *RequestContext          `mapstructure:"request-context" yaml:"request-context" json:"requestContext"` // 统一请求提取配置
-	Middleware     *middleware.Middleware   `mapstructure:"middleware" yaml:"middleware" json:"middleware"`               // 中间件配置
-	CORS           *gcmiddleware.Cors       `mapstructure:"cors" yaml:"cors" json:"cors"`                                 // CORS配置
-	Swagger        *swagger.Swagger         `mapstructure:"swagger" yaml:"swagger" json:"swagger"`                        // Swagger配置
-	Banner         *Banner                  `mapstructure:"banner" yaml:"banner" json:"banner"`                           // Banner配置
-	RateLimit      *gcmiddleware.RateLimit  `mapstructure:"rate-limit" yaml:"rate-limit" json:"rateLimit"`                // 限流配置
-	Extensions     map[string]any           `mapstructure:"extensions" yaml:"extensions" json:"extensions"`               // 扩展配置字段，供第三方自定义使用
+	ModuleName     string                        `mapstructure:"module-name" yaml:"module-name" json:"moduleName"`             // 模块名称
+	Name           string                        `mapstructure:"name" yaml:"name" json:"name"`                                 // 网关名称
+	Enabled        bool                          `mapstructure:"enabled" yaml:"enabled" json:"enabled"`                        // 是否启用网关
+	Debug          bool                          `mapstructure:"debug" yaml:"debug" json:"debug"`                              // 是否启用调试模式
+	Version        string                        `mapstructure:"version" yaml:"version" json:"version"`                        // 版本号
+	Environment    string                        `mapstructure:"environment" yaml:"environment" json:"environment"`            // 环境 (dev, test, prod)
+	BuildTime      string                        `mapstructure:"build-time" yaml:"build-time" json:"buildTime"`                // 构建时间
+	BuildUser      string                        `mapstructure:"build-user" yaml:"build-user" json:"buildUser"`                // 构建用户
+	GoVersion      string                        `mapstructure:"go-version" yaml:"go-version" json:"goVersion"`                // Go版本
+	GitCommit      string                        `mapstructure:"git-commit" yaml:"git-commit" json:"gitCommit"`                // Git提交哈希
+	GitBranch      string                        `mapstructure:"git-branch" yaml:"git-branch" json:"gitBranch"`                // Git分支
+	GitTag         string                        `mapstructure:"git-tag" yaml:"git-tag" json:"gitTag"`                         // Git标签
+	JSON           *JSON                         `mapstructure:"json" yaml:"json" json:"json"`                                 // JSON序列化配置
+	HTTPServer     *HTTPServer                   `mapstructure:"http" yaml:"http" json:"http"`                                 // HTTP服务器配置（主监听器）
+	Listeners      []*Listener                   `mapstructure:"listeners" yaml:"listeners" json:"listeners"`                  // 命名监听器列表（支持多端口，如 Ops/Tenant 分离）
+	GRPC           *GRPC                         `mapstructure:"grpc" yaml:"grpc" json:"grpc"`                                 // GRPC配置
+	Cache          *cache.Cache                  `mapstructure:"cache" yaml:"cache" json:"cache"`                              // 缓存配置(包含Redis)
+	Database       *database.Database            `mapstructure:"database" yaml:"database" json:"database"`                     // 数据库统一配置
+	Databases      map[string]*database.Database `mapstructure:"databases" yaml:"databases" json:"databases"`                  // 命名数据库实例（主库/控制库/巡检库）
+	ClickHouse     *tsdb.ClickHouse              `mapstructure:"clickhouse" yaml:"clickhouse" json:"clickhouse"`               // ClickHouse数据库配置
+	Kafka          *kafka.Kafka                  `mapstructure:"kafka" yaml:"kafka" json:"kafka"`                              // Kafka配置
+	KafkaProducers map[string]*kafka.Producer    `mapstructure:"kafka-producers" yaml:"kafka-producers" json:"kafkaProducers"` // 命名 Kafka 生产者
+	KafkaConsumers map[string]*kafka.Consumer    `mapstructure:"kafka-consumers" yaml:"kafka-consumers" json:"kafkaConsumers"` // 命名 Kafka 消费者
+	OTS            *ots.OTS                      `mapstructure:"ots" yaml:"ots" json:"ots"`                                    // 阿里云 Tablestore 配置
+	Mqtt           *queue.Mqtt                   `mapstructure:"mqtt" yaml:"mqtt" json:"mqtt"`                                 // MQTT配置
+	Nats           *queue.Nats                   `mapstructure:"nats" yaml:"nats" json:"nats"`                                 // NATS配置
+	Smtp           *smtp.Smtp                    `mapstructure:"smtp" yaml:"smtp" json:"smtp"`                                 // SMTP邮件服务配置
+	Health         *Health                       `mapstructure:"health" yaml:"health" json:"health"`                           // 健康检查配置
+	Monitoring     *gcmiddleware.Monitoring      `mapstructure:"monitoring" yaml:"monitoring" json:"monitoring"`               // 监控配置
+	Security       *gcmiddleware.Security        `mapstructure:"security" yaml:"security" json:"security"`                     // 安全配置
+	RequestContext *RequestContext               `mapstructure:"request-context" yaml:"request-context" json:"requestContext"` // 统一请求提取配置
+	Middleware     *middleware.Middleware        `mapstructure:"middleware" yaml:"middleware" json:"middleware"`               // 中间件配置
+	CORS           *gcmiddleware.Cors            `mapstructure:"cors" yaml:"cors" json:"cors"`                                 // CORS配置
+	Swagger        *swagger.Swagger              `mapstructure:"swagger" yaml:"swagger" json:"swagger"`                        // Swagger配置
+	Banner         *Banner                       `mapstructure:"banner" yaml:"banner" json:"banner"`                           // Banner配置
+	RateLimit      *gcmiddleware.RateLimit       `mapstructure:"rate-limit" yaml:"rate-limit" json:"rateLimit"`                // 限流配置
+	Extensions     map[string]any                `mapstructure:"extensions" yaml:"extensions" json:"extensions"`               // 扩展配置字段，供第三方自定义使用
 }
 
 // Default 创建默认Gateway配置
@@ -88,7 +94,10 @@ func Default() *Gateway {
 		GRPC:           DefaultGRPC(),
 		Cache:          cache.Default(),
 		Database:       database.DefaultDatabaseConfig(),
+		Databases:      make(map[string]*database.Database),
 		Kafka:          kafka.Default(),
+		KafkaProducers: make(map[string]*kafka.Producer),
+		KafkaConsumers: make(map[string]*kafka.Consumer),
 		Mqtt:           queue.Default(),
 		Nats:           queue.DefaultNatsPtr(),
 		Smtp:           smtp.Default(),
@@ -173,9 +182,40 @@ func (c *Gateway) Validate() error {
 			return err
 		}
 	}
-	// Kafka是值类型，不需要nil检查
-	if err := c.Kafka.Validate(); err != nil {
-		return err
+	for name, databaseConfig := range c.Databases {
+		if databaseConfig == nil {
+			return fmt.Errorf("数据库实例 %s 配置为空", name)
+		}
+		if err := databaseConfig.Validate(); err != nil {
+			return fmt.Errorf("数据库实例 %s: %w", name, err)
+		}
+	}
+	// Kafka 是聚合配置，未配置时跳过
+	if c.Kafka != nil {
+		if err := c.Kafka.Validate(); err != nil {
+			return err
+		}
+	}
+	for name, producerConfig := range c.KafkaProducers {
+		if producerConfig == nil {
+			return fmt.Errorf("Kafka 生产者 %s 配置为空", name)
+		}
+		if err := producerConfig.Validate(); err != nil {
+			return fmt.Errorf("Kafka 生产者 %s: %w", name, err)
+		}
+	}
+	for name, consumerConfig := range c.KafkaConsumers {
+		if consumerConfig == nil {
+			return fmt.Errorf("Kafka 消费者 %s 配置为空", name)
+		}
+		if err := consumerConfig.Validate(); err != nil {
+			return fmt.Errorf("Kafka 消费者 %s: %w", name, err)
+		}
+	}
+	if c.OTS != nil {
+		if err := c.OTS.Validate(); err != nil {
+			return err
+		}
 	}
 	if c.Mqtt != nil {
 		if err := c.Mqtt.Validate(); err != nil {

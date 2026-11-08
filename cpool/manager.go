@@ -109,6 +109,9 @@ type Manager struct {
 	mu          sync.RWMutex
 	ctx         context.Context
 	cancel      context.CancelFunc
+
+	// 命名实例与自定义池，独立持锁
+	extensions managerExtensions
 }
 
 // NewManager 创建新的连接池管理器
@@ -180,6 +183,19 @@ func (m *Manager) Initialize(ctx context.Context, cfg *gwconfig.Gateway) (err er
 		return fmt.Errorf("failed to initialize nats: %w", err)
 	}
 
+	// 初始化命名 Kafka 生产者与消费者
+	if err := m.initKafkaProducers(); err != nil {
+		return fmt.Errorf("failed to initialize kafka producers: %w", err)
+	}
+	if err := m.initKafkaConsumers(); err != nil {
+		return fmt.Errorf("failed to initialize kafka consumers: %w", err)
+	}
+
+	// 初始化 Tablestore 客户端
+	if err := m.initOTS(); err != nil {
+		return fmt.Errorf("failed to initialize ots: %w", err)
+	}
+
 	m.initialized = true
 	m.logger.InfoContext(ctx, "Connection pool manager initialized successfully")
 
@@ -196,6 +212,53 @@ func (m *Manager) initDatabase(ctx context.Context) error {
 		m.logger.WarnContext(ctx, "Failed to initialize database")
 	}
 
+	// 命名数据库实例：主库/控制库/巡检库等多实例场景
+	for name, databaseConfig := range m.cfg.Databases {
+		if name == DefaultName {
+			return fmt.Errorf("databases 不能包含 %s，默认实例请使用 database 配置", DefaultName)
+		}
+		instance, err := database.Open(ctx, databaseConfig, m.logger)
+		if err != nil {
+			return fmt.Errorf("初始化数据库实例 %s: %w", name, err)
+		}
+		if err := m.extensions.storeDatabase(name, instance); err != nil {
+			_ = closeGormDB(instance)
+			return err
+		}
+		m.logger.InfoContextKV(ctx, "Named database initialized successfully", "name", name)
+	}
+
+	return nil
+}
+
+// initKafkaProducers 初始化命名 Kafka 生产者
+func (m *Manager) initKafkaProducers() error {
+	for name, producerConfig := range m.cfg.KafkaProducers {
+		if err := m.AddKafkaProducer(name, producerConfig); err != nil {
+			return fmt.Errorf("初始化 Kafka 生产者 %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// initKafkaConsumers 初始化命名 Kafka 消费者
+func (m *Manager) initKafkaConsumers() error {
+	for name, consumerConfig := range m.cfg.KafkaConsumers {
+		if err := m.AddKafkaConsumer(name, consumerConfig); err != nil {
+			return fmt.Errorf("初始化 Kafka 消费者 %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// initOTS 初始化 Tablestore 客户端
+func (m *Manager) initOTS() error {
+	if m.cfg.OTS == nil || !m.cfg.OTS.Enabled {
+		return nil
+	}
+	if err := m.AddOTS(DefaultName, m.cfg.OTS); err != nil {
+		return fmt.Errorf("初始化 Tablestore: %w", err)
+	}
 	return nil
 }
 
@@ -426,6 +489,9 @@ func (m *Manager) Close() error {
 func (m *Manager) closeConnections() error {
 	var errs []error
 
+	// 先关闭命名实例与自定义池：自定义池可能反向依赖数据库或其他客户端
+	errs = append(errs, m.extensions.closeAll()...)
+
 	// 关闭数据库连接
 	if m.db != nil {
 		if sqlDB, err := m.db.DB(); err == nil {
@@ -530,6 +596,11 @@ func (m *Manager) HealthCheck() map[string]bool {
 	// 检查 NATS 连接状态（官方客户端的底层连接）
 	if m.nats != nil {
 		status["nats"] = m.nats.Conn.IsConnected()
+	}
+
+	// 合并命名实例与自定义池
+	for name, healthy := range m.extensions.healthCheck(context.Background()) {
+		status[name] = healthy
 	}
 
 	return status

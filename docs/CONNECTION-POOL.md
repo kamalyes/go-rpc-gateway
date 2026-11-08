@@ -435,16 +435,110 @@ var (
 
 各项的算法细节、配置字段与导出符号见 [gRPC 客户端](./GRPC-CLIENT.md) 的「负载均衡」与「客户端熔断」两节
 
+## 多数据库实例
+
+`database` 是默认实例，`databases` 按名字追加主库、控制库、巡检库等多实例：
+
+```yaml
+database:
+  enabled: true
+  type: postgres
+  dsn: "postgres://gateway:pwd@127.0.0.1:5432/gateway?sslmode=disable"
+databases:
+  control:
+    enabled: true
+    type: postgres
+    dsn: "postgres://gateway:pwd@127.0.0.1:5432/control?sslmode=disable"
+```
+
+```go
+db := manager.GetDatabase("control")
+names := manager.DatabaseNames() // ["control", "default"]
+```
+
+命名实例不能叫 `default`，默认实例始终由 `database` 配置，取用统一走
+`GetDatabase("default")` 或既有的 `GetDB()`
+
+也可以不经过配置文件，运行时直接注册：
+
+```go
+err := manager.AddDatabase(ctx, "inspect", &database.Database{Enabled: true, Type: database.DBTypePostgreSQL, DSN: dsn})
+```
+
+## Kafka 生产者与消费者
+
+配置类型在 `config/kafka`，生产与消费分开定义：
+
+```yaml
+kafka-producers:
+  events:
+    brokers: ["kafka-1:9092", "kafka-2:9092"]
+    required-acks: -1
+    compression: snappy
+kafka-consumers:
+  commands:
+    brokers: ["kafka-1:9092"]
+    topic: "channel.command"
+    group-id: "channel-service"
+    offset: latest
+```
+
+**生产者不绑定 Topic**：一条连接可以发往多个 Topic，目标 Topic 在发送时传入，
+这与 lm-api、channel-service 存在多 Topic 的场景一致
+
+```go
+producer := manager.GetKafkaProducer("events")
+err := producer.Send(ctx, "channel.event", key, payload, nil)
+err = producer.SendJSON(ctx, "channel.history", key, event, nil)
+```
+
+消费者按名字取用；`commit-interval: 0` 时关闭自动提交，使用 `Commit` 手动提交位点
+
+## Tablestore
+
+```yaml
+ots:
+  enabled: true
+  endpoint: "example.cn-hangzhou.ots.aliyuncs.com"
+  instance-name: "example"
+  http-timeout: 10
+```
+
+```go
+client := manager.GetOTS("default")
+raw := client.Raw() // 底层 Tablestore SDK 客户端
+```
+
+## 自定义池注册
+
+对象存储（MinIO / S3 / R2）这类可选 SDK 不进入框架主模块：服务自行创建客户端后
+注册给 Manager，统一参与关闭与健康检查
+
+```go
+if err := manager.RegisterPool("oss", ossClient); err != nil { // ossClient 实现 Close() error
+    return err
+}
+defer manager.UnregisterPool("oss")
+```
+
+实现了 `HealthCheck(ctx context.Context) error` 的自定义池会按实际结果上报，
+否则注册成功即视为健康
+
 ## 健康检查
 
 ```go
 status := manager.HealthCheck()
 // status = map[string]bool{
-//     "database":    true,
-//     "redis":       true,
-//     "mqtt":        true,
-//     "clickhouse":  true,
-//     "nats":        true,
+//     "database":              true,
+//     "database.control":       true,
+//     "redis":                  true,
+//     "mqtt":                   true,
+//     "clickhouse":             true,
+//     "nats":                   true,
+//     "kafka.producer.events":  true,
+//     "kafka.consumer.commands": true,
+//     "ots.default":            true,
+//     "pool.oss":               true,
 // }
 ```
 

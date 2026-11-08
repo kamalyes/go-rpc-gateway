@@ -35,8 +35,11 @@ require (
 	github.com/andybalholm/brotli v1.2.6 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/google/flatbuffers v23.5.26+incompatible // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3 // indirect
 	github.com/hashicorp/go-version v1.9.0 // indirect
+	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.10.0 // indirect
@@ -50,6 +53,9 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.27 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
+	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
+	github.com/xdg-go/scram v1.1.2 // indirect
+	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
@@ -94,11 +100,13 @@ require (
 )
 
 require (
+	github.com/aliyun/aliyun-tablestore-go-sdk v1.9.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/golang/snappy v1.0.0
 	github.com/kamalyes/go-toolbox v0.19.3
 	github.com/kamalyes/go-toolbox/pkg/protox v0.19.3
+	github.com/segmentio/kafka-go v0.4.51
 	github.com/spf13/viper v1.21.0
 )
 
