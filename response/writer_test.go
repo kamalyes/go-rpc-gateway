@@ -183,8 +183,7 @@ func BenchmarkWriteJSONResponse(b *testing.B) {
 		b.Run(shape.name, func(b *testing.B) {
 			w := &discardWriter{}
 			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				WriteJSONResponse(w, http.StatusOK, shape.data)
 			}
 		})
@@ -231,8 +230,7 @@ func BenchmarkWriteJSONResponseLegacy(b *testing.B) {
 		b.Run(shape.name, func(b *testing.B) {
 			w := &discardWriter{}
 			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				legacyWriteJSONResponse(w, http.StatusOK, shape.data)
 			}
 		})
@@ -261,8 +259,7 @@ func BenchmarkWriteJSONResponseNoPool(b *testing.B) {
 		b.Run(shape.name, func(b *testing.B) {
 			w := &discardWriter{}
 			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				noPoolWriteJSONResponse(w, http.StatusOK, shape.data)
 			}
 		})

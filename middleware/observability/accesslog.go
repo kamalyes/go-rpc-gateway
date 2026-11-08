@@ -267,15 +267,57 @@ func maskHeaders(header http.Header) sqltypes.CompressedTextMap {
 	mask := headerMaskText()
 	extra := headerExtraSensitiveKeys()
 
+	// 所有头的值共用一块平坦底层数组
+	//
+	// 原先是每个头各 append(make([]string, 0, len(values)), values...) 一次，于是分配次数随头数线性增长：
+	// 7 个请求头的常态形状下 maskHeaders 一共 8 次分配，memprofile 里 accesslog.go 的复制那一行单独占到 5.9 次/请求现在是 1 次 map 加 1 次数组，与头数无关
+	//
+	// cap 取 sum(max(len(values), 1)) 是严格上界：KeepAsIs 分支写 len(values) 个，
+	// 擦除分支无论原有几个值都只写 1 个掩码（值为空切片的键也要占这 1 个，
+	// 所以每个键至少留一个位置）于是 append 永不扩容 ——
+	// 这个前提必须成立：一旦扩容，先前交出去的子切片会继续指向旧数组，
+	// 后面的头再也改不动它们，表现为「审计库里某些头拿到的是过期值」
+	// TestMaskHeadersSharesOneBackingArray 闸住它
+	//
+	// 子切片用三下标形式把 cap 掐到 len：记录会交给钩子异步持有，
+	// 不掐的话钩子对某个头的值 append 一下，写进去的东西会落到相邻头的值上
+	//
+	// [EN] All header values share one flat backing array. It used to be one
+	// append(make(...), values...) per header, so the allocation count grew linearly with the
+	// header count: eight allocations for the common seven-header shape, of which the copy line
+	// alone was 5.9 per request in the memory profile. It is now one map plus one array,
+	// independent of the header count.
+	//
+	// The capacity sum(max(len(values), 1)) is a strict upper bound -- KeepAsIs writes
+	// len(values) entries, every other action writes exactly one mask regardless (a key with an
+	// empty value slice still needs that one slot) -- so append never grows the array. That
+	// must hold: on a reallocation the sub-slices already handed out keep pointing at the old
+	// array and no longer track later writes, which would surface as stale header values in the
+	// audit store. TestMaskHeadersSharesOneBackingArray locks it down.
+	//
+	// The three-index form caps the sub-slices at their length: the record is held
+	// asynchronously by hooks, and without it a hook appending to one header's values would
+	// overwrite the next header's
+	total := 0
+	for _, values := range header {
+		if n := len(values); n > 0 {
+			total += n
+		} else {
+			total++
+		}
+	}
+
 	out := make(map[string][]string, len(header))
+	buf := make([]string, 0, total)
 	for name, values := range header {
-		switch headerKeyAction(name, extra) {
+		start := len(buf)
+		switch keyMaskAction(name, extra) {
 		case desensitize.KeepAsIs:
 			// 复制而不是共享底层数组：记录会被钩子异步持有，
 			// 而 http.Header 的切片在请求结束后可能被 net/http 复用
 			// [EN] Copied rather than shared: the record may be held asynchronously by a hook
 			// while net/http can reuse the header's slices once the request is over
-			out[name] = append(make([]string, 0, len(values)), values...)
+			buf = append(buf, values...)
 
 		default:
 			// 非 KeepAsIs 的动作一律整体擦除，包括 MaskPhone / MaskEmail /
@@ -318,13 +360,14 @@ func maskHeaders(header http.Header) sqltypes.CompressedTextMap {
 			// MaskEncrypt has a further reason: it should be deterministic encryption but needs
 			// DataMasker's unexported encryptValue, which is unreachable. The direction must be
 			// "redact more than needed" rather than less
-			out[name] = []string{mask}
+			buf = append(buf, mask)
 		}
+		out[name] = buf[start:len(buf):len(buf)]
 	}
 	return out
 }
 
-// headerKeyAction 给出请求头名对应的脱敏动作
+// keyMaskAction 给出一个键名对应的脱敏动作（请求头名、JSON 报文里的键名都走这里）
 //
 // 判定与 DataMasker.actionFor 逐项等价：先查内置规则表（ActionForKeyLoose，已导出，
 // 零分配），再按配置里的额外敏感键做不区分大小写的子串匹配
@@ -352,7 +395,7 @@ func maskHeaders(header http.Header) sqltypes.CompressedTextMap {
 // the equivalence is asserted action by action, which is far stricter than asserting a boolean,
 // and moving headers to per-value partial masking would change a branch in maskHeaders without
 // touching this function
-func headerKeyAction(name string, extra []string) desensitize.KeyAction {
+func keyMaskAction(name string, extra []string) desensitize.KeyAction {
 	if action := desensitize.ActionForKeyLoose(name); action != desensitize.KeepAsIs {
 		return action
 	}
@@ -481,7 +524,7 @@ func (m *maskedBody) get() string {
 		return ""
 	}
 	if !m.done {
-		m.val = activeMasker().Mask(m.raw)
+		m.val = maskBody(m.raw)
 		m.done = true
 	}
 	return m.val

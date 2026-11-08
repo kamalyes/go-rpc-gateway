@@ -23,8 +23,7 @@ var (
 func BenchmarkFields_ConstKeyDynValue(b *testing.B) {
 	v := "dynamic-value-x"
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		f := make([]any, 0, 32)
 		f = append(f, constants.LogFieldTraceID, v)
 		sink = f
@@ -33,8 +32,7 @@ func BenchmarkFields_ConstKeyDynValue(b *testing.B) {
 
 func BenchmarkFields_ConstKeyConstValue(b *testing.B) {
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		f := make([]any, 0, 32)
 		f = append(f, constants.LogFieldTraceID, "literal")
 		sink = f
@@ -45,8 +43,7 @@ func BenchmarkFields_ConstKeyConstValue(b *testing.B) {
 func BenchmarkFields_IfEmptyOverhead(b *testing.B) {
 	v := "dynamic-value-x"
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkStr = mathx.IfEmpty(v, "")
 	}
 }
@@ -55,8 +52,7 @@ func BenchmarkFields_IfEmptyOverhead(b *testing.B) {
 func BenchmarkFields_IsBlank(b *testing.B) {
 	v := "dynamic-value-x"
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkBool = isBlank(v)
 	}
 }
@@ -64,8 +60,7 @@ func BenchmarkFields_IsBlank(b *testing.B) {
 func BenchmarkFields_NoIfEmpty(b *testing.B) {
 	v := "dynamic-value-x"
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkStr = v
 	}
 }
@@ -74,8 +69,7 @@ func BenchmarkFields_NoIfEmpty(b *testing.B) {
 func BenchmarkFields_Assemble14(b *testing.B) {
 	v := "dynamic-value-x"
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		lf := NewLogFields()
 		for j := 0; j < 14; j++ {
 			lf.Add(constants.LogFieldTraceID, v)
@@ -143,8 +137,7 @@ func BenchmarkLogFieldsCapacity(b *testing.B) {
 		for _, capHint := range []int{32, 64} {
 			b.Run(fmt.Sprintf("fields%d/cap%d", nFields, capHint), func(b *testing.B) {
 				b.ReportAllocs()
-				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
+				for b.Loop() {
 					sink = buildFields(capHint, nFields, v)
 				}
 			})

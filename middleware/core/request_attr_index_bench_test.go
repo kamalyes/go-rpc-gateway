@@ -59,8 +59,7 @@ func BenchmarkAB_Current(b *testing.B) {
 	r := abRequest()
 	out := make([]string, len(lists))
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for j, srcs := range lists {
 			out[j] = gccommon.ExtractAttribute(r, srcs)
 		}
@@ -73,8 +72,7 @@ func BenchmarkAB_Reused(b *testing.B) {
 	r := abRequest()
 	out := make([]string, len(lists))
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ex := gccommon.NewAttributeExtractor(r)
 		for j, srcs := range lists {
 			out[j] = ex.Extract(srcs)
@@ -123,8 +121,7 @@ func BenchmarkAB_Inverted(b *testing.B) {
 	ix := abBuildIndex(abSourceLists())
 	r := abRequest()
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var vals [64]string
 		var ranks [64]uint8
 		for j := range ranks {

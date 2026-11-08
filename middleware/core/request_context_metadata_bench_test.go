@@ -88,8 +88,7 @@ func BenchmarkOutgoingInjectByShape(b *testing.B) {
 		b.Run(shape.name, func(b *testing.B) {
 			ctx := WithRequestCommonMeta(context.Background(), shape.meta)
 			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				_ = injectTraceToOutgoingContext(ctx)
 			}
 		})
@@ -113,8 +112,7 @@ func BenchmarkOutgoingInjectByShapeWithExisting(b *testing.B) {
 				"content-type", "application/grpc",
 			))
 			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				_ = injectTraceToOutgoingContext(ctx)
 			}
 		})

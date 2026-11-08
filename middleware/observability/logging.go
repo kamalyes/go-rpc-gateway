@@ -26,6 +26,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
 	"github.com/kamalyes/go-toolbox/pkg/desensitize"
+	tblogger "github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/kamalyes/go-toolbox/pkg/matcher"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
@@ -36,7 +37,6 @@ import (
 
 // 预计算日志消息常量，避免每次请求字符串拼接
 var (
-	logMsgHTTPRequestInfo  = "🚀 " + constants.LogMsgHTTPRequest
 	logMsgHTTPRequestError = "❌ " + constants.LogMsgHTTPRequest
 	logMsgHTTPRequestWarn  = "⚠️ " + constants.LogMsgHTTPRequest
 	logMsgHTTPRequestOK    = "✅ " + constants.LogMsgHTTPRequest
@@ -534,8 +534,105 @@ func LoggingMiddleware() core.HTTPMiddleware {
 	}
 }
 
+// logLevelEnabled 报告当前日志器等级下这条日志会不会真的被写出
+//
+// 为什么调用方要先问一句：日志库的等级判定在 logWithContextKV 的入口，
+// 也就是**调用方已经把所有字段装箱、拼好切片之后**才判
+// 于是 level=warn 的生产配置下，每个 2xx 请求照样要为一条永不写出的 info 日志付出：
+// 一次 LogFields 分配（cap 32 的 []any，512 字节）、每个动态字符串值一次装箱
+// （访问日志常态 10 个，profile 里 LogFields.Add 单独占 10 次/请求）、一个 RequestLogger
+// —— 它们全部白付
+//
+// 装箱本身去不掉 —— InfoContextKV(ctx, msg, kv ...any) 的签名决定了
+// 每个动态值都要在堆上留一份 16 字节的接口数据 能去掉的是「这条日志根本不会被写出时，整段构建都不做」
+//
+// 未知等级返回 true：宁可多写一条日志，也不要因为常量改名静默丢日志
+//
+// [EN] Reports whether a line at this level would actually be written.
+//
+// Why callers ask first: the library checks the level at the entry of logWithContextKV, that
+// is *after* the caller has boxed every field and assembled the slice. Under a level=warn
+// production configuration every 2xx request therefore still pays for an info line that will
+// never be written: one LogFields allocation (a []any with capacity 32, 512 bytes), one boxing
+// per dynamic string value (ten in a typical access log, which is what LogFields.Add's ten
+// allocations per request in the profile are) and one RequestLogger — all of it wasted.
+//
+// The boxing itself cannot be removed: the signature InfoContextKV(ctx, msg, kv ...any) forces
+// a 16-byte interface payload on the heap for every dynamic value. What can be removed is
+// building any of it when the line will not be written.
+//
+// An unknown level returns true: better an extra log line than silently losing logs because a
+// constant was renamed
+func logLevelEnabled(level string) bool {
+	lg := global.LOGGER
+	if lg == nil {
+		return false
+	}
+	var target tblogger.LogLevel
+	switch level {
+	case constants.LogLevelInfo:
+		target = tblogger.INFO
+	case constants.LogLevelWarn:
+		target = tblogger.WARN
+	case constants.LogLevelError:
+		target = tblogger.ERROR
+	default:
+		return true
+	}
+	return lg.GetLevel().IsEnabled(target)
+}
+
+// httpLogLevelFor 按状态码给出日志等级与消息
+//
+// 从 logHTTPRequest 里提出来，因为等级要在构建字段**之前**定下来 —— 先知道等级，
+// 才能判断这条日志会不会被写出，从而决定要不要构建字段
+//
+// [EN] Extracted from logHTTPRequest because the level must be known *before* the fields are
+// built: only then can the caller tell whether the line will be written at all
+func httpLogLevelFor(status int) (level, message string) {
+	switch {
+	case status >= 500:
+		return constants.LogLevelError, logMsgHTTPRequestError
+	case status >= 400:
+		return constants.LogLevelWarn, logMsgHTTPRequestWarn
+	default:
+		return constants.LogLevelInfo, logMsgHTTPRequestOK
+	}
+}
+
 // logHTTPRequest 记录 HTTP 请求
 func logHTTPRequest(ctx context.Context, r *http.Request, rw *core.ResponseWriter, start time.Time, duration time.Duration, config *gcmiddleware.Logging, reqBody []byte, hasAccessLog bool) {
+	level, message := httpLogLevelFor(rw.StatusCode())
+	emit := logLevelEnabled(level)
+
+	// 两个消费者都不需要报文时连包装都不建 maskedBody.get() 对 nil 接收者返回空串，
+	// 所以 captureAccessLog 那条路上传 nil 也是安全的（它只在 hasAccessLog 时被调用）
+	// [EN] The wrappers are not built when neither consumer needs them; maskedBody.get()
+	// returns "" for a nil receiver, so passing nil down the captureAccessLog path is safe
+	var maskedReq, maskedResp *maskedBody
+	if emit || hasAccessLog {
+		maskedReq = newMaskedBody(reqBody)
+		maskedResp = newMaskedBody(rw.GetBody())
+	}
+
+	if emit {
+		logHTTPRequestFields(ctx, r, rw, duration, config, reqBody, level, message, maskedReq, maskedResp)
+	}
+
+	// 派发访问日志钩子 等级把运行时日志过滤掉不影响这里：
+	// 审计落库与运行时日志是两个独立的消费者
+	// [EN] Dispatching the access-log hook is unaffected by the runtime log being filtered out:
+	// audit persistence and the runtime log are independent consumers
+	if hasAccessLog {
+		captureAccessLog(ctx, r, rw, start, duration, maskedReq, maskedResp, time.Duration(config.SlowHTTPThreshold)*time.Millisecond)
+	}
+}
+
+// logHTTPRequestFields 构建并写出运行时访问日志
+// 只在 logLevelEnabled 为真时被调用，见 logLevelEnabled 的说明
+//
+// [EN] Builds and writes the runtime access log; only called when logLevelEnabled is true
+func logHTTPRequestFields(ctx context.Context, r *http.Request, rw *core.ResponseWriter, duration time.Duration, config *gcmiddleware.Logging, reqBody []byte, level, message string, maskedReq, maskedResp *maskedBody) {
 	logger := NewRequestLogger(ctx)
 
 	fields := NewLogFields().
@@ -586,9 +683,6 @@ func logHTTPRequest(ctx context.Context, r *http.Request, rw *core.ResponseWrite
 	// [EN] The masked bodies are wrapped so the runtime log and the access log below share one
 	// computation: each used to call masker.Mask on the same bytes, and Mask is a full
 	// json.Unmarshal-to-any plus Marshal round trip internally
-	maskedReq := newMaskedBody(reqBody)
-	maskedResp := newMaskedBody(rw.GetBody())
-
 	if config.EnableRequest && len(reqBody) > 0 &&
 		isLoggableContentType(config, r.Header.Get(constants.HeaderContentType)) {
 		fields.Add(constants.LogFieldRequest, maskedReq.get())
@@ -601,28 +695,14 @@ func logHTTPRequest(ctx context.Context, r *http.Request, rw *core.ResponseWrite
 		}
 	}
 
-	level := constants.LogLevelInfo
-	message := logMsgHTTPRequestInfo
-	if rw.StatusCode() >= 500 {
-		level = constants.LogLevelError
-		message = logMsgHTTPRequestError
-	} else if rw.StatusCode() >= 400 {
-		level = constants.LogLevelWarn
-		message = logMsgHTTPRequestWarn
-	} else {
-		message = logMsgHTTPRequestOK
-	}
-
 	logger.Log(level, message, fields)
-
-	// 派发访问日志钩子
-	if hasAccessLog {
-		captureAccessLog(ctx, r, rw, start, duration, maskedReq, maskedResp, time.Duration(config.SlowHTTPThreshold)*time.Millisecond)
-	}
 }
 
 // logHTTPError 记录跳过路径的错误 🚫
 func logHTTPError(ctx context.Context, r *http.Request, rw *core.ResponseWriter, duration time.Duration) {
+	if !logLevelEnabled(constants.LogLevelWarn) {
+		return
+	}
 	logger := NewRequestLogger(ctx)
 	fields := NewLogFields().
 		Add(constants.LogFieldPath, r.URL.Path).
@@ -666,9 +746,16 @@ func logGRPCUnaryCommon(ctx context.Context, component, fullMethod, serviceName 
 		return
 	}
 
+	// 等级只取决于 err，可以在构建字段之前判掉 这两个函数除了写日志没有别的副作用，
+	// 所以直接返回是安全的
+	// [EN] The level depends only on err, so it can be decided before the fields are built;
+	// these functions have no side effect other than logging, so returning early is safe
+	if !logLevelEnabled(grpcLogLevelFor(err)) {
+		return
+	}
+
 	config := getLoggingConfig()
 	logger := NewRequestLogger(ctx)
-	masker := activeMasker()
 	captureReq := config.EnableRequest
 	captureResp := config.EnableResponse
 
@@ -685,24 +772,37 @@ func logGRPCUnaryCommon(ctx context.Context, component, fullMethod, serviceName 
 		st, _ := status.FromError(err)
 		fields.Add(constants.LogFieldStatus, st.Code().String()).Add(constants.LogFieldError, st.Message())
 		if captureReq && req != nil {
-			fields.Add(constants.LogFieldRequest, masker.Mask(marshalProto(req)))
+			fields.Add(constants.LogFieldRequest, maskBody(marshalProto(req)))
 		}
 		logger.Log(constants.LogLevelError, "❌ "+errMsg, fields)
 	} else {
 		fields.Add(constants.LogFieldStatus, "OK")
 		if captureReq && req != nil {
-			fields.Add(constants.LogFieldRequest, masker.Mask(marshalProto(req)))
+			fields.Add(constants.LogFieldRequest, maskBody(marshalProto(req)))
 		}
 		if captureResp && resp != nil {
-			fields.Add(constants.LogFieldResponse, masker.Mask(marshalProto(resp)))
+			fields.Add(constants.LogFieldResponse, maskBody(marshalProto(resp)))
 		}
 		logger.Log(constants.LogLevelInfo, "✅ "+successMsg, fields)
 	}
 }
 
+// grpcLogLevelFor gRPC 调用的日志等级：出错写 error，否则 info
+// [EN] The level for a gRPC call: error on failure, info otherwise
+func grpcLogLevelFor(err error) string {
+	if err != nil {
+		return constants.LogLevelError
+	}
+	return constants.LogLevelInfo
+}
+
 // logGRPCStreamCommon 记录 gRPC 流式调用（服务端/客户端共享）
 func logGRPCStreamCommon(ctx context.Context, component, fullMethod, serviceName string, isClientStream, isServerStream bool, err error, duration time.Duration, start time.Time, peerAddr, successMsg, errMsg string) {
 	if global.LOGGER == nil {
+		return
+	}
+
+	if !logLevelEnabled(grpcLogLevelFor(err)) {
 		return
 	}
 

@@ -264,8 +264,7 @@ func BenchmarkSmartPathNormalizer_Normalize(b *testing.B) {
 	n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 	n.Normalize("/api/user/1") // 预热缓存
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		n.Normalize("/api/user/123")
 	}
 }
@@ -276,8 +275,7 @@ func BenchmarkSmartPathNormalizer_CacheHit(b *testing.B) {
 	path := "/api/user/123"
 	n.Normalize(path) // 预热缓存
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		n.Normalize(path)
 	}
 }
@@ -287,8 +285,7 @@ func BenchmarkSmartPathNormalizer_NewPath(b *testing.B) {
 	n := newSmartPathNormalizer(gcmiddleware.DefaultStaticPaths())
 	n.Normalize("/api/user/1") // 预热
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		path := "/api/user/" + string(rune('a'+(i%26)))
 		n.Normalize(path)
 	}
