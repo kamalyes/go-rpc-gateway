@@ -29,6 +29,7 @@ import (
 	"github.com/kamalyes/go-rpc-gateway/constants"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware"
+	mwcore "github.com/kamalyes/go-rpc-gateway/middleware/core"
 	"github.com/kamalyes/go-rpc-gateway/response"
 	"github.com/kamalyes/go-toolbox/pkg/desensitize"
 	"github.com/kamalyes/go-toolbox/pkg/httpx"
@@ -60,11 +61,20 @@ func (s *Server) buildServeMuxOptions() []runtime.ServeMuxOption {
 		}),
 		// 🔑 将 HTTP Header 传递到 gRPC metadata（过滤 HTTP/2 禁止的头，避免 RST_STREAM PROTOCOL_ERROR）
 		runtime.WithIncomingHeaderMatcher(func(key string) (string, bool) {
-			// HTTP/2 规范禁止的头，转发这些头会导致 gRPC 服务端发送 RST_STREAM
-			switch strings.ToLower(key) {
-			case "connection", "keep-alive", "proxy-connection",
-				"transfer-encoding", "upgrade", "te":
+			// 逐跳头：HTTP/2 禁止 connection 相关头，转发过去 gRPC 服务端会回
+			// RST_STREAM PROTOCOL_ERROR
+			//
+			// 判定收口到 core.IsHopByHopHeader，与 ForwardOutgoingContext 共用一份清单。
+			// 原先两处各写一份，这一处是全的，那一处只剔了 Connection
+			//
+			// [EN] Hop-by-hop headers: HTTP/2 forbids connection-specific headers and a gRPC
+			// server answers RST_STREAM PROTOCOL_ERROR. The decision is funnelled through
+			// core.IsHopByHopHeader, shared with ForwardOutgoingContext; the two used to carry
+			// separate copies, this one complete and the other down to Connection alone
+			if mwcore.IsHopByHopHeader(key) {
 				return key, false
+			}
+			switch strings.ToLower(key) {
 			case "authorization":
 				// grpc-gateway 的 AnnotateContext 已对 Authorization 做无条件转发（向后兼容），
 				// 此处再匹配会导致 metadata 中出现重复的 authorization 值，
@@ -253,10 +263,53 @@ type gzipResponseWriter struct {
 	// hijacked 连接已被劫持，不要再通过原 ResponseWriter 写 gzip 尾块
 	// [EN] The connection was hijacked; no gzip trailer through the original writer
 	hijacked bool
+	// bodyless 响应状态码按规范不允许带响应体，此时整条 gzip 都要让开
+	// [EN] The status code forbids a body, so gzip stands aside entirely
+	bodyless bool
+}
+
+// WriteHeader 写响应状态码
+//
+// 状态码在这里才知道，而 Content-Encoding: gzip 是 handler 运行前就乐观设上的 ——
+// 必须设得那么早，因为头一旦随 WriteHeader 发出就改不了了
+// 于是这里补一道回退：204 No Content、304 Not Modified 与 1xx 按 RFC 9110
+// 不允许带响应体，可 Close() 仍会为它们吐出一个约 20 字节的空 gzip 流（头 + 空 deflate + CRC）
+// 结果是响应带着 Content-Encoding: gzip 却没有合法的 gzip 体，
+// 而 net/http 对这些状态码本就拒绝写体，还会在服务端日志里留下
+// "request method or response status code does not allow body"
+//
+// Vary: Accept-Encoding 保留不删：它描述的是「这个资源的响应随 Accept-Encoding 变化」，
+// 对缓存的指示与本次是否真的压缩无关，删掉反而会让缓存错误地复用
+//
+// [EN] The status code is only known here, while Content-Encoding: gzip is set optimistically
+// before the handler runs — it has to be that early, because headers cannot be changed once
+// WriteHeader has flushed them. So this is the retraction: 204, 304 and 1xx forbid a body per
+// RFC 9110, yet Close() would still emit a ~20-byte empty gzip stream (header, empty deflate,
+// CRC) for them, leaving a response that advertises Content-Encoding: gzip without a valid
+// gzip body — and net/http refuses to write a body for those codes anyway, logging
+// "request method or response status code does not allow body" server-side.
+//
+// Vary: Accept-Encoding is deliberately kept: it states that this resource's response varies
+// with Accept-Encoding, which is independent of whether this particular response was
+// compressed, and dropping it would let caches reuse the wrong entry.
+func (w *gzipResponseWriter) WriteHeader(statusCode int) {
+	if statusCode == http.StatusNoContent ||
+		statusCode == http.StatusNotModified ||
+		(statusCode >= 100 && statusCode < 200) {
+		w.bodyless = true
+		w.Header().Del("Content-Encoding")
+	}
+	w.ResponseWriter.WriteHeader(statusCode)
 }
 
 // Write 写入压缩数据
 func (w *gzipResponseWriter) Write(b []byte) (int, error) {
+	if w.bodyless {
+		// 状态码不允许带体，原样交给底层由 net/http 按规范处理
+		// [EN] The status forbids a body; hand it to the underlying writer and let net/http
+		// apply the rules
+		return w.ResponseWriter.Write(b)
+	}
 	return w.gzipWriter.Write(b)
 }
 
@@ -265,10 +318,29 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 // 劫持过的连接直接短路：此时原 ResponseWriter 已经交出控制权，
 // 再写尾块只会拿到 http.ErrHijacked，并把一个已 Close 的 writer 放回池子
 //
+// 反过来，「handler 一个字节都没写」不能短路，哪怕空 gzip 流看着像凭空多出的 20 字节：
+// 那 20 字节正是空响应体的合法 gzip 编码，而 Content-Encoding: gzip 已经随
+// WriteHeader 发出去了、撤不回来 省掉它只会得到一个声明了 gzip 却是 0 字节的响应体，
+// 严格的解码器（含 gzip.NewReader）直接报 EOF
+// Flush 那条路更糟：gzipWriter.Flush() 已经把 gzip 头写了出去，此时短路等于留下
+// 一个没有尾块的截断流，解码器报 unexpected EOF
+// 真正该让开的只有「状态码不允许带体」，那种情况下 Content-Encoding 在 WriteHeader
+// 里就一并删掉了，响应自洽 —— 也就是上面 bodyless 这一条
+//
 // [EN] A hijacked connection short-circuits: the original writer has handed over control, so
-// writing the trailer only yields http.ErrHijacked and returns a closed writer to the pool
+// writing the trailer only yields http.ErrHijacked and returns a closed writer to the pool.
+//
+// A handler that wrote no byte, by contrast, must not short-circuit, however much the empty
+// gzip stream looks like 20 bytes out of nowhere: those 20 bytes are the valid gzip encoding
+// of an empty body, and Content-Encoding: gzip has already gone out with WriteHeader and
+// cannot be retracted. Skipping them yields a response that advertises gzip with a 0-byte
+// body, on which a strict decoder — gzip.NewReader included — fails with EOF. The Flush path
+// is worse: gzipWriter.Flush() has already emitted the gzip header, so short-circuiting
+// leaves a truncated stream with no trailer and decoders report unexpected EOF. The only case
+// that should stand aside is a status code forbidding a body, where Content-Encoding is
+// deleted in WriteHeader so the response stays self-consistent — the bodyless test above.
 func (w *gzipResponseWriter) Close() error {
-	if w.hijacked {
+	if w.hijacked || w.bodyless {
 		return nil
 	}
 	return w.gzipWriter.Close()
@@ -406,8 +478,23 @@ func (s *Server) gzipMiddleware(next http.Handler) http.Handler {
 		}
 
 		// 从对象池获取 gzip writer
+		//
+		// 归还前必须 Reset 到 io.Discard 解除对 w 的引用：gzip.Writer 在 Reset(w)
+		// 之后一直持有这个 ResponseWriter，带着引用回池就会把整个 http 响应对象
+		// （连同它引用的连接、请求、buffer）一路留到这个 writer 下次被取出为止
+		// 同一个仓库里 releaseMetricsResponseWriter 就是专门为这件事解引用的
+		//
+		// [EN] Reset to io.Discard before returning it, to drop the reference to w: a
+		// gzip.Writer keeps the ResponseWriter it was Reset to, and returning it to the pool
+		// with that reference pins the whole http response object — along with the connection,
+		// request and buffers it references — until this writer is next taken out.
+		// releaseMetricsResponseWriter in this same repository drops its reference for exactly
+		// this reason.
 		gzipWriter := s.gzipWriterPool.Get().(*gzip.Writer)
-		defer s.gzipWriterPool.Put(gzipWriter)
+		defer func() {
+			gzipWriter.Reset(io.Discard)
+			s.gzipWriterPool.Put(gzipWriter)
+		}()
 
 		// 设置响应头（必须在 WriteHeader 之前）
 		w.Header().Set("Content-Encoding", "gzip")

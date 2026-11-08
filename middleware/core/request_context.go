@@ -359,54 +359,120 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 }
 
 // setResponseMetadata 设置 gRPC 响应 metadata（与 HTTP 的 w.Header().Set 对应）
+//
+// 与出站注入一样跳过空值，理由同 injectTraceToOutgoingContext：空值在读取侧与键缺失
+// 不可区分，却要实打实占一条响应头
+// 顺带去掉了原先永真的 if len(md) > 0 —— metadata.Pairs 对空值也建条目，
+// 那个判断在改造前从来没有为假过
+//
+// 凭据类字段不再回显 原因是这些值并不会「留在 gRPC 层」：
+// server/http.go 的 buildServeMuxOptions 只设了 WithIncomingHeaderMatcher，
+// 出站方向走 grpc-gateway 的 defaultOutgoingHeaderMatcher，而它对**每一个**键都返回
+// (Grpc-Metadata-<键>, true)，于是每条响应 metadata 都会变成 HTTP 响应头发给客户端
+// 也就是说改造前每个响应都带着 Grpc-Metadata-Authorization: Bearer … 回去
+// 这些值本来就是客户端自己送上来的，回显一遍不增加任何信息，却让凭据进入响应头 ——
+// 响应头比请求头更容易被反向代理、CDN、浏览器 devtools 和共享缓存记录下来
+//
+// 只摘掉持有即可用的凭据（Authorization / Token / AccessKey / Signature / PushToken）
+// Jti、FamilyId、Nonce 保留：它们是标识符而非凭据，且对排查链路有用
+//
+// [EN] Empty values are skipped for the same reason as in injectTraceToOutgoingContext: they
+// are indistinguishable from an absent key on the reading side yet still occupy a response
+// header. The previously always-true `if len(md) > 0` is gone with them, since metadata.Pairs
+// creates an entry for an empty value too and that test was never false.
+//
+// Credential fields are no longer echoed. These values do not stay at the gRPC layer:
+// buildServeMuxOptions in server/http.go sets only WithIncomingHeaderMatcher, so the outgoing
+// direction uses grpc-gateway's defaultOutgoingHeaderMatcher, which returns
+// (Grpc-Metadata-<key>, true) for *every* key — every response metadata entry becomes an HTTP
+// response header sent to the client. Before this change every response carried
+// Grpc-Metadata-Authorization: Bearer … back out. The client supplied those values itself, so
+// echoing them adds no information while putting credentials into response headers, which
+// reverse proxies, CDNs, browser devtools and shared caches log far more readily than request
+// headers.
+//
+// Only bearer-style credentials are withheld (Authorization, Token, AccessKey, Signature,
+// PushToken). Jti, FamilyId and Nonce stay: they are identifiers rather than credentials and
+// are useful when tracing a request.
 func setResponseMetadata(ctx context.Context) {
+	md := buildResponseMetadata(ctx)
+	if md == nil {
+		return
+	}
+	// 发送 metadata（忽略错误，因为可能已经发送过）
+	grpc.SetHeader(ctx, md)
+}
+
+// buildResponseMetadata 构造响应 metadata，与发送动作分开以便单测
+// 没有任何可发送字段时返回 nil
+//
+// [EN] Builds the response metadata separately from sending it, so it can be unit-tested;
+// returns nil when there is nothing to send
+func buildResponseMetadata(ctx context.Context) metadata.MD {
 	requestCommonMeta := GetRequestCommonMeta(ctx)
 
-	md := metadata.Pairs(
-		constants.MetadataID, requestCommonMeta.ID,
-		constants.MetadataTraceID, requestCommonMeta.TraceID,
-		constants.MetadataRequestID, requestCommonMeta.RequestID,
-		constants.MetadataAuthorization, requestCommonMeta.Authorization,
-		constants.MetadataUserID, requestCommonMeta.UserID,
-		constants.MetadataUserName, url.QueryEscape(requestCommonMeta.UserName),
-		constants.MetadataDomain, requestCommonMeta.Domain,
-		constants.MetadataRoleCode, requestCommonMeta.RoleCode,
-		constants.MetadataTenantID, requestCommonMeta.TenantID,
-		constants.MetadataTenantCode, requestCommonMeta.TenantCode,
-		constants.MetadataSessionID, requestCommonMeta.SessionID,
-		constants.MetadataTimezone, requestCommonMeta.Timezone,
-		constants.MetadataIPAddress, requestCommonMeta.IPAddress,
-		constants.MetadataAppID, requestCommonMeta.AppID,
-		constants.MetadataDeviceID, requestCommonMeta.DeviceID,
-		constants.MetadataAppVersion, requestCommonMeta.AppVersion,
-		constants.MetadataPlatformID, requestCommonMeta.PlatformID,
-		constants.MetadataPlatformCode, requestCommonMeta.PlatformCode,
-		constants.MetadataRegionID, requestCommonMeta.RegionID,
-		constants.MetadataRegionCode, requestCommonMeta.RegionCode,
-		constants.MetadataAgentLineID, requestCommonMeta.AgentLineID,
-		constants.MetadataNonce, requestCommonMeta.Nonce,
-		constants.MetadataJti, requestCommonMeta.Jti,
-		constants.MetadataFamilyId, requestCommonMeta.FamilyId,
-		constants.MetadataXNsID, requestCommonMeta.XNsID,
-		constants.MetadataUserAgent, requestCommonMeta.UserAgent,
-		constants.MetadataPushToken, requestCommonMeta.PushToken,
-		constants.MetadataToken, requestCommonMeta.Token,
-		constants.MetadataTimestamp, requestCommonMeta.Timestamp,
-		constants.MetadataSignature, requestCommonMeta.Signature,
-		constants.MetadataAccessKey, requestCommonMeta.AccessKey,
-		constants.MetadataAcceptLanguage, requestCommonMeta.AcceptLanguage,
-		constants.MetadataForwardedHost, requestCommonMeta.ForwardedHost,
-	)
+	var buf [34 * 2]string
+	kv := buf[:0]
+	add := func(key, value string) {
+		if value != "" {
+			kv = append(kv, key, value)
+		}
+	}
+
+	add(constants.MetadataID, requestCommonMeta.ID)
+	add(constants.MetadataTraceID, requestCommonMeta.TraceID)
+	add(constants.MetadataRequestID, requestCommonMeta.RequestID)
+	add(constants.MetadataUserID, requestCommonMeta.UserID)
+	add(constants.MetadataUserName, url.QueryEscape(requestCommonMeta.UserName))
+	add(constants.MetadataDomain, requestCommonMeta.Domain)
+	add(constants.MetadataRoleCode, requestCommonMeta.RoleCode)
+	add(constants.MetadataTenantID, requestCommonMeta.TenantID)
+	add(constants.MetadataTenantCode, requestCommonMeta.TenantCode)
+	add(constants.MetadataSessionID, requestCommonMeta.SessionID)
+	add(constants.MetadataTimezone, requestCommonMeta.Timezone)
+	add(constants.MetadataIPAddress, requestCommonMeta.IPAddress)
+	add(constants.MetadataAppID, requestCommonMeta.AppID)
+	add(constants.MetadataDeviceID, requestCommonMeta.DeviceID)
+	add(constants.MetadataAppVersion, requestCommonMeta.AppVersion)
+	add(constants.MetadataPlatformID, requestCommonMeta.PlatformID)
+	add(constants.MetadataPlatformCode, requestCommonMeta.PlatformCode)
+	add(constants.MetadataRegionID, requestCommonMeta.RegionID)
+	add(constants.MetadataRegionCode, requestCommonMeta.RegionCode)
+	add(constants.MetadataAgentLineID, requestCommonMeta.AgentLineID)
+	add(constants.MetadataNonce, requestCommonMeta.Nonce)
+	add(constants.MetadataJti, requestCommonMeta.Jti)
+	add(constants.MetadataFamilyId, requestCommonMeta.FamilyId)
+	add(constants.MetadataXNsID, requestCommonMeta.XNsID)
+	add(constants.MetadataUserAgent, requestCommonMeta.UserAgent)
+	add(constants.MetadataTimestamp, requestCommonMeta.Timestamp)
+	add(constants.MetadataAcceptLanguage, requestCommonMeta.AcceptLanguage)
+	add(constants.MetadataForwardedHost, requestCommonMeta.ForwardedHost)
 
 	// 注入服务节点标识（K8s 环境下为 Pod 名称），便于下游服务定位处理请求的具体节点
-	if serverNode := global.GetServerNode(); serverNode != "" {
-		md.Append(constants.MetadataServerNode, serverNode)
+	add(constants.MetadataServerNode, global.GetServerNode())
+
+	if len(kv) == 0 {
+		return nil
 	}
 
-	// 发送 metadata（忽略错误，因为可能已经发送过）
-	if len(md) > 0 {
-		grpc.SetHeader(ctx, md)
+	md := make(metadata.MD, len(kv)/2)
+	for i := 0; i < len(kv); i += 2 {
+		md[kv[i]] = append(md[kv[i]], kv[i+1])
 	}
+	return md
+}
+
+// responseMetadataWithheldKeys 不回显到响应 metadata 的凭据类键
+//
+// 由 TestResponseMetadataWithholdsCredentials 用来断言这些键确实不出现在响应里
+// [EN] Credential keys withheld from response metadata, asserted by
+// TestResponseMetadataWithholdsCredentials
+var responseMetadataWithheldKeys = []string{
+	constants.MetadataAuthorization,
+	constants.MetadataToken,
+	constants.MetadataAccessKey,
+	constants.MetadataSignature,
+	constants.MetadataPushToken,
 }
 
 // ContextWrappedServerStream 包装 grpc.ServerStream 以支持自定义 context
@@ -452,60 +518,117 @@ func StreamClientRequestContextInterceptor() grpc.StreamClientInterceptor {
 }
 
 // injectTraceToOutgoingContext 将 context 中的 trace 信息注入到 outgoing gRPC metadata
+//
+// 这条路径是网关代理的最热点：每一次下游 RPC 调用都要走一遍
+//
+// 空值不再注入 这不是「少传点东西」的取舍，而是空值本来就传不出信息：
+// 下游读取走 enrichContextFromMetadata 的 firstMetadataValue，它用 md.Get(key) 取
+// 第一个值，「键不存在」与「键存在但值为空」返回的都是 ""，两者对读取方完全等价
+// 而每一条空值都要实打实经 HTTP/2 HPACK 编码送到下游 实测常态请求
+// （只带 trace/request id）33 条里有 30 条是空的，也就是 90% 的注入是纯浪费
+//
+// 不再走 Pairs + Join + NewOutgoingContext，改用 AppendToOutgoingContext：
+// Join 的 out 是 MD{} 建的，没有容量提示，35 个键要经历多次 rehash；
+// 而 FromOutgoingContext 为了拿到 existingMD 会把整张基础 map 连同每个值切片
+// 全量复制一遍（copyOf），复制完只是为了再被 Join 复制第二遍
+// AppendToOutgoingContext 压根不碰基础 map，只往 rawMD.added 挂一条键值序列
+//
+// 顺序语义逐字保持：FromOutgoingContext 先铺 raw.md 再按序合并 raw.added，
+// 于是「已有值在前、本层注入在后」与原先 Join(existingMD, md) 完全一致，
+// 下游 firstMetadataValue 取 values[0] 拿到的仍是已有值
+//
+// 键全部直接用常量不再过 ToLower：constants 里 35 个 Metadata* 常量已全是小写
+// （TestMetadataKeysAreLowercase 锁住这个前提），AppendToOutgoingContext 内部
+// 那次 ToLower 对它们是空操作
+//
+// [EN] The hottest path in the proxy: every downstream RPC goes through it.
+//
+// Empty values are no longer injected. This is not a trade-off of sending less: an empty
+// value carries no information in the first place, because the downstream reads through
+// firstMetadataValue, which takes md.Get(key)[0], and "key absent" and "key present but
+// empty" both yield "" there -- indistinguishable to every reader. Meanwhile each empty
+// value really is HPACK-encoded onto the wire: measured, a common request carrying only
+// trace and request ids sent 33 entries of which 30 were empty, so 90% was pure waste.
+//
+// Pairs + Join + NewOutgoingContext is replaced by AppendToOutgoingContext. Join builds its
+// output from MD{} with no capacity hint, so 35 keys cost several rehashes, and getting
+// existingMD at all makes FromOutgoingContext deep-copy the whole base map plus every value
+// slice, only for Join to copy it a second time. AppendToOutgoingContext never touches the
+// base map and appends one key/value sequence to rawMD.added.
+//
+// The ordering semantics are preserved exactly: FromOutgoingContext lays down raw.md first
+// and then merges raw.added in order, so "existing values first, this layer appended after"
+// matches the previous Join(existingMD, md), and the downstream firstMetadataValue still
+// reads the existing value at values[0].
+//
+// Keys go in straight from the constants without ToLower: all 35 Metadata* constants are
+// already lowercase (locked by TestMetadataKeysAreLowercase), so the ToLower inside
+// AppendToOutgoingContext is a no-op for them.
 func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 	requestCommonMeta := GetRequestCommonMeta(ctx)
 
 	// 优先使用 RequestCommonMeta 中的 Accept Language，若为空则从 i18n context 获取
 	acceptLanguage := mathx.IfEmpty(requestCommonMeta.AcceptLanguage, goi18n.GetLanguage(ctx))
 
-	// 直接注入所有字段，空值也可以传递
-	md := metadata.Pairs(
-		constants.MetadataID, requestCommonMeta.ID,
-		constants.MetadataTraceID, requestCommonMeta.TraceID,
-		constants.MetadataRequestID, requestCommonMeta.RequestID,
-		constants.MetadataAuthorization, requestCommonMeta.Authorization,
-		constants.MetadataUserID, requestCommonMeta.UserID,
-		constants.MetadataUserName, url.QueryEscape(requestCommonMeta.UserName),
-		constants.MetadataDomain, requestCommonMeta.Domain,
-		constants.MetadataRoleCode, requestCommonMeta.RoleCode,
-		constants.MetadataTenantID, requestCommonMeta.TenantID,
-		constants.MetadataTenantCode, requestCommonMeta.TenantCode,
-		constants.MetadataSessionID, requestCommonMeta.SessionID,
-		constants.MetadataTimezone, requestCommonMeta.Timezone,
-		constants.MetadataIPAddress, requestCommonMeta.IPAddress,
-		constants.MetadataAppID, requestCommonMeta.AppID,
-		constants.MetadataDeviceID, requestCommonMeta.DeviceID,
-		constants.MetadataAppVersion, requestCommonMeta.AppVersion,
-		constants.MetadataPlatformID, requestCommonMeta.PlatformID,
-		constants.MetadataPlatformCode, requestCommonMeta.PlatformCode,
-		constants.MetadataRegionID, requestCommonMeta.RegionID,
-		constants.MetadataRegionCode, requestCommonMeta.RegionCode,
-		constants.MetadataAgentLineID, requestCommonMeta.AgentLineID,
-		constants.MetadataNonce, requestCommonMeta.Nonce,
-		constants.MetadataJti, requestCommonMeta.Jti,
-		constants.MetadataFamilyId, requestCommonMeta.FamilyId,
-		constants.MetadataXNsID, requestCommonMeta.XNsID,
-		constants.MetadataUserAgent, requestCommonMeta.UserAgent,
-		constants.MetadataPushToken, requestCommonMeta.PushToken,
-		constants.MetadataToken, requestCommonMeta.Token,
-		constants.MetadataTimestamp, requestCommonMeta.Timestamp,
-		constants.MetadataSignature, requestCommonMeta.Signature,
-		constants.MetadataAccessKey, requestCommonMeta.AccessKey,
-		constants.MetadataAcceptLanguage, acceptLanguage,
-		constants.MetadataForwardedHost, requestCommonMeta.ForwardedHost,
-	)
+	// UserName 仍按原先的方式转义后再判空：QueryEscape 不会把非空串变成空串，
+	// 所以「转义后为空」等价于「原值为空」，判空位置前后移动不改变结果
+	// [EN] UserName is still escaped before the emptiness test: QueryEscape never turns a
+	// non-empty string into an empty one, so testing before or after is equivalent
+	userName := url.QueryEscape(requestCommonMeta.UserName)
 
-	// 合并已有的 outgoing metadata
-	if existingMD, ok := metadata.FromOutgoingContext(ctx); ok {
-		md = metadata.Join(existingMD, md)
+	// 固定长度的栈上数组，避免为键值序列再分配一次
+	// 34 对 = 33 个字段加服务节点标识
+	// [EN] A fixed-size stack array avoids a further allocation for the key/value sequence;
+	// 34 pairs is the 33 fields plus the server node identifier
+	var buf [34 * 2]string
+	kv := buf[:0]
+	add := func(key, value string) {
+		if value != "" {
+			kv = append(kv, key, value)
+		}
 	}
+
+	add(constants.MetadataID, requestCommonMeta.ID)
+	add(constants.MetadataTraceID, requestCommonMeta.TraceID)
+	add(constants.MetadataRequestID, requestCommonMeta.RequestID)
+	add(constants.MetadataAuthorization, requestCommonMeta.Authorization)
+	add(constants.MetadataUserID, requestCommonMeta.UserID)
+	add(constants.MetadataUserName, userName)
+	add(constants.MetadataDomain, requestCommonMeta.Domain)
+	add(constants.MetadataRoleCode, requestCommonMeta.RoleCode)
+	add(constants.MetadataTenantID, requestCommonMeta.TenantID)
+	add(constants.MetadataTenantCode, requestCommonMeta.TenantCode)
+	add(constants.MetadataSessionID, requestCommonMeta.SessionID)
+	add(constants.MetadataTimezone, requestCommonMeta.Timezone)
+	add(constants.MetadataIPAddress, requestCommonMeta.IPAddress)
+	add(constants.MetadataAppID, requestCommonMeta.AppID)
+	add(constants.MetadataDeviceID, requestCommonMeta.DeviceID)
+	add(constants.MetadataAppVersion, requestCommonMeta.AppVersion)
+	add(constants.MetadataPlatformID, requestCommonMeta.PlatformID)
+	add(constants.MetadataPlatformCode, requestCommonMeta.PlatformCode)
+	add(constants.MetadataRegionID, requestCommonMeta.RegionID)
+	add(constants.MetadataRegionCode, requestCommonMeta.RegionCode)
+	add(constants.MetadataAgentLineID, requestCommonMeta.AgentLineID)
+	add(constants.MetadataNonce, requestCommonMeta.Nonce)
+	add(constants.MetadataJti, requestCommonMeta.Jti)
+	add(constants.MetadataFamilyId, requestCommonMeta.FamilyId)
+	add(constants.MetadataXNsID, requestCommonMeta.XNsID)
+	add(constants.MetadataUserAgent, requestCommonMeta.UserAgent)
+	add(constants.MetadataPushToken, requestCommonMeta.PushToken)
+	add(constants.MetadataToken, requestCommonMeta.Token)
+	add(constants.MetadataTimestamp, requestCommonMeta.Timestamp)
+	add(constants.MetadataSignature, requestCommonMeta.Signature)
+	add(constants.MetadataAccessKey, requestCommonMeta.AccessKey)
+	add(constants.MetadataAcceptLanguage, acceptLanguage)
+	add(constants.MetadataForwardedHost, requestCommonMeta.ForwardedHost)
 
 	// 透传服务节点标识到下游服务，便于全链路定位处理请求的具体节点
-	if serverNode := global.GetServerNode(); serverNode != "" {
-		md.Append(constants.MetadataServerNode, serverNode)
-	}
+	add(constants.MetadataServerNode, global.GetServerNode())
 
-	return metadata.NewOutgoingContext(ctx, md)
+	if len(kv) == 0 {
+		return ctx
+	}
+	return metadata.AppendToOutgoingContext(ctx, kv...)
 }
 
 // ============================================================================
@@ -536,9 +659,27 @@ func extractOrGenerateRequestID(requestID string) string {
 
 // ForwardOutgoingContext 将 HTTP 请求的 Header 转发为 gRPC outgoing metadata
 func ForwardOutgoingContext(r *http.Request) context.Context {
-	md := metadata.New(nil)
+	// 预置容量：原先是 metadata.New(nil)，也就是从空 map 起步，
+	// 一个浏览器请求十几个头要经历几次 rehash
+	// [EN] Pre-sized: this used to start from an empty map via metadata.New(nil), so a
+	// browser's dozen-plus headers cost several rehashes
+	md := make(metadata.MD, len(r.Header))
 	for key, values := range r.Header {
-		if strings.EqualFold(key, "connection") {
+		// 逐跳头必须剔掉 原先只剔了 Connection，而把 te 或 transfer-encoding
+		// 转进 gRPC metadata 会让 gRPC 服务端直接回 RST_STREAM PROTOCOL_ERROR ——
+		// 不是「多传了点东西」，是这一路请求整个失败
+		//
+		// 清单与 server/http.go 的 WithIncomingHeaderMatcher 共用同一个判定（见
+		// IsHopByHopHeader）：同一条规则散在两处，就必然出现一处全、另一处只剩一项的情况，
+		// 这个 bug 本身就是那样来的
+		//
+		// [EN] Hop-by-hop headers have to go. Only Connection used to be dropped, while
+		// forwarding te or transfer-encoding into gRPC metadata makes the gRPC server answer
+		// RST_STREAM PROTOCOL_ERROR — not "a little extra on the wire" but the whole request
+		// failing. The list is shared with WithIncomingHeaderMatcher in server/http.go through
+		// IsHopByHopHeader: one rule spelled out in two places is how one copy ends up complete
+		// and the other down to a single entry, which is exactly how this bug arose
+		if IsHopByHopHeader(key) {
 			continue
 		}
 		for _, value := range values {
@@ -546,6 +687,34 @@ func ForwardOutgoingContext(r *http.Request) context.Context {
 		}
 	}
 	return metadata.NewOutgoingContext(r.Context(), md)
+}
+
+// IsHopByHopHeader 报告该 HTTP 头是否为逐跳头，不得转发到下游
+//
+// 这些头描述的是「本次 TCP 连接」而不是「这个请求」，按 RFC 9110 §7.6.1 不可转发
+// 对 gRPC 来说后果更硬：HTTP/2 禁止 connection 相关头，gRPC 服务端收到就发
+// RST_STREAM PROTOCOL_ERROR，整路请求失败
+//
+// 清单与 grpc-gateway 的入站匹配器保持一致（server/http.go 的 buildServeMuxOptions）
+// RFC 还把 Proxy-Authenticate / Proxy-Authorization 也列为逐跳，但此处刻意不加：
+// 两条路径的判定必须完全一致，而扩大清单是一个独立的行为决定，不该夹在 bug 修复里
+//
+// [EN] Reports whether an HTTP header is hop-by-hop and must not be forwarded downstream.
+// These describe the TCP connection rather than the request and are non-forwardable per
+// RFC 9110 §7.6.1. For gRPC the consequence is harder: HTTP/2 forbids connection-specific
+// headers and a gRPC server answers RST_STREAM PROTOCOL_ERROR, failing the whole request.
+//
+// The list matches grpc-gateway's incoming matcher in buildServeMuxOptions. The RFC also lists
+// Proxy-Authenticate and Proxy-Authorization as hop-by-hop, deliberately not added here: both
+// paths must agree exactly, and widening the list is a separate behavioural decision that does
+// not belong inside a bug fix
+func IsHopByHopHeader(key string) bool {
+	switch strings.ToLower(key) {
+	case "connection", "keep-alive", "proxy-connection",
+		"transfer-encoding", "upgrade", "te":
+		return true
+	}
+	return false
 }
 
 // ============================================================================

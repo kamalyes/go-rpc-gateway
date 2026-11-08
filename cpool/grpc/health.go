@@ -247,9 +247,40 @@ func (hc *HealthChecker) StartPeriodicCheck(interval time.Duration, endpoints ma
 			timeout := hc.connReadyTimeout
 			hc.mu.RUnlock()
 
+			// 每轮用 WaitGroup 等齐再进下一轮，而不是让各轮互相叠加
+			//
+			// 原先每个 tick 为每个服务起一个 goroutine 就不管了 而回调 onRecover 是
+			// 使用方的代码，注释里写明它要「重新发现服务和注册路由」—— 那不是瞬时操作
+			// 于是「回调比 interval 慢」时，每个 tick 都在前一批还没跑完时再加一批，
+			// goroutine 数量没有上界，内存与 CPU 一起往上走，而且表现为「越跑越慢」
+			// 这类增长很难归因，因为日志上看只是健康检查变频繁了
+			//
+			// 等齐的代价是「某次检查慢会推迟下一轮」，这正是想要的：
+			// 一轮恢复回调还在飞的时候，没有理由再发起下一轮
+			//
+			// [EN] Each round waits for its batch instead of letting rounds pile onto each
+			// other. Every tick used to launch one goroutine per service and forget them, while
+			// the onRecover callback is the caller's code which, as its own comment says,
+			// re-discovers services and registers routes — not an instant operation. Once the
+			// callback is slower than the interval, every tick adds a batch while the previous
+			// one is still running, with no bound on goroutine count, and memory and CPU climb
+			// together while the symptom reads only as "getting slower". Waiting means a slow
+			// check delays the next round, which is the desired behaviour: there is no reason to
+			// start another round while a round of recovery callbacks is still in flight
+			var wg sync.WaitGroup
 			for serviceName, health := range services {
 				endpoint := endpoints[serviceName]
+				wg.Add(1)
 				go func(name, ep string, h *ClientHealth, timeout time.Duration) {
+					defer wg.Done()
+					// 后台 goroutine 的 panic 没有任何人 recover，会带走整个进程
+					// [EN] A panic in a background goroutine has no recover and takes the
+					// whole process down
+					defer func() {
+						if r := recover(); r != nil {
+							gwglobal.LOGGER.Error("⚠️  健康检查 %s 发生 panic 已被拦截: %v", name, r)
+						}
+					}()
 					var healthy bool
 					if h.conn != nil {
 						// 通过 ClientConn 连接状态判断（支持多 Pod 负载均衡）
@@ -289,6 +320,15 @@ func (hc *HealthChecker) StartPeriodicCheck(interval time.Duration, endpoints ma
 						hc.mu.RLock()
 						callback := hc.onRecover
 						hc.mu.RUnlock()
+						// callback 是使用方的代码，可能很慢也可能 panic：慢由上面那层
+						// wg.Wait() 兜住（不会叠加轮次），panic 由本 goroutine 顶部的
+						// recover 兜住（不会带走进程）
+						// SetOnRecover 是可选的，没调过它 callback 就是 nil，所以要判空
+						// [EN] The callback is the caller's code and may be slow or may panic:
+						// slowness is contained by the wg.Wait() above, which stops rounds from
+						// piling up, and a panic by the recover at the top of this goroutine,
+						// which keeps it from killing the process. SetOnRecover is optional, so
+						// callback is nil when it was never called — hence the nil test
 						if callback != nil {
 							callback(name)
 						}
@@ -299,6 +339,7 @@ func (hc *HealthChecker) StartPeriodicCheck(interval time.Duration, endpoints ma
 					}
 				}(serviceName, endpoint, health, timeout)
 			}
+			wg.Wait()
 		}
 	}()
 	gwglobal.LOGGER.Info("🏥 gRPC 健康检查循环已启动 (间隔: %v)", interval)

@@ -175,7 +175,7 @@ func TestCaptureAccessLogMasksHeaders(t *testing.T) {
 	rw.WriteHeader(http.StatusOK)
 
 	captureAccessLog(context.Background(), r, rw, time.Now(), 5*time.Millisecond,
-		[]byte(`{"id":"x"}`), []byte(`{"ok":true}`), time.Second)
+		newMaskedBody([]byte(`{"id":"x"}`)), newMaskedBody([]byte(`{"ok":true}`)), time.Second)
 
 	if got == nil {
 		t.Fatal("访问日志钩子没有收到记录")

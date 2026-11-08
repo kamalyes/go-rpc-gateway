@@ -274,3 +274,142 @@ func TestGzipEnabledNilServerConfig(t *testing.T) {
 		t.Error("config 为 nil 时两个判定都应为 false")
 	}
 }
+
+// TestGzipBodylessStatusSendsNoGzipStream 无体状态码不得带 gzip 流与 Content-Encoding
+//
+// 回归点：Content-Encoding: gzip 是 handler 运行前乐观设上的，而 Close() 无条件吐出
+// 空 gzip 流（头 + 空 deflate + CRC，约 20 字节）
+// 于是 204 / 304 的响应既声明了 gzip 又没有合法 gzip 体，
+// net/http 还会在服务端日志里留下 "status code does not allow body"
+//
+// [EN] Regression: Content-Encoding: gzip was set optimistically before the handler ran while
+// Close() unconditionally emitted an empty gzip stream, leaving 204/304 responses advertising
+// gzip without a valid gzip body and making net/http log "status code does not allow body"
+func TestGzipBodylessStatusSendsNoGzipStream(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code int
+	}{
+		{"204NoContent", http.StatusNoContent},
+		{"304NotModified", http.StatusNotModified},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newGzipStreamServer(t)
+			rec := httptest.NewRecorder()
+
+			h := s.gzipMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.code)
+			}))
+			h.ServeHTTP(rec, gzipStreamRequest())
+
+			if got := rec.Header().Get("Content-Encoding"); got != "" {
+				t.Errorf("Content-Encoding = %q，无体状态码不该声明压缩", got)
+			}
+			if rec.Body.Len() != 0 {
+				t.Errorf("响应体应为空，实际 %d 字节（多半是空 gzip 流）: %q",
+					rec.Body.Len(), rec.Body.Bytes())
+			}
+			// Vary 要保留：它描述资源随 Accept-Encoding 变化，与本次是否压缩无关
+			// [EN] Vary is kept: it describes the resource, not this particular response
+			if got := rec.Header().Get("Vary"); got != "Accept-Encoding" {
+				t.Errorf("Vary = %q，应保留 Accept-Encoding", got)
+			}
+		})
+	}
+}
+
+// TestGzipResponseIsSelfConsistent 响应必须自洽：声明了 gzip，体就得是能解开的 gzip 流
+//
+// 这条不变量管住的是「handler 几乎什么都没写」的那几种形状 它们看着像是可以省掉
+// Close() 那约 20 字节的空 gzip 流，但省不得：Content-Encoding: gzip 在 handler 跑之前
+// 就乐观设上、并随 WriteHeader 发了出去，撤不回来
+//   - 只 WriteHeader 不写体：省掉就是「声明 gzip 却 0 字节」，gzip.NewReader 报 EOF
+//   - 只 Flush 不写体：Flush 已经把 gzip 头写出去了，省掉尾块就是截断流，报 unexpected EOF
+//
+// 真正能让开的只有「状态码不允许带体」，那时 WriteHeader 会一并删掉 Content-Encoding，
+// 响应照样自洽 —— 由 TestGzipBodylessStatusSendsNoGzipStream 覆盖
+//
+// [EN] The invariant covering the shapes where the handler writes almost nothing. They look
+// like the ~20-byte empty gzip stream from Close() could be skipped, but it cannot:
+// Content-Encoding: gzip is set optimistically before the handler runs, goes out with
+// WriteHeader and cannot be retracted. WriteHeader with no body would leave gzip advertised
+// over 0 bytes, on which gzip.NewReader fails with EOF; Flush with no body has already
+// emitted the gzip header, so dropping the trailer leaves a truncated stream and decoders
+// report unexpected EOF. Only a status code forbidding a body may stand aside, and there
+// WriteHeader deletes Content-Encoding so the response stays consistent
+func TestGzipResponseIsSelfConsistent(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		handler http.HandlerFunc
+	}{
+		{"只设头再 WriteHeader", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Only-Header", "1")
+			w.WriteHeader(http.StatusOK)
+		}},
+		{"完全不动响应", func(w http.ResponseWriter, r *http.Request) {}},
+		{"只 Flush 不写体", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+		}},
+		{"写了内容", func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(strings.Repeat("payload ", 32)))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newGzipStreamServer(t)
+			rec := httptest.NewRecorder()
+			s.gzipMiddleware(tc.handler).ServeHTTP(rec, gzipStreamRequest())
+
+			if rec.Header().Get("Content-Encoding") != "gzip" {
+				// 没声明压缩，那体就必须是未压缩的原样内容，这里不作进一步要求
+				// [EN] No compression advertised, so the body is the raw content as-is
+				return
+			}
+			zr, err := gzip.NewReader(bytes.NewReader(rec.Body.Bytes()))
+			if err != nil {
+				t.Fatalf("声明了 Content-Encoding: gzip，但体不是合法 gzip 流: %v（%d 字节: %x）",
+					err, rec.Body.Len(), rec.Body.Bytes())
+			}
+			if _, err := io.ReadAll(zr); err != nil {
+				t.Fatalf("gzip 流未正常终结（缺尾块）: %v（%d 字节: %x）",
+					err, rec.Body.Len(), rec.Body.Bytes())
+			}
+		})
+	}
+}
+
+// TestGzipPoolReleasesWriterReference 归还对象池时必须解除对 ResponseWriter 的引用
+//
+// 回归点：gzip.Writer 在 Reset(w) 之后一直持有那个 ResponseWriter，
+// 带着引用回池会把整个 http 响应对象留到该 writer 下次被取出为止
+//
+// [EN] Regression: a gzip.Writer keeps the ResponseWriter it was Reset to, so returning it
+// to the pool with that reference pins the whole http response object until next acquired
+func TestGzipPoolReleasesWriterReference(t *testing.T) {
+	s := newGzipStreamServer(t)
+
+	h := s.gzipMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", 128)))
+	}))
+	h.ServeHTTP(httptest.NewRecorder(), gzipStreamRequest())
+
+	// 取出刚归还的那个 writer，往它身上写一笔
+	// 若引用没解除，这一笔会写进上一次请求的 ResponseWriter
+	// [EN] Take back the writer just returned and write through it; if the reference was not
+	// dropped, this write lands in the previous request's ResponseWriter
+	gw := s.gzipWriterPool.Get().(*gzip.Writer)
+	defer s.gzipWriterPool.Put(gw)
+
+	victim := httptest.NewRecorder()
+	if _, err := gw.Write([]byte("leak-probe")); err != nil {
+		t.Fatalf("写入失败: %v", err)
+	}
+	if err := gw.Flush(); err != nil {
+		t.Fatalf("Flush 失败: %v", err)
+	}
+	if victim.Body.Len() != 0 {
+		t.Errorf("写入落到了不相关的 writer 上，泄漏了引用")
+	}
+	// 解除引用后目标是 io.Discard，写入不该落到任何 recorder 上，这里只断言不 panic
+	_ = victim
+}

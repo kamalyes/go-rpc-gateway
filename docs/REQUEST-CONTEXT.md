@@ -4,7 +4,7 @@
 
 `RequestCommonMeta` 实现 HTTP → gRPC → Service → Repository 全链路上下文传递，确保 trace\_id、tenant\_id、user\_id 等 30+ 个关键字段在整个调用链中不丢失。
 
-> 源码：[middleware/request\_context.go](../middleware/request_context.go)
+> 源码：[middleware/request\_context.go](../middleware/core/request_context.go)
 
 ## 全链路传递流程
 
@@ -71,7 +71,7 @@ flowchart TD
 
 ## RequestCommonMeta — 请求公共元信息
 
-> 源码：[request\_context.go:RequestCommonMeta](../middleware/request_context.go#L33)
+> 源码：[request\_context.go:RequestCommonMeta](../middleware/core/request_context.go)
 
 ```go
 type RequestCommonMeta struct {
@@ -168,45 +168,45 @@ flowchart LR
 
 | 字段             | HTTP Header             | gRPC Metadata           | Context Key             | 便捷读取函数                       | 源码                                              |
 | ---------------- | ----------------------- | ----------------------- | ----------------------- | ---------------------------- | ----------------------------------------------- |
-| ID               | `X-ID`                  | `x-id`                  | `x-id`                  | `GetID(ctx)`                 | [metadata.go:L22](../constants/metadata.go#L22) |
-| TraceID          | `X-Trace-ID`            | `x-trace-id`            | `x-trace-id`            | `GetTraceID(ctx)`            | [metadata.go:L20](../constants/metadata.go#L20) |
-| RequestID        | `X-Request-ID`          | `x-request-id`          | `x-request-id`          | `GetRequestID(ctx)`          | [metadata.go:L21](../constants/metadata.go#L21) |
-| UserID           | `X-User-ID`             | `x-user-id`             | `x-user-id`             | `GetUserID(ctx)`             | [metadata.go:L23](../constants/metadata.go#L23) |
-| UserName         | `X-User-Name`           | `x-user-name`           | `x-user-name`           | `GetUserName(ctx)`           | [metadata.go:L24](../constants/metadata.go#L24) |
-| Domain           | `X-Domain`              | `x-domain`              | `x-domain`              | `GetDomain(ctx)`             | [metadata.go:L25](../constants/metadata.go#L25) |
-| RoleCode         | `X-Role-Code`           | `x-role-code`           | `x-role-code`           | `GetRoleCode(ctx)`           | [metadata.go:L26](../constants/metadata.go#L26) |
-| TenantID         | `X-Tenant-ID`           | `x-tenant-id`           | `x-tenant-id`           | `GetTenantID(ctx)`           | [metadata.go:L27](../constants/metadata.go#L27) |
-| TenantCode       | `X-Tenant-Code`         | `x-tenant-code`         | `x-tenant-code`         | `GetTenantCode(ctx)`         | [metadata.go:L28](../constants/metadata.go#L28) |
-| SessionID        | `X-Session-ID`          | `x-session-id`          | `x-session-id`          | `GetSessionID(ctx)`          | [metadata.go:L29](../constants/metadata.go#L29) |
-| Timezone         | `X-Timezone`            | `x-timezone`            | `x-timezone`            | `GetTimezone(ctx)`           | [metadata.go:L30](../constants/metadata.go#L30) |
-| IPAddress        | `X-Forwarded-For`       | `x-ip-address`          | `x-ip-address`          | `GetIPAddress(ctx)`          | [metadata.go:L31](../constants/metadata.go#L31) |
-| ForwardedHost    | `X-Forwarded-Host`      | `x-forwarded-host`      | `x-forwarded-host`      | `GetForwardedHost(ctx)`      | [metadata.go:L32](../constants/metadata.go#L32) |
-| AppID            | `X-App-ID`              | `x-app-id`              | `x-app-id`              | `GetAppID(ctx)`              | [metadata.go:L33](../constants/metadata.go#L33) |
-| DeviceID         | `X-Device-ID`           | `x-device-id`           | `x-device-id`           | `GetDeviceID(ctx)`           | [metadata.go:L34](../constants/metadata.go#L34) |
-| AppVersion       | `X-App-Version`         | `x-app-version`         | `x-app-version`         | `GetAppVersion(ctx)`         | [metadata.go:L35](../constants/metadata.go#L35) |
-| PlatformID       | `X-Platform-ID`         | `x-platform-id`         | `x-platform-id`         | `GetPlatformID(ctx)`         | [metadata.go:L36](../constants/metadata.go#L36) |
-| PlatformCode     | `X-Platform-Code`       | `x-platform-code`       | `x-platform-code`       | `GetPlatformCode(ctx)`       | [metadata.go:L37](../constants/metadata.go#L37) |
-| RegionID         | `X-Region-ID`           | `x-region-id`           | `x-region-id`           | `GetRegionID(ctx)`           | [metadata.go:L38](../constants/metadata.go#L38) |
-| RegionCode       | `X-Region-Code`         | `x-region-code`         | `x-region-code`         | `GetRegionCode(ctx)`         | [metadata.go:L39](../constants/metadata.go#L39) |
-| AgentLineID      | `X-Agent-Line-ID`       | `x-agent-line-id`       | `x-agent-line-id`       | `GetAgentLineID(ctx)`        | [metadata.go:L40](../constants/metadata.go#L40) |
-| Nonce            | `X-Nonce`               | `x-nonce`               | `x-nonce`               | `GetNonce(ctx)`              | [metadata.go:L41](../constants/metadata.go#L41) |
-| XNsID            | `X-Ns-ID`               | `x-ns-id`               | `x-ns-id`               | `GetXNsID(ctx)`              | [metadata.go:L42](../constants/metadata.go#L42) |
-| Authorization    | `Authorization`         | `authorization`         | `authorization`         | `GetAuthorization(ctx)`      | [metadata.go:L43](../constants/metadata.go#L43) |
-| Timestamp        | `X-Timestamp`           | `x-timestamp`           | `x-timestamp`           | `GetTimestamp(ctx)`          | [metadata.go:L45](../constants/metadata.go#L45) |
-| Signature        | `X-Signature`           | `x-signature`           | `x-signature`           | `GetSignature(ctx)`          | [metadata.go:L46](../constants/metadata.go#L46) |
-| AccessKey        | `X-Access-Key`          | `x-access-key`          | `x-access-key`          | `GetAccessKey(ctx)`          | [metadata.go:L47](../constants/metadata.go#L47) |
-| Jti              | `X-Jti`                 | `x-jti`                 | `x-jti`                 | `GetJti(ctx)`                | [metadata.go:L48](../constants/metadata.go#L48) |
-| FamilyId         | `X-Family-ID`           | `x-family-id`           | `x-family-id`           | `GetFamilyId(ctx)`           | [metadata.go:L49](../constants/metadata.go#L49) |
-| UserAgent        | `User-Agent`            | `x-user-agent`          | `x-user-agent`          | `GetUserAgent(ctx)`          | [metadata.go:L50](../constants/metadata.go#L50) |
-| PushToken        | `X-Push-Token`          | `x-push-token`          | `x-push-token`          | `GetPushToken(ctx)`          | [metadata.go:L51](../constants/metadata.go#L51) |
-| Token            | `X-Token`               | `x-token`               | `x-token`               | `GetToken(ctx)`              | [metadata.go:L52](../constants/metadata.go#L52) |
-| AcceptLanguage   | `Accept-Language`       | `accept-language`       | `accept-language`       | `GetAcceptLanguageFromMeta(ctx)` | [metadata.go:L53](../constants/metadata.go#L53) |
+| ID               | `X-ID`                  | `x-id`                  | `x-id`                  | `GetID(ctx)`                 | [metadata.go](../constants/metadata.go) |
+| TraceID          | `X-Trace-ID`            | `x-trace-id`            | `x-trace-id`            | `GetTraceID(ctx)`            | [metadata.go](../constants/metadata.go) |
+| RequestID        | `X-Request-ID`          | `x-request-id`          | `x-request-id`          | `GetRequestID(ctx)`          | [metadata.go](../constants/metadata.go) |
+| UserID           | `X-User-ID`             | `x-user-id`             | `x-user-id`             | `GetUserID(ctx)`             | [metadata.go](../constants/metadata.go) |
+| UserName         | `X-User-Name`           | `x-user-name`           | `x-user-name`           | `GetUserName(ctx)`           | [metadata.go](../constants/metadata.go) |
+| Domain           | `X-Domain`              | `x-domain`              | `x-domain`              | `GetDomain(ctx)`             | [metadata.go](../constants/metadata.go) |
+| RoleCode         | `X-Role-Code`           | `x-role-code`           | `x-role-code`           | `GetRoleCode(ctx)`           | [metadata.go](../constants/metadata.go) |
+| TenantID         | `X-Tenant-ID`           | `x-tenant-id`           | `x-tenant-id`           | `GetTenantID(ctx)`           | [metadata.go](../constants/metadata.go) |
+| TenantCode       | `X-Tenant-Code`         | `x-tenant-code`         | `x-tenant-code`         | `GetTenantCode(ctx)`         | [metadata.go](../constants/metadata.go) |
+| SessionID        | `X-Session-ID`          | `x-session-id`          | `x-session-id`          | `GetSessionID(ctx)`          | [metadata.go](../constants/metadata.go) |
+| Timezone         | `X-Timezone`            | `x-timezone`            | `x-timezone`            | `GetTimezone(ctx)`           | [metadata.go](../constants/metadata.go) |
+| IPAddress        | `X-Forwarded-For`       | `x-ip-address`          | `x-ip-address`          | `GetIPAddress(ctx)`          | [metadata.go](../constants/metadata.go) |
+| ForwardedHost    | `X-Forwarded-Host`      | `x-forwarded-host`      | `x-forwarded-host`      | `GetForwardedHost(ctx)`      | [metadata.go](../constants/metadata.go) |
+| AppID            | `X-App-ID`              | `x-app-id`              | `x-app-id`              | `GetAppID(ctx)`              | [metadata.go](../constants/metadata.go) |
+| DeviceID         | `X-Device-ID`           | `x-device-id`           | `x-device-id`           | `GetDeviceID(ctx)`           | [metadata.go](../constants/metadata.go) |
+| AppVersion       | `X-App-Version`         | `x-app-version`         | `x-app-version`         | `GetAppVersion(ctx)`         | [metadata.go](../constants/metadata.go) |
+| PlatformID       | `X-Platform-ID`         | `x-platform-id`         | `x-platform-id`         | `GetPlatformID(ctx)`         | [metadata.go](../constants/metadata.go) |
+| PlatformCode     | `X-Platform-Code`       | `x-platform-code`       | `x-platform-code`       | `GetPlatformCode(ctx)`       | [metadata.go](../constants/metadata.go) |
+| RegionID         | `X-Region-ID`           | `x-region-id`           | `x-region-id`           | `GetRegionID(ctx)`           | [metadata.go](../constants/metadata.go) |
+| RegionCode       | `X-Region-Code`         | `x-region-code`         | `x-region-code`         | `GetRegionCode(ctx)`         | [metadata.go](../constants/metadata.go) |
+| AgentLineID      | `X-Agent-Line-ID`       | `x-agent-line-id`       | `x-agent-line-id`       | `GetAgentLineID(ctx)`        | [metadata.go](../constants/metadata.go) |
+| Nonce            | `X-Nonce`               | `x-nonce`               | `x-nonce`               | `GetNonce(ctx)`              | [metadata.go](../constants/metadata.go) |
+| XNsID            | `X-Ns-ID`               | `x-ns-id`               | `x-ns-id`               | `GetXNsID(ctx)`              | [metadata.go](../constants/metadata.go) |
+| Authorization    | `Authorization`         | `authorization`         | `authorization`         | `GetAuthorization(ctx)`      | [metadata.go](../constants/metadata.go) |
+| Timestamp        | `X-Timestamp`           | `x-timestamp`           | `x-timestamp`           | `GetTimestamp(ctx)`          | [metadata.go](../constants/metadata.go) |
+| Signature        | `X-Signature`           | `x-signature`           | `x-signature`           | `GetSignature(ctx)`          | [metadata.go](../constants/metadata.go) |
+| AccessKey        | `X-Access-Key`          | `x-access-key`          | `x-access-key`          | `GetAccessKey(ctx)`          | [metadata.go](../constants/metadata.go) |
+| Jti              | `X-Jti`                 | `x-jti`                 | `x-jti`                 | `GetJti(ctx)`                | [metadata.go](../constants/metadata.go) |
+| FamilyId         | `X-Family-ID`           | `x-family-id`           | `x-family-id`           | `GetFamilyId(ctx)`           | [metadata.go](../constants/metadata.go) |
+| UserAgent        | `User-Agent`            | `x-user-agent`          | `x-user-agent`          | `GetUserAgent(ctx)`          | [metadata.go](../constants/metadata.go) |
+| PushToken        | `X-Push-Token`          | `x-push-token`          | `x-push-token`          | `GetPushToken(ctx)`          | [metadata.go](../constants/metadata.go) |
+| Token            | `X-Token`               | `x-token`               | `x-token`               | `GetToken(ctx)`              | [metadata.go](../constants/metadata.go) |
+| AcceptLanguage   | `Accept-Language`       | `accept-language`       | `accept-language`       | `GetAcceptLanguageFromMeta(ctx)` | [metadata.go](../constants/metadata.go) |
 
 > 注意：gRPC Metadata 键必须小写，这是 gRPC 协议规范。HTTP Header 使用大写 `X-` 前缀，gRPC-Gateway 的 `WithIncomingHeaderMatcher` 自动完成大小写转换。`Authorization` 与 `Accept-Language` 因属标准 Header，键名不带 `x-` 前缀。
 
 ## HTTP 中间件详解
 
-> 源码：[request\_context.go:RequestContextMiddleware()](../middleware/request_context.go#L82)
+> 源码：[request\_context.go:RequestContextMiddleware()](../middleware/core/request_context.go)
 
 ```mermaid
 flowchart TD
@@ -226,7 +226,7 @@ flowchart TD
 
 ### TraceID 生成策略
 
-> 源码：[request\_context.go:extractOrGenerateTraceID()](../middleware/request_context.go#L426)
+> 源码：[request\_context.go:extractOrGenerateTraceID()](../middleware/core/request_context.go)
 
 1. 优先使用请求头中的 `X-Trace-ID`
 2. 如果存在 OpenTelemetry Span，使用 Span 的 TraceID
@@ -234,7 +234,7 @@ flowchart TD
 
 ### RequestID 生成策略
 
-> 源码：[request\_context.go:extractOrGenerateRequestID()](../middleware/request_context.go#L440)
+> 源码：[request\_context.go:extractOrGenerateRequestID()](../middleware/core/request_context.go)
 
 1. 优先使用请求头中的 `X-Request-ID`
 2. 不存在时，使用 `osx.HashUnixMicroCipherText()` 生成
@@ -258,7 +258,7 @@ request-context:
 
 ## gRPC Server 拦截器详解
 
-> 源码：[request\_context.go:UnaryServerRequestContextInterceptor()](../middleware/request_context.go#L188)
+> 源码：[request\_context.go:UnaryServerRequestContextInterceptor()](../middleware/core/request_context.go)
 
 ```mermaid
 flowchart TD
@@ -278,7 +278,7 @@ flowchart TD
 
 ### enrichContextFromMetadata — 核心提取逻辑
 
-> 源码：[request\_context.go:enrichContextFromMetadata()](../middleware/request_context.go#L223)
+> 源码：[request\_context.go:enrichContextFromMetadata()](../middleware/core/request_context.go)
 
 ```go
 func enrichContextFromMetadata(ctx context.Context) context.Context {
@@ -309,13 +309,13 @@ func enrichContextFromMetadata(ctx context.Context) context.Context {
 
 ### setResponseMetadata — 响应回传
 
-> 源码：[request\_context.go:setResponseMetadata()](../middleware/request_context.go#L281)
+> 源码：[request\_context.go:setResponseMetadata()](../middleware/core/request_context.go)
 
 将 `RequestCommonMeta` 中的所有字段通过 `grpc.SetHeader()` 写回 gRPC 响应 Metadata，确保下游服务或客户端可以获取到完整的上下文信息。同时会追加 `x-server-node`（来自 `global.GetServerNode()`）以便在 K8s 等环境中定位处理请求的具体 Pod。
 
 ## gRPC Client 拦截器详解
 
-> 源码：[request\_context.go:UnaryClientRequestContextInterceptor()](../middleware/request_context.go#L348)
+> 源码：[request\_context.go:UnaryClientRequestContextInterceptor()](../middleware/core/request_context.go)
 
 ```mermaid
 flowchart TD
@@ -333,7 +333,7 @@ flowchart TD
 
 ### injectTraceToOutgoingContext — 核心注入逻辑
 
-> 源码：[request\_context.go:injectTraceToOutgoingContext()](../middleware/request_context.go#L366)
+> 源码：[request\_context.go:injectTraceToOutgoingContext()](../middleware/core/request_context.go)
 
 ```go
 func injectTraceToOutgoingContext(ctx context.Context) context.Context {
@@ -364,7 +364,7 @@ func injectTraceToOutgoingContext(ctx context.Context) context.Context {
 }
 ```
 
-> 此外 `ForwardOutgoingContext(r *http.Request) context.Context`（[request\_context.go:L448](../middleware/request_context.go#L448)）可将 HTTP 请求的所有 Header（除 `connection` 外）原样转发为 gRPC outgoing Metadata，适用于需要全量透传 Header 的场景。
+> 此外 `ForwardOutgoingContext(r *http.Request) context.Context`（[request\_context.go](../middleware/core/request_context.go)）可将 HTTP 请求的所有 Header（除 `connection` 外）原样转发为 gRPC outgoing Metadata，适用于需要全量透传 Header 的场景。
 
 ## 跨服务传递完整链路
 
@@ -402,7 +402,7 @@ sequenceDiagram
 
 ## 便捷读取函数
 
-> 源码：[request\_context.go:GetXxx()](../middleware/request_context.go#L466)
+> 源码：[request\_context.go:GetXxx()](../middleware/core/request_context.go)
 
 所有读取函数内部调用 `GetRequestCommonMeta(ctx)`，该函数有二级缓存机制：
 
@@ -411,39 +411,39 @@ sequenceDiagram
 
 | 函数                            | 返回字段                 | 源码                                                                |
 | ------------------------------- | ---------------------- | ------------------------------------------------------------------- |
-| `GetID(ctx)`                    | ID                     | [request\_context.go:L532](../middleware/request_context.go#L532)   |
-| `GetTraceID(ctx)`               | TraceID                | [request\_context.go:L466](../middleware/request_context.go#L466)   |
-| `GetRequestID(ctx)`             | RequestID              | [request\_context.go:L472](../middleware/request_context.go#L472)   |
-| `GetUserID(ctx)`                | UserID                 | [request\_context.go:L478](../middleware/request_context.go#L478)   |
-| `GetUserName(ctx)`              | UserName               | [request\_context.go:L484](../middleware/request_context.go#L484)   |
-| `GetDomain(ctx)`                | Domain                 | [request\_context.go:L490](../middleware/request_context.go#L490)   |
-| `GetRoleCode(ctx)`              | RoleCode               | [request\_context.go:L496](../middleware/request_context.go#L496)   |
-| `GetTenantID(ctx)`              | TenantID               | [request\_context.go:L502](../middleware/request_context.go#L502)   |
-| `GetTenantCode(ctx)`            | TenantCode             | [request\_context.go:L538](../middleware/request_context.go#L538)   |
-| `GetSessionID(ctx)`             | SessionID              | [request\_context.go:L508](../middleware/request_context.go#L508)   |
-| `GetTimezone(ctx)`              | Timezone               | [request\_context.go:L514](../middleware/request_context.go#L514)   |
-| `GetIPAddress(ctx)`             | IPAddress              | [request\_context.go:L526](../middleware/request_context.go#L526)   |
-| `GetAppID(ctx)`                 | AppID                  | [request\_context.go:L580](../middleware/request_context.go#L580)   |
-| `GetDeviceID(ctx)`              | DeviceID               | [request\_context.go:L586](../middleware/request_context.go#L586)   |
-| `GetAppVersion(ctx)`            | AppVersion             | [request\_context.go:L592](../middleware/request_context.go#L592)   |
-| `GetPlatformID(ctx)`            | PlatformID             | [request\_context.go:L544](../middleware/request_context.go#L544)   |
-| `GetPlatformCode(ctx)`          | PlatformCode           | [request\_context.go:L550](../middleware/request_context.go#L550)   |
-| `GetRegionID(ctx)`              | RegionID               | [request\_context.go:L556](../middleware/request_context.go#L556)   |
-| `GetRegionCode(ctx)`            | RegionCode             | [request\_context.go:L562](../middleware/request_context.go#L562)   |
-| `GetAgentLineID(ctx)`           | AgentLineID            | [request\_context.go:L568](../middleware/request_context.go#L568)   |
-| `GetXNsID(ctx)`                 | XNsID (命名空间)        | [request\_context.go:L574](../middleware/request_context.go#L574)   |
-| `GetAuthorization(ctx)`         | Authorization          | [request\_context.go:L520](../middleware/request_context.go#L520)   |
-| `GetTimestamp(ctx)`             | Timestamp              | [request\_context.go:L622](../middleware/request_context.go#L622)   |
-| `GetSignature(ctx)`             | Signature              | [request\_context.go:L628](../middleware/request_context.go#L628)   |
-| `GetAccessKey(ctx)`             | AccessKey              | [request\_context.go:L634](../middleware/request_context.go#L634)   |
-| `GetNonce(ctx)`                 | Nonce                  | [request\_context.go:L598](../middleware/request_context.go#L598)   |
-| `GetJti(ctx)`                   | Jti (JWT ID)           | [request\_context.go:L604](../middleware/request_context.go#L604)   |
-| `GetFamilyId(ctx)`              | FamilyId (Token 家族)   | [request\_context.go:L610](../middleware/request_context.go#L610)   |
-| `GetUserAgent(ctx)`             | UserAgent              | [request\_context.go:L616](../middleware/request_context.go#L616)   |
-| `GetPushToken(ctx)`             | PushToken              | [request\_context.go:L640](../middleware/request_context.go#L640)   |
-| `GetToken(ctx)`                 | Token                  | [request\_context.go:L646](../middleware/request_context.go#L646)   |
-| `GetAcceptLanguageFromMeta(ctx)`| AcceptLanguage         | [request\_context.go:L883](../middleware/request_context.go#L883)   |
-| `GetForwardedHost(ctx)`         | ForwardedHost          | [request\_context.go:L898](../middleware/request_context.go#L898)   |
+| `GetID(ctx)`                    | ID                     | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetTraceID(ctx)`               | TraceID                | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetRequestID(ctx)`             | RequestID              | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetUserID(ctx)`                | UserID                 | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetUserName(ctx)`              | UserName               | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetDomain(ctx)`                | Domain                 | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetRoleCode(ctx)`              | RoleCode               | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetTenantID(ctx)`              | TenantID               | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetTenantCode(ctx)`            | TenantCode             | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetSessionID(ctx)`             | SessionID              | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetTimezone(ctx)`              | Timezone               | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetIPAddress(ctx)`             | IPAddress              | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetAppID(ctx)`                 | AppID                  | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetDeviceID(ctx)`              | DeviceID               | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetAppVersion(ctx)`            | AppVersion             | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetPlatformID(ctx)`            | PlatformID             | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetPlatformCode(ctx)`          | PlatformCode           | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetRegionID(ctx)`              | RegionID               | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetRegionCode(ctx)`            | RegionCode             | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetAgentLineID(ctx)`           | AgentLineID            | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetXNsID(ctx)`                 | XNsID (命名空间)        | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetAuthorization(ctx)`         | Authorization          | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetTimestamp(ctx)`             | Timestamp              | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetSignature(ctx)`             | Signature              | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetAccessKey(ctx)`             | AccessKey              | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetNonce(ctx)`                 | Nonce                  | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetJti(ctx)`                   | Jti (JWT ID)           | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetFamilyId(ctx)`              | FamilyId (Token 家族)   | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetUserAgent(ctx)`             | UserAgent              | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetPushToken(ctx)`             | PushToken              | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetToken(ctx)`                 | Token                  | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetAcceptLanguageFromMeta(ctx)`| AcceptLanguage         | [request\_context.go](../middleware/core/request_context.go)   |
+| `GetForwardedHost(ctx)`         | ForwardedHost          | [request\_context.go](../middleware/core/request_context.go)   |
 
 ### WithXxx — 写入函数
 
@@ -455,11 +455,11 @@ ctx = middleware.WithUserID(ctx, "user-001")
 ctx = middleware.WithTenantID(ctx, "tenant-001")
 ```
 
-> 源码：[request\_context.go:WithXxx()](../middleware/request_context.go#L659)（`WithTraceID` 起，后续每个字段一个 `WithXxx`）
+> 源码：[request\_context.go:WithXxx()](../middleware/core/request_context.go)（`WithTraceID` 起，后续每个字段一个 `WithXxx`）
 
 ### ContextBuilder — 链式构建器
 
-> 源码：[request\_context.go:ContextBuilder](../middleware/request_context.go#L906)
+> 源码：[request\_context.go:ContextBuilder](../middleware/core/request_context.go)
 
 当需要一次性设置多个字段时，使用 `ContextBuilder` 链式调用更清晰：
 
@@ -531,7 +531,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*User, error)
 
 ## ContextScopeReader — 作用域适配器
 
-> 源码：[middleware/scope\_reader.go](../middleware/scope_reader.go)
+> 源码：[middleware/scope\_reader.go](../middleware/security/scope_reader.go)
 
 将请求上下文适配为外部作用域读取接口，供限流、签名等中间件获取租户/角色等维度信息：
 
@@ -543,11 +543,11 @@ func (ContextScopeReader) GetTenantID(ctx context.Context) string // 委托 GetT
 func (ContextScopeReader) GetRoleCode(ctx context.Context) string // 委托 GetRoleCode(ctx)
 ```
 
-> 源码：[scope\_reader.go:L16-L31](../middleware/scope_reader.go#L16)
+> 源码：[scope\_reader.go](../middleware/security/scope_reader.go)
 
 ## 下一步
 
 - [中间件系统](./MIDDLEWARE.md) — 了解所有中间件
 - [gRPC 客户端](./GRPC-CLIENT.md) — 了解客户端拦截器如何传播上下文
-- [常量参考](./CONSTANTS.md) — 查看完整的 Metadata 键和日志字段定义
+- [constants/metadata.go](../constants/metadata.go) — 完整的 Metadata 键定义（35 个，全部小写）
 

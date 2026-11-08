@@ -46,7 +46,7 @@ flowchart LR
 
 ## AppError — 应用错误
 
-> 源码：[errors/error.go:AppError](../errors/error.go#L287)
+> 源码：[errors/error.go:AppError](../errors/error.go)
 
 ```go
 type AppError struct {
@@ -71,7 +71,7 @@ err := errors.NewError(errors.ErrCodeUnauthorized, "").
     WithDetailsf("retry after %d seconds", 60)
 ```
 
-> 源码：[error.go:NewError()](../errors/error.go#L294)、[error.go:NewErrorf()](../errors/error.go#L308)、[error.go:WithDetails()](../errors/error.go#L371)
+> 源码：[error.go:NewError()](../errors/error.go)、[error.go:NewErrorf()](../errors/error.go)、[error.go:WithDetails()](../errors/error.go)
 
 ### 包装标准错误
 
@@ -83,7 +83,7 @@ appErr := errors.Wrap(stdErr, errors.ErrCodeDBQueryError)
 appErr := errors.Wrapf(stdErr, errors.ErrCodeGRPCConnectionFailed, "service %s", "user-service")
 ```
 
-> 源码：[error.go:Wrap()](../errors/error.go#L383)、[error.go:Wrapf()](../errors/error.go#L395)
+> 源码：[error.go:Wrap()](../errors/error.go)、[error.go:Wrapf()](../errors/error.go)
 
 ### 字段访问与错误接口
 
@@ -102,7 +102,7 @@ appErr.GetMessage()   // 标准消息（来自 errorMessages 映射）
 appErr.GetDetails()   // 错误详情（可为空）
 ```
 
-> 源码：[error.go:Error()](../errors/error.go#L313)、[error.go:String()](../errors/error.go#L321)、[error.go:GetCode()](../errors/error.go#L326)、[error.go:GetMessage()](../errors/error.go#L331)、[error.go:GetDetails()](../errors/error.go#L336)
+> 源码：[error.go:Error()](../errors/error.go)、[error.go:String()](../errors/error.go)、[error.go:GetCode()](../errors/error.go)、[error.go:GetMessage()](../errors/error.go)、[error.go:GetDetails()](../errors/error.go)
 
 ### 三态映射
 
@@ -167,9 +167,9 @@ flowchart LR
 
 | 映射 | 方法 | 源码 |
 |------|------|------|
-| HTTP Status | `appErr.GetHTTPStatus()` | [error.go:L341](../errors/error.go#L341) |
-| Proto StatusCode | `appErr.GetStatusCode()` | [error.go:L349](../errors/error.go#L349) |
-| gRPC codes | `appErr.ToGRPCError()` | [error.go:L412](../errors/error.go#L412) |
+| HTTP Status | `appErr.GetHTTPStatus()` | [error.go](../errors/error.go) |
+| Proto StatusCode | `appErr.GetStatusCode()` | [error.go](../errors/error.go) |
+| gRPC codes | `appErr.ToGRPCError()` | [error.go](../errors/error.go) |
 
 映射示例：
 
@@ -191,7 +191,7 @@ result := appErr.ToResult()
 // result.Status = StatusCode_InvalidArgument
 ```
 
-> 源码：[error.go:ToResult()](../errors/error.go#L357)
+> 源码：[error.go:ToResult()](../errors/error.go)
 
 ### 转换为 gRPC Error
 
@@ -200,7 +200,7 @@ grpcErr := appErr.ToGRPCError()
 // 返回 status.Error(codes.InvalidArgument, "Bad request: invalid user ID")
 ```
 
-> 源码：[error.go:ToGRPCError()](../errors/error.go#L412)
+> 源码：[error.go:ToGRPCError()](../errors/error.go)
 
 内部将 `commonapis.StatusCode` 转换为标准 `google.golang.org/grpc/codes`：
 
@@ -229,7 +229,7 @@ code := errors.GetErrorCode(err) // 如果不是 AppError，返回 ErrCodeUnknow
 msg := errors.ErrorCodeString(errors.ErrCodeNotFound) // "Not found"
 ```
 
-> 源码：[error.go:IsErrorCode()](../errors/error.go#L471)、[error.go:GetErrorCode()](../errors/error.go#L479)、[error.go:ErrorCodeString()](../errors/error.go#L487)
+> 源码：[error.go:IsErrorCode()](../errors/error.go)、[error.go:GetErrorCode()](../errors/error.go)、[error.go:ErrorCodeString()](../errors/error.go)
 
 ## Formatter — 格式化工具
 
@@ -260,12 +260,12 @@ msg := errors.FormatShutdownInfo("SIGTERM")
 
 | 函数 | 用途 | 源码 |
 |------|------|------|
-| `FormatInitError(component, err)` | 初始化失败 | [formatter.go:L29](../errors/formatter.go#L29) |
-| `FormatStartupError(service, err)` | 启动失败 | [formatter.go:L34](../errors/formatter.go#L34) |
-| `FormatConfigError(operation, err)` | 配置操作失败 | [formatter.go:L39](../errors/formatter.go#L39) |
-| `FormatConnectionInfo(service, endpoint)` | 连接信息 | [formatter.go:L44](../errors/formatter.go#L44) |
-| `FormatShutdownInfo(signal)` | 关闭信号 | [formatter.go:L64](../errors/formatter.go#L64) |
-| `FormatPanicError(operation, err)` | Panic 错误 | [formatter.go:L74](../errors/formatter.go#L74) |
+| `FormatInitError(component, err)` | 初始化失败 | [formatter.go](../errors/formatter.go) |
+| `FormatStartupError(service, err)` | 启动失败 | [formatter.go](../errors/formatter.go) |
+| `FormatConfigError(operation, err)` | 配置操作失败 | [formatter.go](../errors/formatter.go) |
+| `FormatConnectionInfo(service, endpoint)` | 连接信息 | [formatter.go](../errors/formatter.go) |
+| `FormatShutdownInfo(signal)` | 关闭信号 | [formatter.go](../errors/formatter.go) |
+| `FormatPanicError(operation, err)` | Panic 错误 | [formatter.go](../errors/formatter.go) |
 
 ## 业务错误码与国际化（biz.go）
 
@@ -289,7 +289,7 @@ errors.RegisterBizCode("payment_failed", codes.Internal)
 grpcCode := errors.MapBizCodeToGRPCCode("user_not_found") // codes.NotFound
 ```
 
-> 源码：[biz.go:RegisterBizCodeMap()](../errors/biz.go#L33)、[biz.go:RegisterBizCode()](../errors/biz.go#L40)、[biz.go:MapBizCodeToGRPCCode()](../errors/biz.go#L49)
+> 源码：[biz.go:RegisterBizCodeMap()](../errors/biz.go)、[biz.go:RegisterBizCode()](../errors/biz.go)、[biz.go:MapBizCodeToGRPCCode()](../errors/biz.go)
 
 ### 转换为 gRPC Error（包级函数）
 
@@ -305,7 +305,7 @@ err := errors.ToGRPCErrorWithTemplate(ctx, "error.hello", map[string]interface{}
 })
 ```
 
-> 源码：[biz.go:ToGRPCError()](../errors/biz.go#L66)、[biz.go:ToGRPCErrorWithTemplate()](../errors/biz.go#L74)
+> 源码：[biz.go:ToGRPCError()](../errors/biz.go)、[biz.go:ToGRPCErrorWithTemplate()](../errors/biz.go)
 
 ### i18n 消息与错误串解析
 
@@ -322,7 +322,7 @@ msg := errors.NewI18nErrorWithTemplate(ctx, "error.hello", map[string]interface{
 msg := errors.ExtractRpcErrorMsg(rpcErr.Error())
 ```
 
-> 源码：[biz.go:NewI18nError()](../errors/biz.go#L82)、[biz.go:NewI18nErrorWithTemplate()](../errors/biz.go#L87)、[biz.go:ExtractRpcErrorMsg()](../errors/biz.go#L94)
+> 源码：[biz.go:NewI18nError()](../errors/biz.go)、[biz.go:NewI18nErrorWithTemplate()](../errors/biz.go)、[biz.go:ExtractRpcErrorMsg()](../errors/biz.go)
 
 ## 完整示例
 

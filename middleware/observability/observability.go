@@ -11,7 +11,9 @@
 package observability
 
 import (
+	"bufio"
 	"context"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -419,6 +421,30 @@ func (mm *MetricsManager) HTTPMiddleware() func(http.Handler) http.Handler {
 }
 
 // metricsResponseWriter 包装 http.ResponseWriter 以捕获状态码和写入字节数
+//
+// Flusher / Hijacker / Pusher 必须逐个显式实现，嵌入 http.ResponseWriter 接口
+// 只会提升 Header / Write / WriteHeader 三个方法，包装之后 w.(http.Flusher)
+// 断言即不再成立 —— 与 server/http.go 里 gzipResponseWriter 同一个坑
+//
+// 这一层在中间件链上处于 Logging 与 RateLimit 之间（见 middleware/manager.go
+// GetMiddlewares 第 6 步），而链上其它包装器（core.ResponseWriter）的 Flush 是
+// 逐层往内委托的：中间夹一层不实现 http.Flusher 的包装器，整条委托链就在这里断掉
+//  1. 流式响应（SSE、grpc-gateway 的 server-streaming）静默不再刷新，数据一路攒到 handler 返回才整段到达客户端
+//  2. grpc-gateway 的 ForwardResponseStream 第一步就是 w.(http.Flusher) 断言，它是最内层时断言失败直接回 500 "unexpected type of web server"
+//  3. WebSocket 升级要裸连接，Hijack 断言失败即 http.ErrNotSupported，升级彻底失败
+//
+// 三者都只在「指标开启」时出现，而生产模式默认开启指标
+//
+// [EN] Flusher, Hijacker and Pusher must each be implemented explicitly: embedding the
+// http.ResponseWriter interface promotes only Header, Write and WriteHeader, so
+// w.(http.Flusher) stops asserting once wrapped — the same trap documented on
+// gzipResponseWriter in server/http.go.
+// This layer sits between Logging and RateLimit in the chain, and the Flush of the other
+// wrappers (core.ResponseWriter) delegates inward layer by layer, so a layer that is not
+// an http.Flusher breaks that delegation chain here: streaming responses silently stop
+// flushing, grpc-gateway's ForwardResponseStream answers 500 when this is the innermost
+// writer, and WebSocket upgrades fail outright with http.ErrNotSupported. All three appear
+// only when metrics are enabled, which production mode does by default.
 type metricsResponseWriter struct {
 	http.ResponseWriter
 	statusCode   int
@@ -456,6 +482,34 @@ func (rw *metricsResponseWriter) Write(b []byte) (int, error) {
 	n, err := rw.ResponseWriter.Write(b)
 	rw.bytesWritten += n
 	return n, err
+}
+
+// Flush 实现 http.Flusher 接口（流式响应、SSE、server-streaming）
+func (rw *metricsResponseWriter) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+// Hijack 实现 http.Hijacker 接口（WebSocket 升级需要裸连接）
+func (rw *metricsResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
+}
+
+// Push 实现 http.Pusher 接口（HTTP/2 Server Push）
+func (rw *metricsResponseWriter) Push(target string, opts *http.PushOptions) error {
+	if pusher, ok := rw.ResponseWriter.(http.Pusher); ok {
+		return pusher.Push(target, opts)
+	}
+	return http.ErrNotSupported
+}
+
+// Unwrap 返回底层的 http.ResponseWriter（供 http.ResponseController 使用）
+func (rw *metricsResponseWriter) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
 }
 
 // ============================================================================

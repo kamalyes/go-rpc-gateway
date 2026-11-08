@@ -6,7 +6,7 @@
 
 HTTP 与 gRPC 共用同一个 `Breaker` 状态机和同一个 `BreakerManager` 实例，差别只有熔断 key 的来源：HTTP 用 `r.URL.Path`，gRPC 用 `info.FullMethod`。
 
-> 源码：[middleware/breaker.go](../middleware/breaker.go)
+> 源码：[middleware/breaker.go](../middleware/resilience/breaker.go)
 
 ## 状态机
 
@@ -32,7 +32,7 @@ stateDiagram-v2
 
 ## Breaker — 核心断路器
 
-> 源码：[middleware/breaker.go:Breaker](../middleware/breaker.go#L44)
+> 源码：[middleware/breaker.go:Breaker](../middleware/resilience/breaker.go)
 
 ```go
 type Breaker struct {
@@ -59,7 +59,7 @@ type Breaker struct {
 
 ### 创建
 
-> 源码：[breaker.go:NewBreaker()](../middleware/breaker.go#L60)
+> 源码：[breaker.go:NewBreaker()](../middleware/resilience/breaker.go)
 
 ```go
 breaker := middleware.NewBreaker(
@@ -74,17 +74,17 @@ breaker := middleware.NewBreaker(
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `Allow() bool` | 检查是否允许请求通过 | [breaker.go:L82](../middleware/breaker.go#L82) |
-| `RecordSuccess()` | 记录成功 | [breaker.go:L107](../middleware/breaker.go#L107) |
-| `RecordFailure()` | 记录失败 | [breaker.go:L129](../middleware/breaker.go#L129) |
-| `GetState() BreakerState` | 获取当前状态 | [breaker.go:L199](../middleware/breaker.go#L199) |
-| `GetStats() BreakerSnapshot` | 获取统计信息（等价于 `Snapshot()`） | [breaker.go:L204](../middleware/breaker.go#L204) |
-| `Snapshot() BreakerSnapshot` | 获取强类型快照（用于指标采集） | [breaker.go:L218](../middleware/breaker.go#L218) |
-| `Reset()` | 重置断路器 | [breaker.go:L229](../middleware/breaker.go#L229) |
+| `Allow() bool` | 检查是否允许请求通过 | [breaker.go](../middleware/resilience/breaker.go) |
+| `RecordSuccess()` | 记录成功 | [breaker.go](../middleware/resilience/breaker.go) |
+| `RecordFailure()` | 记录失败 | [breaker.go](../middleware/resilience/breaker.go) |
+| `GetState() BreakerState` | 获取当前状态 | [breaker.go](../middleware/resilience/breaker.go) |
+| `GetStats() BreakerSnapshot` | 获取统计信息（等价于 `Snapshot()`） | [breaker.go](../middleware/resilience/breaker.go) |
+| `Snapshot() BreakerSnapshot` | 获取强类型快照（用于指标采集） | [breaker.go](../middleware/resilience/breaker.go) |
+| `Reset()` | 重置断路器 | [breaker.go](../middleware/resilience/breaker.go) |
 
 ### BreakerSnapshot — 强类型快照
 
-> 源码：[middleware/breaker.go:BreakerSnapshot](../middleware/breaker.go#L209)
+> 源码：[middleware/breaker.go:BreakerSnapshot](../middleware/resilience/breaker.go)
 
 `GetStats()` 返回强类型 `BreakerSnapshot`，避免 `map[string]any` 的反射开销，便于指标采集：
 
@@ -130,7 +130,7 @@ stats := breaker.GetStats()
 
 ## BreakerManager — 断路器管理器
 
-> 源码：[middleware/breaker.go:BreakerManager](../middleware/breaker.go#L250)
+> 源码：[middleware/breaker.go:BreakerManager](../middleware/resilience/breaker.go)
 
 管理多个断路器实例，每个路径一个独立断路器。直接持有 `go-config` 的 `breakerconfig.CircuitBreaker` 配置对象。
 
@@ -145,14 +145,14 @@ type BreakerManager struct {
 
 ### 创建
 
-> 源码：[breaker.go:NewBreakerManager()](../middleware/breaker.go#L258)
+> 源码：[breaker.go:NewBreakerManager()](../middleware/resilience/breaker.go)
 
 直接接收 `go-config` 配置对象；传 `nil` 时自动使用 `breakerconfig.Default()`：
 
 ```go
 import (
     "github.com/kamalyes/go-rpc-gateway/middleware"
-    breakerconfig "github.com/kamalyes/go-rpc-gateway/config/breaker"
+    breakerconfig "github.com/kamalyes/go-rpc-gateway/config/middleware"
 )
 
 cfg := &breakerconfig.CircuitBreaker{
@@ -171,19 +171,19 @@ manager := middleware.NewBreakerManager(cfg)
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `GetBreaker(path) *Breaker` | 获取或创建路径断路器（double-check lock） | [breaker.go:L273](../middleware/breaker.go#L273) |
-| `GetAllBreakers() map[string]*Breaker` | 获取所有断路器 | [breaker.go:L301](../middleware/breaker.go#L301) |
-| `GetAllBreakerSnapshots() map[string]BreakerSnapshot` | 获取所有断路器的强类型快照（用于指标采集） | [breaker.go:L313](../middleware/breaker.go#L313) |
-| `GetStats() map[string]BreakerSnapshot` | 获取所有断路器统计（等价于 `GetAllBreakerSnapshots`，兼容旧 API） | [breaker.go:L354](../middleware/breaker.go#L354) |
-| `ResetBreaker(path) bool` | 重置指定路径断路器 | [breaker.go:L325](../middleware/breaker.go#L325) |
-| `ResetAllBreakers()` | 重置所有断路器 | [breaker.go:L339](../middleware/breaker.go#L339) |
-| `IsPathProtected(path) bool` | 检查路径是否需要保护（排除路径 O(1) map 查找，保护路径前缀匹配） | [breaker.go:L359](../middleware/breaker.go#L359) |
-| `CountByState() BreakerHealthStatus` | 单次遍历统计各状态断路器数量 | [breaker.go:L385](../middleware/breaker.go#L385) |
-| `GetHealthStatus() BreakerHealthStatus` | 获取健康状态（返回强类型结构体，单次遍历） | [breaker.go:L420](../middleware/breaker.go#L420) |
+| `GetBreaker(path) *Breaker` | 获取或创建路径断路器（double-check lock） | [breaker.go](../middleware/resilience/breaker.go) |
+| `GetAllBreakers() map[string]*Breaker` | 获取所有断路器 | [breaker.go](../middleware/resilience/breaker.go) |
+| `GetAllBreakerSnapshots() map[string]BreakerSnapshot` | 获取所有断路器的强类型快照（用于指标采集） | [breaker.go](../middleware/resilience/breaker.go) |
+| `GetStats() map[string]BreakerSnapshot` | 获取所有断路器统计（等价于 `GetAllBreakerSnapshots`，兼容旧 API） | [breaker.go](../middleware/resilience/breaker.go) |
+| `ResetBreaker(path) bool` | 重置指定路径断路器 | [breaker.go](../middleware/resilience/breaker.go) |
+| `ResetAllBreakers()` | 重置所有断路器 | [breaker.go](../middleware/resilience/breaker.go) |
+| `IsPathProtected(path) bool` | 检查路径是否需要保护（排除路径 O(1) map 查找，保护路径前缀匹配） | [breaker.go](../middleware/resilience/breaker.go) |
+| `CountByState() BreakerHealthStatus` | 单次遍历统计各状态断路器数量 | [breaker.go](../middleware/resilience/breaker.go) |
+| `GetHealthStatus() BreakerHealthStatus` | 获取健康状态（返回强类型结构体，单次遍历） | [breaker.go](../middleware/resilience/breaker.go) |
 
 ### BreakerHealthStatus — 健康状态
 
-> 源码：[middleware/breaker.go:BreakerHealthStatus](../middleware/breaker.go#L376)
+> 源码：[middleware/breaker.go:BreakerHealthStatus](../middleware/resilience/breaker.go)
 
 `GetHealthStatus()` 返回强类型 `BreakerHealthStatus`，替代旧的 `map[string]any`：
 
@@ -212,13 +212,13 @@ status := manager.GetHealthStatus()
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `CountOpenBreakers() int` | Open 状态数量 | [breaker.go:L405](../middleware/breaker.go#L405) |
-| `CountHalfOpenBreakers() int` | HalfOpen 状态数量 | [breaker.go:L410](../middleware/breaker.go#L410) |
-| `CountClosedBreakers() int` | Closed 状态数量 | [breaker.go:L415](../middleware/breaker.go#L415) |
+| `CountOpenBreakers() int` | Open 状态数量 | [breaker.go](../middleware/resilience/breaker.go) |
+| `CountHalfOpenBreakers() int` | HalfOpen 状态数量 | [breaker.go](../middleware/resilience/breaker.go) |
+| `CountClosedBreakers() int` | Closed 状态数量 | [breaker.go](../middleware/resilience/breaker.go) |
 
 ## BreakerHTTPMiddleware — HTTP 中间件
 
-> 源码：[middleware/breaker.go:BreakerHTTPMiddleware()](../middleware/breaker.go#L430)
+> 源码：[middleware/breaker.go:BreakerHTTPMiddleware()](../middleware/resilience/breaker.go)
 
 ```go
 func BreakerHTTPMiddleware(manager *BreakerManager) func(http.Handler) http.Handler
@@ -267,7 +267,7 @@ flowchart TD
 
 ## gRPC 拦截器
 
-> 源码：[middleware/breaker.go:UnaryServerBreakerInterceptor()](../middleware/breaker.go#L563)、[breaker.go:StreamServerBreakerInterceptor()](../middleware/breaker.go#L597)
+> 源码：[middleware/breaker.go:UnaryServerBreakerInterceptor()](../middleware/resilience/breaker.go)、[breaker.go:StreamServerBreakerInterceptor()](../middleware/resilience/breaker.go)
 
 ```go
 func UnaryServerBreakerInterceptor(manager *BreakerManager) grpc.UnaryServerInterceptor
@@ -310,7 +310,7 @@ middleware:
 
 ### 失败判定表
 
-> 源码：[breaker.go:IsBreakerFailureCode()](../middleware/breaker.go#L522)
+> 源码：[breaker.go:IsBreakerFailureCode()](../middleware/resilience/breaker.go)
 
 ```go
 func IsBreakerFailureCode(code codes.Code) bool
@@ -346,7 +346,7 @@ func IsBreakerFailureCode(code codes.Code) bool
 
 ### 熔断拒绝时返回的错误
 
-> 源码：[breaker.go:breakerOpenGRPCErr](../middleware/breaker.go#L486)
+> 源码：[breaker.go:breakerOpenGRPCErr](../middleware/resilience/breaker.go)
 
 ```go
 var breakerOpenGRPCErr = errors.NewError(errors.ErrCodeCircuitBreakerOpen, "").ToGRPCError()
@@ -409,7 +409,7 @@ Stream:  tracing → request-context → logging → ratelimit → breaker → s
 
 ### 通过 Manager 使用
 
-> 源码：[manager.go:GRPCBreakerUnaryInterceptor()](../middleware/manager.go#L311)、[manager.go:GRPCBreakerStreamInterceptor()](../middleware/manager.go#L321)
+> 源码：[manager.go:GRPCBreakerUnaryInterceptor()](../middleware/manager.go)、[manager.go:GRPCBreakerStreamInterceptor()](../middleware/manager.go)
 
 ```go
 func (m *Manager) GRPCBreakerUnaryInterceptor() grpc.UnaryServerInterceptor
