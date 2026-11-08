@@ -150,6 +150,7 @@
       "Detailsf",
       "Dont",
       "dynamicpb",
+      "protoregistry",
       "fsnotify",
       "gcbreaker",
       "gcmiddleware",
