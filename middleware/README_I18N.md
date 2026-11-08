@@ -131,15 +131,15 @@ func switchLanguageHandler(w http.ResponseWriter, r *http.Request) {
 
 ## 中间件配置
 
-i18n 中间件基于 `go-config` 的 `gci18n.I18N` 配置与 `go-i18n` 的 `Manager`。先创建 Manager，再构造中间件：
+i18n 中间件基于 `gcmiddleware.I18N` 配置与 go-toolbox 的 `i18n.Manager`。先创建 Manager，再构造中间件：
 
 ```go
 import (
-    gci18n "github.com/kamalyes/go-rpc-gateway/config/i18n"
+    gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
     "github.com/kamalyes/go-rpc-gateway/middleware"
 )
 
-// cfg.Middleware.I18N 为 *gci18n.I18N 类型，字段包括：
+// cfg.Middleware.I18N 为 *gcmiddleware.I18N 类型，字段包括：
 //   DefaultLanguage  默认语言
 //   LanguageHeader   语言检测头名（如 Accept-Language）
 //   LanguageParam    查询参数与 Cookie 名（如 lang）
@@ -181,6 +181,9 @@ mux.Handle("/api", i18nMiddleware(http.HandlerFunc(handler)))
 
 ### 自定义消息加载器
 
+实现 `LoadMessages`（即 go-toolbox `i18n.Loader` 接口），挂到配置的 `MessageLoader` 字段上，
+它优先于 `MessagesPath`：
+
 ```go
 type customLoader struct {
     // 自定义实现
@@ -191,7 +194,14 @@ func (c *customLoader) LoadMessages(language string) (map[string]string, error) 
     return messages, nil
 }
 
-config.MessageLoader = &customLoader{}
+cfg := gcmiddleware.DefaultI18N()
+cfg.MessageLoader = &customLoader{}
+
+manager, err := middleware.NewI18nManager(cfg)
+if err != nil {
+    // ...
+}
+i18nMiddleware := middleware.I18nWithManager(manager)
 ```
 
 ### 本地化错误

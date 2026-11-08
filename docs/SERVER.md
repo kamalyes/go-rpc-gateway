@@ -106,7 +106,7 @@ type Server struct {
 func (s *Server) initCore() error {
     if global.POOL_MANAGER == nil {
         return errors.NewError(errors.ErrCodeInternalServerError,
-            "global POOL_MANAGER is not initialized, ensure InitializerChain has run")
+            errors.WithDetails("global POOL_MANAGER is not initialized, ensure InitializerChain has run"))
     }
     s.poolManager = global.POOL_MANAGER
     s.endpointCollector = NewEndpointCollector()
@@ -311,7 +311,7 @@ type namedListener struct {
 
 | 方法 | 说明 | 源码 |
 |------|------|------|
-| `Start()` | 启动服务器（gRPC + HTTP + WebSocket + PProf） | [lifecycle.go](../server/lifecycle.go) |
+| `Start()` | 启动服务器（gRPC + HTTP + 命名监听器 + PProf） | [lifecycle.go](../server/lifecycle.go) |
 | `Stop()` | 停止服务器 | [lifecycle.go](../server/lifecycle.go) |
 | `Restart()` | 重启服务器（Stop + Start） | [lifecycle.go](../server/lifecycle.go) |
 | `Shutdown()` | 优雅关闭（等价于 Stop） | [lifecycle.go](../server/lifecycle.go) |
@@ -330,10 +330,7 @@ flowchart TD
     GRPC --> WAIT["等待 100ms, gRPC 就绪"]
     WAIT --> HTTP["启动 HTTP 服务器, goroutine"]
     HTTP --> NL["启动命名监听器"]
-    NL --> WS{"WebSocket 已初始化?"}
-    WS -->|是| WS_START["启动 WebSocket 服务"]
-    WS -->|否| PPROF_CHECK
-    WS_START --> PPROF_CHECK{"PProf 已启用?"}
+    NL --> PPROF_CHECK{"PProf 已启用?"}
     PPROF_CHECK -->|是| PPROF_START["启动 PProf 服务器"]
     PPROF_CHECK -->|否| BANNER
     PPROF_START --> BANNER["打印启动信息, Console Table"]
@@ -341,7 +338,7 @@ flowchart TD
 
     style GRPC fill:#e8f5e9
     style HTTP fill:#e3f2fd
-    style WS_START fill:#f3e5f5
+    style PPROF_START fill:#f3e5f5
 ```
 
 #### 停止流程
@@ -351,12 +348,12 @@ flowchart TD
 ```mermaid
 flowchart TD
     STOP["Stop()"] --> CANCEL["取消上下文"]
-    CANCEL --> STOP_WS["停止 WebSocket 服务"]
-    STOP_WS --> STOP_HTTP["停止 HTTP 服务器, 30s 超时"]
+    CANCEL --> STOP_HTTP["停止 HTTP 服务器, 30s 超时"]
     STOP_HTTP --> STOP_NL["停止命名监听器"]
     STOP_NL --> STOP_GRPC["停止 gRPC 服务器, GracefulStop"]
     STOP_GRPC --> STOP_PPROF["停止 PProf 服务器"]
-    STOP_PPROF --> WAIT_WG["等待所有 goroutine 完成"]
+    STOP_PPROF --> CLOSE_MW["关闭中间件管理器, 追踪导出器/限流清理/Swagger 监听"]
+    CLOSE_MW --> WAIT_WG["等待所有 goroutine 完成"]
     WAIT_WG --> DONE["关闭完成"]
 
     style CANCEL fill:#ffcdd2
@@ -414,10 +411,9 @@ func (s *Server) initMiddleware() error {
 - 初始化 gRPC 服务器 → [middleware_init.go](../server/middleware_init.go)
 - 初始化 HTTP Gateway → [middleware_init.go](../server/middleware_init.go)
 - 初始化命名监听器（失败不中断） → [middleware_init.go](../server/middleware_init.go)
-- 初始化 WebSocket 服务（失败不中断） → [middleware_init.go](../server/middleware_init.go)
 - 注入扩展指标采集函数 → [middleware_init.go](../server/middleware_init.go)
 
-扩展指标采集（[middleware_init.go:injectMetricsCollectors()](../server/middleware_init.go)）注入连接池健康检查、熔断器统计、WebSocket 统计采集函数，在 Prometheus scrape 时按需调用。
+扩展指标采集（[middleware_init.go:injectMetricsCollectors()](../server/middleware_init.go)）注入连接池健康检查与熔断器统计采集函数，在 Prometheus scrape 时按需调用。
 
 ### 配置热重载 — reload.go
 
@@ -647,7 +643,7 @@ flowchart TD
     S1 --> S2["initDataMasker(), 数据脱敏器"]
     S2 --> S3["initCore(), PoolManager + EndpointCollector"]
     S3 --> S4["initMiddleware(), 中间件管理器 + 健康检查"]
-    S4 --> S5["initServers(), gRPC + HTTP + WebSocket"]
+    S4 --> S5["initServers(), gRPC + HTTP + 命名监听器"]
     S5 --> DONE["返回 *Server"]
 
     style S3 fill:#fff9c4

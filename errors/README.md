@@ -390,27 +390,27 @@ var (
 ```go
 // server/server.go
 func NewServer() (*Server, error) {
-    cfg := global.GATEWAY
+    cfg := global.GetGatewayConfig()
     if cfg == nil {
         // ✅ 纯错误码：自动使用 "Invalid configuration"
         return nil, errors.NewError(errors.ErrCodeInvalidConfiguration,
             errors.WithDetails("global GATEWAY config is not initialized"))
     }
-    
-    server := &Server{
-        config:     cfg,
-        configSafe: goconfig.SafeConfig(cfg),
-    }
-    
+
+    server := &Server{config: cfg}
+
     // 初始化核心组件
     if err := server.initCore(); err != nil {
         // ✅ 纯错误码：不传消息，自动使用 "内部服务器错误"
         return nil, errors.NewErrorf(errors.ErrCodeInternalServerError, "failed to init core: %v", err)
     }
-    
+
     return server, nil
 }
 ```
+
+> 读配置走 `global.GetGatewayConfig()`，不要直接读 `global.GATEWAY` 变量 ——
+> 后者只为兼容外部旧代码保留，直接读会把热重载时的竞态重新引进来。
 
 ## 📝 总结
 

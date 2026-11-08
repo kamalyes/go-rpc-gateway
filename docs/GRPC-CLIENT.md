@@ -419,7 +419,7 @@ Stream 调用注入对应的 Stream 拦截器（`StreamClientRequestContextInter
 
 ### 启用（配置）
 
-按服务开启，字段来自 go-config 的 `gwconfig.GRPCClient`（`go-config >= v0.25.1`）：
+按服务开启，字段来自 `gwconfig.GRPCClient`（[config/core/grpc.go](../config/core/grpc.go)）：
 
 ```yaml
 grpc:
@@ -530,7 +530,7 @@ grpcpool.DisableClientBreaker()
 
 ### 配置字段
 
-客户端熔断直接复用 `go-config` 的 `breaker.CircuitBreaker`：
+客户端熔断直接复用 `go-config` 的 `gcmiddleware.CircuitBreaker`：
 
 | 字段 | 客户端默认值 | 作用 |
 |------|------|------|
@@ -555,8 +555,10 @@ grpcpool.DisableClientBreaker()
 ### 拒绝时返回什么
 
 ```go
-errors.NewError(errors.ErrCodeCircuitBreakerOpen,
-    "downstream call rejected by client-side circuit breaker").ToGRPCError()
+errors.NewError(
+    errors.ErrCodeCircuitBreakerOpen,
+    errors.WithDetails("downstream call rejected by client-side circuit breaker"),
+).ToGRPCError()
 ```
 
 - 错误码沿用 `errors.ErrCodeCircuitBreakerOpen`（4003），其三态映射为 HTTP 503 / `codes.Unavailable`

@@ -683,9 +683,33 @@ func NormalizeAuthType(authType AuthType) AuthType {
 }
 
 // IsAuthEnabled 检查是否启用了认证
-// [EN] IsAuthEnabled reports whether authentication is enabled
+// Enabled 与 Type 两个信号里任一表达了「要加锁」就加锁，取的是安全侧而非直觉侧：
+//   - enabled: false 配上 type: basic，仍然加锁。只看 Enabled 的话，
+//     WithBasicAuth 这类不设 Enabled 的构造方式会静默失去锁，是从「锁住」滑向「敞开」
+//   - enabled: true 却没写 type，也算加锁。此时 GetAuthType 为 AuthNone，
+//     凭据校验匹配不到任何分支，由 authorize 按「失败即锁死」拒绝全部请求并告警，
+//     而不是当成「没配认证」放行
+//
+// mapstructure 分不清「没写 enabled」和「写了 enabled: false」（除非改成 *bool，那是 API 破坏），
+// 所以不能把 Enabled 当作必需的开关来读
+//
+// [EN] IsAuthEnabled reports whether authentication is enabled. The docs are locked when either
+// Enabled or Type signals an intent to lock, which is the safe reading rather than the intuitive
+// one:
+//   - enabled: false together with type: basic still locks. Honoring Enabled alone would make
+//     constructors like WithBasicAuth, which never set it, silently lose the lock — a slide from
+//     locked towards wide open
+//   - enabled: true without a type also locks. GetAuthType is then AuthNone, no credential branch
+//     matches, and authorize denies every request under its fail-closed policy with a warning,
+//     instead of treating it as "auth not configured" and letting requests through
+//
+// mapstructure cannot tell "enabled absent" from "enabled: false" (short of making it a *bool,
+// which breaks the API), so Enabled must not be read as a required switch
 func (c *Swagger) IsAuthEnabled() bool {
-	return c.Auth != nil && NormalizeAuthType(c.Auth.Type) != AuthNone
+	if c.Auth == nil {
+		return false
+	}
+	return c.Auth.Enabled || NormalizeAuthType(c.Auth.Type) != AuthNone
 }
 
 // GetAuthType 获取认证类型（已归一化）

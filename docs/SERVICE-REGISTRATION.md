@@ -174,66 +174,68 @@ service UserService {
 | `protoc` | Protocol Buffer 编译器 | 下载二进制 |
 | `protoc-gen-go` | 生成 `.pb.go` (消息类型) | `go install google.golang.org/protobuf/cmd/protoc-gen-go@latest` |
 | `protoc-gen-go-grpc` | 生成 `_grpc.pb.go` (gRPC 服务) | `go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest` |
-| `protoc-gen-grpc-gateway` | 生成 `.gw.go` (HTTP 反向代理) | `go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest` |
+| `protoc-gen-grpc-gateway` | 生成 `.pb.gw.go` (HTTP 反向代理) | `go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest` |
 | `protoc-gen-openapiv2` | 生成 `.swagger.yaml` (OpenAPI 文档) | `go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest` |
 
 ### 生成命令
 
+`google/protobuf/*.proto`（`timestamp.proto` 这些 well-known types）由 `protoc` 自带，
+不需要 `-I`。但 `google/api/annotations.proto` 与 `protoc-gen-openapiv2` 的注解 proto
+**不随任何 Go 模块分发**，先放一份到 `third_party/` 并提交进仓库：
+
 ```bash
-# 公共变量
-GO_MODULE="github.com/example/my-proto"
-
-# Include 路径
-INCLUDE_ARGS=(-I"$GO_BIN_DIR/include" -I.)
-
-# 如果使用 googleapis 和 grpc-gateway 的 proto 定义
-INCLUDE_ARGS+=(-I"$GOPATH/src/github.com/googleapis")
-INCLUDE_ARGS+=(-I"$GOPATH/src/github.com/grpc-ecosystem/grpc-gateway")
-
-# Go 消息类型 + gRPC 服务代码
-GO_ARGS=(
-  --plugin="protoc-gen-go=$(which protoc-gen-go)"
-  --plugin="protoc-gen-go-grpc=$(which protoc-gen-go-grpc)"
-  --go_out=. --go_opt=module="$GO_MODULE"
-  --go-grpc_out=. --go-grpc_opt=module="$GO_MODULE"
-)
-
-# gRPC-Gateway 反向代理代码
-GATEWAY_ARGS=(
-  --plugin="protoc-gen-grpc-gateway=$(which protoc-gen-grpc-gateway)"
-  --grpc-gateway_out=.
-  --grpc-gateway_opt=module="$GO_MODULE"
-  --grpc-gateway_opt=generate_unbound_methods=true
-)
-
-# OpenAPI 文档
-OPENAPI_ARGS=(
-  --plugin="protoc-gen-openapiv2=$(which protoc-gen-openapiv2)"
-  --openapiv2_out=.
-  --openapiv2_opt=logtostderr=true
-  --openapiv2_opt=json_names_for_fields=false
-  --openapiv2_opt=output_format=yaml
-)
-
-# 1. 生成 Go 消息类型 + gRPC 服务代码
-protoc "${INCLUDE_ARGS[@]}" "${GO_ARGS[@]}" proto/user/user_service.proto
-
-# 2. 生成 gRPC-Gateway 代码（仅包含 google.api.http 注解的 proto）
-protoc "${INCLUDE_ARGS[@]}" "${GATEWAY_ARGS[@]}" proto/user/user_service.proto
-
-# 3. 生成 OpenAPI 文档
-protoc "${INCLUDE_ARGS[@]}" "${OPENAPI_ARGS[@]}" proto/user/user_service.proto
+curl -sSL --create-dirs -o third_party/google/api/annotations.proto \
+  https://raw.githubusercontent.com/googleapis/googleapis/master/google/api/annotations.proto
+curl -sSL --create-dirs -o third_party/google/api/http.proto \
+  https://raw.githubusercontent.com/googleapis/googleapis/master/google/api/http.proto
+curl -sSL --create-dirs -o third_party/protoc-gen-openapiv2/options/annotations.proto \
+  https://raw.githubusercontent.com/grpc-ecosystem/grpc-gateway/main/protoc-gen-openapiv2/options/annotations.proto
+curl -sSL --create-dirs -o third_party/protoc-gen-openapiv2/options/openapiv2.proto \
+  https://raw.githubusercontent.com/grpc-ecosystem/grpc-gateway/main/protoc-gen-openapiv2/options/openapiv2.proto
 ```
+
+四个插件一条命令跑完（`scripts/gen-proto.sh`，`GO_MODULE` 换成你的模块名）：
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+GO_MODULE="my-service"
+
+protoc -I. -Ithird_party \
+  --go_out=. --go_opt=module="$GO_MODULE" \
+  --go-grpc_out=. --go-grpc_opt=module="$GO_MODULE" \
+  --grpc-gateway_out=. --grpc-gateway_opt=module="$GO_MODULE" \
+  --grpc-gateway_opt=generate_unbound_methods=true \
+  --openapiv2_out=resources \
+  --openapiv2_opt=logtostderr=true \
+  --openapiv2_opt=json_names_for_fields=false \
+  --openapiv2_opt=output_format=yaml \
+  --openapiv2_opt=allow_merge=true \
+  --openapiv2_opt=merge_file_name=api \
+  proto/user/user_service.proto
+```
+
+- `module=` 把 `go_package` 里的模块前缀剥掉，产物才落在 `pb/user/` 而不是
+  `my-service/pb/user/`。`go` / `go-grpc` / `grpc-gateway` 三个插件都支持它，
+  **`openapiv2` 不支持**（传了报 `no such flag -module`），所以它用
+  `allow_merge` + `merge_file_name` 直接合并输出成一份 `resources/api.swagger.yaml`
+- 没有 `google.api.http` 注解的 proto 不会产出 `.pb.gw.go` 与 swagger 文档，
+  但照样会产出 `.pb.go` 与 `_grpc.pb.go`（只能走 gRPC）
 
 ### 生成文件结构
 
-```
+```bash
 pb/user/
 ├── user_service.pb.go           # 消息类型 + 枚举（由 protoc-gen-go 生成）
 ├── user_service_grpc.pb.go      # gRPC 服务接口 + 客户端桩（由 protoc-gen-go-grpc 生成）
-├── user_service.gw.go           # HTTP 反向代理（由 protoc-gen-grpc-gateway 生成）
-└── user_service.swagger.yaml    # OpenAPI 文档（由 protoc-gen-openapiv2 生成）
+└── user_service.pb.gw.go        # HTTP 反向代理（由 protoc-gen-grpc-gateway 生成）
+resources/
+└── api.swagger.yaml             # OpenAPI 文档（由 protoc-gen-openapiv2 生成）
 ```
+
+> 注意是 **`.pb.gw.go`**，不是 `.gw.go` —— gRPC-Gateway v2 的产物带 `.pb.` 中缀。
+> swagger 文档由 `--openapiv2_out` 单独指定目录，不跟 Go 产物放一起。
 
 ### 生成文件说明
 
@@ -241,8 +243,8 @@ pb/user/
 |------|--------|---------|
 | `.pb.go` | `protoc-gen-go` | 消息结构体 `CreateUserRequest`、`GetUserResponse` 等 |
 | `_grpc.pb.go` | `protoc-gen-go-grpc` | `UserServiceServer` 接口、`RegisterUserServiceServer()` 注册函数、`UnimplementedUserServiceServer` |
-| `.gw.go` | `protoc-gen-grpc-gateway` | `RegisterUserServiceHandlerServer()` 本地注册、`RegisterUserServiceHandlerClient()` 代理注册 |
-| `.swagger.yaml` | `protoc-gen-openapiv2` | OpenAPI 3.0 文档，供 Swagger UI 展示 |
+| `.pb.gw.go` | `protoc-gen-grpc-gateway` | `RegisterUserServiceHandlerServer()` 本地注册、`RegisterUserServiceHandler()` / `RegisterUserServiceHandlerClient()` 代理注册 |
+| `.swagger.yaml` | `protoc-gen-openapiv2` | OpenAPI v2（即 Swagger 2.0，文件头是 `swagger: "2.0"`）文档，供 Swagger UI 展示 |
 
 ### 代码生成流程
 
@@ -259,7 +261,7 @@ flowchart TD
     CHECK_HTTP -->|是| GEN_GW["protoc + GATEWAY_ARGS"]
     CHECK_HTTP -->|否| SKIP_GW["跳过 Gateway 生成"]
 
-    GEN_GW --> GW_GO["user_service.gw.go"]
+    GEN_GW --> GW_GO["user_service.pb.gw.go"]
 
     CHECK_HTTP -->|是| GEN_OPENAPI["protoc + OPENAPI_ARGS"]
     CHECK_HTTP -->|否| SKIP_OPENAPI["跳过 OpenAPI 生成"]
@@ -315,12 +317,13 @@ func NewUserService(repo UserRepository) *UserService {
 
 func (s *UserService) CreateUser(ctx context.Context, req *pb.CreateUserRequest) (*pb.CreateUserResponse, error) {
     if req.GetUsername() == "" {
-        return nil, gwerrors.NewError(gwerrors.ErrCodeBadRequest, "username is required").ToGRPCError()
+        return nil, gwerrors.NewError(gwerrors.ErrCodeBadRequest,
+            gwerrors.WithDetails("username is required")).ToGRPCError()
     }
 
     user, err := s.repo.Create(ctx, req)
     if err != nil {
-        return nil, gwerrors.Wrapf(err, gwerrors.ErrCodeDBQueryError, "create user %s", req.GetUsername()).ToGRPCError()
+        return nil, gwerrors.Wrapf(err, gwerrors.ErrCodeInternalServerError, "create user %s", req.GetUsername()).ToGRPCError()
     }
 
     return &pb.CreateUserResponse{
@@ -332,12 +335,13 @@ func (s *UserService) CreateUser(ctx context.Context, req *pb.CreateUserRequest)
 
 func (s *UserService) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {
     if req.GetUserId() == "" {
-        return nil, gwerrors.NewError(gwerrors.ErrCodeBadRequest, "user_id is required").ToGRPCError()
+        return nil, gwerrors.NewError(gwerrors.ErrCodeBadRequest,
+            gwerrors.WithDetails("user_id is required")).ToGRPCError()
     }
 
     user, err := s.repo.FindByID(ctx, req.GetUserId())
     if err != nil {
-        return nil, gwerrors.Wrapf(err, gwerrors.ErrCodeDBQueryError, "find user %s", req.GetUserId()).ToGRPCError()
+        return nil, gwerrors.Wrapf(err, gwerrors.ErrCodeInternalServerError, "find user %s", req.GetUserId()).ToGRPCError()
     }
     if user == nil {
         return nil, gwerrors.NewErrorf(gwerrors.ErrCodeNotFound, "user %s not found", req.GetUserId()).ToGRPCError()
@@ -688,8 +692,16 @@ result := g.gateway.AutoRegisterWithHealthCheck(healthChecker)
 **配置兜底轮询间隔**
 
 ```go
-gw := NewGateway(...).WithServiceWatchInterval(30 * time.Second)
-gw.AutoRegister()
+// WithServiceWatchInterval 挂在 *Gateway 上，不是构建器方法，所以要在 Build() 之后调
+gw, err := gateway.NewGateway().
+    WithSearchPath("resources").
+    WithPrefix("gateway-my-service").
+    Build()
+if err != nil {
+    log.Fatalf("Gateway build failed: %v", err)
+}
+
+gw.WithServiceWatchInterval(30 * time.Second).AutoRegister()
 ```
 
 - 默认 `60s`；传 `0` 关闭兜底轮询，只保留连接事件（开销最低，但覆盖不到「全程 Ready」的滚动发布）
@@ -777,17 +789,59 @@ if err := g.gateway.EnableSwagger(); err != nil {
 
 ### 配置
 
+单服务模式 —— 规范文件路径的键是 **`spec-path`**：
+
 ```yaml
 swagger:
   enabled: true
-  # 单服务模式：指定单个 .swagger.yaml 文件路径
-  ui-path: "/swagger/"
-  paths:
-    - "resources/user_service.swagger.yaml"
-  # 聚合模式：指定目录，自动加载所有 .swagger.yaml
-  # paths:
-  #   - "resources/swagger/"
+  ui-path: "/swagger"                        # 不要带结尾斜杠，否则路由变成 /swagger//index.html
+  spec-path: "resources/api.swagger.yaml"
 ```
+
+聚合模式 —— 多个服务的文档合成一份，键是 `aggregate.services[]`：
+
+```yaml
+swagger:
+  enabled: true
+  ui-path: "/swagger"
+  aggregate:
+    enabled: true
+    mode: "merge"                            # merge | selector
+    ui-layout: "tabs"                        # tabs | dropdown | list
+    services:
+      - name: "user"
+        description: "用户服务"
+        spec-path: "resources/user.swagger.yaml"
+        enabled: true
+      - name: "order"
+        description: "订单服务"
+        spec-path: "resources/order.swagger.yaml"
+        enabled: true
+```
+
+| 配置 | UI | 规范 | 其他路由 |
+|------|----|------|---------|
+| 单服务 | `/swagger/` | `/swagger/swagger.json` | — |
+| 聚合 | `/swagger/` | `/swagger/swagger.json`、`/swagger/swagger.json?service=<name>` | `/swagger/services`、`/swagger/documents`、`/swagger/aggregate.json`、`/swagger/debug/services` |
+
+> 键名写错（例如写成 `paths`）不会报错：Swagger 仍然启用，但加载的是默认值
+> `./docs/swagger.yaml`，日志里只留一条 `加载Swagger文件失败`，UI 能打开却是空的。
+> 启用后日志若没有 `尝试从文件加载服务 ... 的规范`，就是这种情况。
+
+> 文档未配 `swagger.auth` 时启动会打一条 WARN：`Swagger 文档未启用访问认证，/swagger 下的全部接口文档可被任意访问`。
+> 生产环境加上认证（`type` 取 `NONE` / `BASIC` / `BEARER` / `CUSTOM`，注意是大写）：
+>
+> ```yaml
+> swagger:
+>   auth:
+>     enabled: true
+>     type: "BASIC"
+>     username: "admin"
+>     password: "s3cret"
+> ```
+>
+> 配好之后不带凭据访问 `/swagger/` 返回 `401`，带对了返回 `200`。
+> 也可以用 `PathProtectionMiddleware` 保护该前缀。
 
 ### OpenAPI 注解示例
 

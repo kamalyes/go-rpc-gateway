@@ -104,7 +104,8 @@ type BreakerSnapshot struct {
 breaker := middleware.NewBreaker(5, 3, 10, 30*time.Second)
 
 if !breaker.Allow() {
-    return errors.NewError(errors.ErrCodeCircuitBreakerOpen, "service unavailable")
+    return errors.NewError(errors.ErrCodeCircuitBreakerOpen,
+        errors.WithDetails("service unavailable"))
 }
 
 result, err := callExternalService()
@@ -349,7 +350,7 @@ func IsBreakerFailureCode(code codes.Code) bool
 > 源码：[breaker.go:breakerOpenGRPCErr](../middleware/resilience/breaker.go)
 
 ```go
-var breakerOpenGRPCErr = errors.NewError(errors.ErrCodeCircuitBreakerOpen, "").ToGRPCError()
+var breakerOpenGRPCErr = errors.NewError(errors.ErrCodeCircuitBreakerOpen).ToGRPCError()
 ```
 
 - 走仓库统一错误码体系，而不是裸 `status.Errorf`：`ErrCodeCircuitBreakerOpen(4003)` → `commonapis.StatusCode_Unavailable` → `codes.Unavailable`，消息是错误码的标准消息 `Circuit breaker open`（三态映射见 [ERRORS.md](./ERRORS.md)）
