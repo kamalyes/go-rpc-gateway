@@ -1,3 +1,5 @@
+//go:build kafka
+
 /*
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2026-11-07 10:40:00
