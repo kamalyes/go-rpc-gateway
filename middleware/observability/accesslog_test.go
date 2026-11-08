@@ -4,7 +4,7 @@
  * @LastEditors: kamalyes 501893067@qq.com
  * @LastEditTime: 2026-06-17 06:30:00
  * @FilePath: \go-rpc-gateway\middleware\observability\accesslog_test.go
- * @Description: 访问日志测试
+ * @Description: 访问日志测试：请求头脱敏 + 钩子注册表槽位回收与并发安全
  *
  * Copyright (c) 2026 by kamalyes, All Rights Reserved.
  */
@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -188,5 +189,132 @@ func TestCaptureAccessLogMasksHeaders(t *testing.T) {
 	}
 	if !strings.Contains(flat, "trace-abc") {
 		t.Errorf("非敏感头被过度脱敏:\n%s", flat)
+	}
+}
+
+// =============================================================================
+// 钩子注册表：槽位回收与并发安全
+// =============================================================================
+
+// accessLogSnapshotLen 当前快照长度，仅测试使用
+func accessLogSnapshotLen() int {
+	return len(*accessLogEntries.Load())
+}
+
+// TestRegisterAccessLogUnregisterReclaimsSlots 反注册必须真正移除槽位
+//
+// 回归点：原实现只把切片槽位置 nil，不回收也不收缩。插件式调用方反复
+// 注册/反注册后，DispatchAccessLog 仍要遍历整段历史，切片无界增长
+// [EN] Regression: unregister only set the slot to nil without reclaiming it. Repeated
+// register/unregister cycles left DispatchAccessLog walking an ever-growing slice
+func TestRegisterAccessLogUnregisterReclaimsSlots(t *testing.T) {
+	baseLen := accessLogSnapshotLen()
+	baseCount := accessLogCount.Load()
+
+	const cycles = 64
+	unregisters := make([]func(), 0, cycles)
+	for i := 0; i < cycles; i++ {
+		unregisters = append(unregisters, RegisterAccessLog(func(context.Context, *AccessRecord) {}))
+	}
+
+	if got := accessLogSnapshotLen(); got != baseLen+cycles {
+		t.Fatalf("注册 %d 个钩子后快照长度应为 %d，实际 %d", cycles, baseLen+cycles, got)
+	}
+	if got := accessLogCount.Load(); got != baseCount+cycles {
+		t.Fatalf("注册后计数应为 %d，实际 %d", baseCount+cycles, got)
+	}
+
+	for _, unregister := range unregisters {
+		unregister()
+	}
+
+	if got := accessLogSnapshotLen(); got != baseLen {
+		t.Errorf("全部反注册后快照长度应回到 %d，实际 %d（槽位未回收）", baseLen, got)
+	}
+	if got := accessLogCount.Load(); got != baseCount {
+		t.Errorf("全部反注册后计数应回到 %d，实际 %d", baseCount, got)
+	}
+
+	// 再注册同样数量：长度仍应是 base+cycles，而不是在历史基础上继续增长
+	for i := 0; i < cycles; i++ {
+		unregisters[i] = RegisterAccessLog(func(context.Context, *AccessRecord) {})
+	}
+	if got := accessLogSnapshotLen(); got != baseLen+cycles {
+		t.Errorf("再次注册 %d 个后长度应为 %d，实际 %d", cycles, baseLen+cycles, got)
+	}
+	for _, unregister := range unregisters {
+		unregister()
+	}
+}
+
+// TestRegisterAccessLogUnregisterIsIdempotent 重复调用反注册只生效一次
+func TestRegisterAccessLogUnregisterIsIdempotent(t *testing.T) {
+	baseLen := accessLogSnapshotLen()
+	baseCount := accessLogCount.Load()
+
+	unregister := RegisterAccessLog(func(context.Context, *AccessRecord) {})
+	unregister()
+	unregister()
+	unregister()
+
+	if got := accessLogSnapshotLen(); got != baseLen {
+		t.Errorf("重复反注册后长度应为 %d，实际 %d", baseLen, got)
+	}
+	if got := accessLogCount.Load(); got != baseCount {
+		t.Errorf("重复反注册后计数应为 %d，实际 %d", baseCount, got)
+	}
+}
+
+// TestAccessLogRegistryConcurrent 注册/反注册/派发并发不应有数据竞争
+//
+// 覆盖写时复制快照的 CAS 循环：并发注册与反注册必须都成功发布，
+// 且最终计数回到初始值
+// [EN] Exercises the copy-on-write CAS loop: concurrent registrations and unregistrations
+// must all publish, and the final count must return to the starting value
+func TestAccessLogRegistryConcurrent(t *testing.T) {
+	baseLen := accessLogSnapshotLen()
+	baseCount := accessLogCount.Load()
+
+	const (
+		workers = 8
+		rounds  = 100
+	)
+
+	stop := make(chan struct{})
+	var dispatchWG sync.WaitGroup
+	dispatchWG.Add(1)
+	go func() {
+		defer dispatchWG.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				DispatchAccessLog(context.Background(), &AccessRecord{})
+			}
+		}
+	}()
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < rounds; j++ {
+				unregister := RegisterAccessLog(func(context.Context, *AccessRecord) {})
+				unregister()
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(stop)
+	dispatchWG.Wait()
+
+	if got := accessLogSnapshotLen(); got != baseLen {
+		t.Errorf("并发结束后长度应回到 %d，实际 %d", baseLen, got)
+	}
+	if got := accessLogCount.Load(); got != baseCount {
+		t.Errorf("并发结束后计数应回到 %d，实际 %d", baseCount, got)
 	}
 }

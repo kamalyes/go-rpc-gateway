@@ -18,6 +18,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	gcmiddleware "github.com/kamalyes/go-rpc-gateway/config/middleware"
+	gwswagger "github.com/kamalyes/go-rpc-gateway/config/swagger"
 	"github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
@@ -53,8 +54,93 @@ type Manager struct {
 	preRateLimitMiddlewares []HTTPMiddleware // 在限流之前执行的自定义中间件（如认证）
 }
 
+// normalizeConfigSections 返回一份各配置段均非 nil 的浅拷贝
+//
+// NewManager 与 Manager 的各个方法直接解引用配置段（cfg.Middleware.Tracing.Enabled、
+// cfg.Monitoring.Metrics.Enabled、cfg.Swagger.Enabled …）。完整的默认配置满足这个前提，
+// 但「调用方手工拼的配置」和「YAML 里缺整段」都不满足 —— 一处缺段就是启动期空指针，
+// 而 NewManager 位于启动与热重载的必经路径上
+//
+// 缺段在这里统一补成零值（零值的 Enabled 均为 false，等价于未启用），
+// 而不是要求每个调用点重复判空。只复制被补字段的外层结构，不改调用方的 cfg；
+// 原有指针共享，热重载语义不变
+// [EN] NewManager and Manager methods dereference config sections directly
+// (cfg.Middleware.Tracing.Enabled, cfg.Monitoring.Metrics.Enabled, cfg.Swagger.Enabled, ...).
+// Full default configs satisfy that, but hand-built configs and YAML with a missing section
+// do not, and one missing section is a nil dereference on the startup/hot-reload path.
+// Missing sections are filled with zero values here (Enabled defaults to false, i.e. off)
+// instead of repeating nil checks at every call site. Only the structs whose fields are
+// filled are copied; the caller's cfg is untouched and shared pointers keep reload semantics
+func normalizeConfigSections(cfg *gwconfig.Gateway) *gwconfig.Gateway {
+	clone := *cfg
+	cfg = &clone
+
+	if cfg.Middleware == nil {
+		cfg.Middleware = &gcmiddleware.Middleware{}
+	} else {
+		mw := *cfg.Middleware
+		cfg.Middleware = &mw
+	}
+	if cfg.Middleware.Tracing == nil {
+		cfg.Middleware.Tracing = &gcmiddleware.Tracing{}
+	}
+	if cfg.Middleware.I18N == nil {
+		cfg.Middleware.I18N = &gcmiddleware.I18N{}
+	}
+	if cfg.Middleware.Logging == nil {
+		cfg.Middleware.Logging = &gcmiddleware.Logging{}
+	}
+	if cfg.Middleware.Recovery == nil {
+		cfg.Middleware.Recovery = &gcmiddleware.Recovery{}
+	}
+	if cfg.Middleware.Signature == nil {
+		cfg.Middleware.Signature = &gcmiddleware.Signature{}
+	}
+	if cfg.Middleware.CircuitBreaker == nil {
+		cfg.Middleware.CircuitBreaker = &gcmiddleware.CircuitBreaker{}
+	}
+
+	if cfg.Monitoring == nil {
+		cfg.Monitoring = &gcmiddleware.Monitoring{}
+	} else {
+		mon := *cfg.Monitoring
+		cfg.Monitoring = &mon
+	}
+	if cfg.Monitoring.Metrics == nil {
+		cfg.Monitoring.Metrics = &gcmiddleware.MonitoringMetrics{}
+	}
+
+	if cfg.Security == nil {
+		cfg.Security = &gcmiddleware.Security{}
+	} else {
+		sec := *cfg.Security
+		cfg.Security = &sec
+	}
+	if cfg.Security.CSP == nil {
+		cfg.Security.CSP = &gcmiddleware.CSP{}
+	}
+
+	if cfg.Swagger == nil {
+		cfg.Swagger = &gwswagger.Swagger{}
+	}
+	if cfg.RateLimit == nil {
+		cfg.RateLimit = &gcmiddleware.RateLimit{}
+	}
+	if cfg.CORS == nil {
+		cfg.CORS = &gcmiddleware.Cors{}
+	}
+
+	return cfg
+}
+
 // NewManager 创建中间件管理器 - 使用全局 GATEWAY 配置
 func NewManager(cfg *gwconfig.Gateway) (*Manager, error) {
+	if cfg == nil {
+		return nil, errors.NewErrorf(errors.ErrCodeMiddlewareError, "gateway config is nil")
+	}
+
+	cfg = normalizeConfigSections(cfg)
+
 	var err error
 	manager := &Manager{
 		cfg: cfg,
