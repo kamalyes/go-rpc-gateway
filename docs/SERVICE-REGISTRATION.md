@@ -658,6 +658,7 @@ func (g *Gateway) AutoRegisterWithHealthCheck(healthChecker *grpcpool.HealthChec
 1. 调用 `grpcpool.InitConnectionsAndDiscover` 初始化所有配置的 gRPC 连接并通过 reflection 发现服务
 2. 调用 `grpcpool.RegisterDynamicHandlers` 动态注册 HTTP handler 到 `runtime.ServeMux`
 3. 若提供 `healthChecker`，注册服务恢复回调（服务恢复后自动重新发现并注册路由）并启动周期性健康检查
+4. 启动下游服务发版监视（连接事件 + 契约指纹兜底）
 
 ```go
 healthChecker := grpcpool.NewHealthChecker()
@@ -666,6 +667,59 @@ result := g.gateway.AutoRegisterWithHealthCheck(healthChecker)
 // result.Handlers: 成功注册的 HTTP 路由列表
 // result.TotalClients / result.TotalHandlers: 配置总数
 ```
+
+### 下游服务发版感知（连接事件 + 契约指纹兜底）
+
+> 源码：[cpool/grpc/watcher.go](../cpool/grpc/watcher.go)
+
+`AutoRegister` 完成后会为每个配置了 `endpoints` 的下游服务启动 `ServiceWatcher`，解决「网关启动后下游发版，新增的 RPC / `google.api.http` 注解看不到」的问题。
+
+**两条互补的触发路径**
+
+| 路径 | 覆盖场景 | 开销 |
+|------|----------|------|
+| 连接事件 | Pod 重启、GOAWAY、网络抖动后的重连（`ClientConn` 进入 `Ready` 的上升沿） | 阻塞在 `WaitForStateChange`，零轮询 |
+| 契约指纹兜底 | 多副本滚动发布期间连接全程 `Ready`，没有状态边沿 | 默认 60s 一轮 reflection |
+
+两条路径最终都收口到 `reconcileService`：先计算契约指纹（文件名 + 内容 SHA256 + 服务列表），未变就直接返回，不碰 mux、不写注册表。因此重复触发的最坏代价只是一次 reflection 往返，不会演变成重复注册。
+
+`HealthChecker` 的「服务恢复」回调也会并入监视器（`SetOnRecover(watcher.Trigger)`），避免一次恢复打两次 reflection。
+
+**配置兜底轮询间隔**
+
+```go
+gw := NewGateway(...).WithServiceWatchInterval(30 * time.Second)
+gw.AutoRegister()
+```
+
+- 默认 `60s`；传 `0` 关闭兜底轮询，只保留连接事件（开销最低，但覆盖不到「全程 Ready」的滚动发布）
+- 必须在 `AutoRegister` / `AutoRegisterWithHealthCheck` 之前调用
+
+**发布侧主动触发（可选）**
+
+```go
+if w := gw.GetServiceWatcher(); w != nil {
+    w.Trigger("user-service") // 异步、合并，立即 reconcile 一次
+}
+```
+
+**能力边界**
+
+- ✅ 新增 proto 文件、新增 gRPC 服务：热注册生效
+- ❌ 修改已有 proto 文件的内容（字段/类型/注解）：`protoregistry.GlobalFiles` 不支持反注册，无法热加载。watcher 会通过 `grpcpool.GetStaleServices()` 暴露这些服务，需要重启网关进程才能生效
+
+**相关 API**
+
+| 函数 / 类型 | 说明 |
+|------|------|
+| `NewServiceWatcher(ServiceWatchOptions) *ServiceWatcher` | 创建监视器；`MuxFn` 为空或 `Services` 为空时返回 `nil` |
+| `(*ServiceWatcher).Start(ctx)` / `Stop()` | 启动 / 停止；均可重复调用，`Stop` 会等待 goroutine 退出 |
+| `(*ServiceWatcher).Trigger(serviceName)` | 外部主动触发一次 reconcile（异步、合并） |
+| `WatchedServiceNames(map[string]*gwconfig.GRPCClient) []string` | 从客户端配置提取需要监视的服务名 |
+| `GetRoutes() []HTTPRoute` | 获取所有已注册的 HTTP 路由（返回副本） |
+| `GetStaleServices() []StaleInfo` | 查询检测到但无法热加载的 proto 变更 |
+| `(*Gateway).WithServiceWatchInterval(d)` | 设置兜底轮询间隔 |
+| `(*Gateway).GetServiceWatcher()` | 获取监视器（未启动时为 `nil`） |
 
 ### AutoRegisterResult
 

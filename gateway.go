@@ -57,6 +57,11 @@ type Gateway struct {
 
 	// 应用级关闭回调，在网关 Stop() 之前执行（如 flush 异步写入器）
 	shutdownCallbacks []func()
+
+	// 下游服务发版监视
+	serviceWatcher       *grpcpool.ServiceWatcher
+	watchInterval        time.Duration
+	watchIntervalSetOnce bool
 }
 
 // GatewayBuilder Gateway构建器 - 支持链式调用
@@ -659,14 +664,27 @@ func (g *Gateway) AutoRegisterWithHealthCheck(healthChecker *grpcpool.HealthChec
 		g.registeredGRPCServices = append(g.registeredGRPCServices, "auto-client:"+name)
 	}
 
+	// 启动下游服务发版监视（连接事件 + 契约指纹兜底）
+	g.startServiceWatch(healthChecker, config.GRPC.Clients)
+
 	// 设置服务恢复回调：服务从不可用恢复为可用时，重新发现服务和注册 HTTP 路由
 	if healthChecker != nil {
-		healthChecker.SetOnRecover(func(serviceName string) {
-			mux := g.GetGatewayMux()
-			if err := grpcpool.RediscoverAndRegisterService(g.Context(), mux, serviceName); err != nil {
-				global.LOGGER.WarnContext(g.Context(), "服务 %s 恢复后重新注册失败: %v", serviceName, err)
-			}
-		})
+		if watcher := g.serviceWatcher; watcher != nil {
+			// 监视器已经在跟踪连接状态，"恢复"这个信号交给它合并即可。
+			// 各自独立触发的话，一次服务恢复会打两次 reflection，而且两条路径会
+			// 并发往同一个 mux 注册 —— 后者由 muxRegisterMu 兜住，但没必要先制造出来
+			// [EN] The watcher already tracks connection state; folding the recovery signal
+			// into it avoids a duplicate reflection round trip and a needless concurrent
+			// registration against the same mux
+			healthChecker.SetOnRecover(watcher.Trigger)
+		} else {
+			healthChecker.SetOnRecover(func(serviceName string) {
+				mux := g.GetGatewayMux()
+				if err := grpcpool.RediscoverAndRegisterService(g.Context(), mux, serviceName); err != nil {
+					global.LOGGER.WarnContext(g.Context(), "服务 %s 恢复后重新注册失败: %v", serviceName, err)
+				}
+			})
+		}
 	}
 
 	if healthChecker != nil {
@@ -675,6 +693,70 @@ func (g *Gateway) AutoRegisterWithHealthCheck(healthChecker *grpcpool.HealthChec
 	}
 
 	return result
+}
+
+// WithServiceWatchInterval 设置下游服务发版的指纹兜底轮询间隔
+//
+// 传 0 表示关闭轮询，只保留连接事件驱动的感知（开销最低，但覆盖不到
+// "多副本滚动发布期间连接全程 Ready" 这个盲区，详见 grpcpool.ServiceWatcher）
+// 必须在 AutoRegister 之前调用
+// [EN] Zero disables the fallback poll, leaving only connection-event detection — cheapest,
+// but blind to a multi-replica rolling deploy that never leaves the Ready state.
+// Must be called before AutoRegister
+func (g *Gateway) WithServiceWatchInterval(interval time.Duration) *Gateway {
+	g.watchInterval = interval
+	g.watchIntervalSetOnce = true
+	return g
+}
+
+// GetServiceWatcher 获取发版监视器，未启动时返回 nil
+// 发布侧想做到秒级感知，可以在部署完成后调用它的 Trigger
+// [EN] A publish-side hook can call Trigger on it for second-level convergence
+func (g *Gateway) GetServiceWatcher() *grpcpool.ServiceWatcher {
+	return g.serviceWatcher
+}
+
+// startServiceWatch 启动下游服务发版监视
+func (g *Gateway) startServiceWatch(healthChecker *grpcpool.HealthChecker, clients map[string]*gwconfig.GRPCClient) {
+	if g.serviceWatcher != nil {
+		return
+	}
+
+	interval := g.watchInterval
+	if !g.watchIntervalSetOnce {
+		interval = grpcpool.DefaultWatchInterval
+	}
+
+	// 只有"已注册且判定为不健康"才算不可用：HealthChecker.IsHealthy 对未注册的服务
+	// 同样返回 false，直接拿它当过滤条件会让启动时连接失败、从未进入健康检查的服务
+	// 被永久跳过轮询。这与健康拦截器的判定口径（exists && !healthy）保持一致
+	// [EN] IsHealthy also returns false for services it never registered, which would skip
+	// polling forever for a service whose connection failed at startup. Matches the health
+	// interceptor's own exists && !healthy test
+	var isHealthy func(string) bool
+	if healthChecker != nil {
+		isHealthy = func(serviceName string) bool {
+			healthy, exists := healthChecker.GetServiceHealth(serviceName)
+			return !exists || healthy
+		}
+	}
+
+	watcher := grpcpool.NewServiceWatcher(grpcpool.ServiceWatchOptions{
+		// 传函数而不是当前 mux：RebuildHTTPGateway 会换掉整个 mux
+		MuxFn:     g.GetGatewayMux,
+		Services:  grpcpool.WatchedServiceNames(clients),
+		Interval:  interval,
+		IsHealthy: isHealthy,
+		OnChange: func(serviceName string, routes []string) {
+			global.LOGGER.InfoContext(g.Context(), "🔄 服务 %s 发版已被感知，%d 个 HTTP 路由已更新", serviceName, len(routes))
+		},
+	})
+	if watcher == nil {
+		return
+	}
+
+	g.serviceWatcher = watcher
+	watcher.Start(g.Context())
 }
 
 // AddGrpcGatewayMiddleware 添加 gRPC-Gateway 中间件
@@ -840,6 +922,14 @@ func (g *Gateway) StartWithBanner() error {
 func (g *Gateway) Stop() error {
 	cg := global.LOGGER.NewConsoleGroup()
 	cg.Info("🛑 开始停止网关服务...")
+
+	// 先停发版监视：它会往 ServeMux 注册路由，必须在服务器停止之前收干净
+	// [EN] Stopped first because it registers routes into the ServeMux
+	if g.serviceWatcher != nil {
+		g.serviceWatcher.Stop()
+		g.serviceWatcher = nil
+		cg.Info("✅ 服务发版监视已停止")
+	}
 
 	// 先停止服务器
 	if err := g.Server.Stop(); err != nil {

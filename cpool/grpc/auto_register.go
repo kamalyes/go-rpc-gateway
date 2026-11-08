@@ -88,22 +88,72 @@ func (r *AutoRegisterResult) Summary() string {
 
 // reflectionRegistry 存储 reflection 发现的服务和 proto 文件
 var reflectionRegistry = &struct {
-	mu          sync.RWMutex
-	services    map[string][]ReflectionServiceInfo // serviceName -> services
-	files       *protoregistry.Files               // proto 文件注册表（指向 GlobalFiles）
-	fileHashes  map[string]string                  // fileName -> SHA256 hex，用于检测版本不一致
+	mu         sync.RWMutex
+	services   map[string][]ReflectionServiceInfo // serviceName -> services
+	files      *protoregistry.Files               // proto 文件注册表（指向 GlobalFiles）
+	fileHashes map[string]string                  // fileName -> SHA256 hex，用于检测版本不一致
+
+	// fingerprints serviceName -> 契约指纹，只在该服务注册成功后写入
+	//
+	// 这个"只在成功后写入"是个不变式：指纹命中 ⟺ 当前 mux 里已经有这份契约对应的路由
+	// 若在 discovery 成功、注册失败时也写入，服务下次上报同样的指纹就会被当成"已注册"
+	// 而跳过，路由永久缺失
+	// [EN] Written only after a successful registration, so a fingerprint hit always implies
+	// the routes for that exact contract are already in the mux
+	fingerprints map[string]string
+
+	// pending serviceName -> 已算出但尚未注册完成的指纹
+	//
+	// 启动路径是分两步的：DiscoverAllServices 只发现（此时 mux 还没建），
+	// 随后 RegisterDynamicHandlers 才注册指纹必须在第二步成功后才能生效，
+	// 否则一旦注册失败，指纹已经落库，后续 reconcile 会认为"已注册"而永久跳过
+	// [EN] Startup discovers before the mux exists and registers afterwards, so the
+	// fingerprint may only take effect once the second step succeeds
+	pending map[string]string
+
+	// stale serviceName -> 已检测到 proto 变更但无法热加载的信息
+	//
+	// registerFileDescriptors 发现同名文件内容变了只能打一条日志，然后把哈希基准更新掉
+	// 以免重复告警 —— 代价是"当前跑的是旧契约"这个事实在下一轮比对后就查不到了
+	// 日志会滚走，这个状态不会：留在这里供健康检查/运维接口读取，
+	// 静默提供旧契约比直接报错更危险
+	// [EN] A changed file cannot be hot-reloaded (GlobalFiles has no Unregister), and the hash
+	// baseline is updated to avoid repeating the warning — which would otherwise erase the fact
+	// that this process serves an outdated contract. Kept here because logs roll away
+	stale map[string]StaleInfo
+
 	initialized bool
 }{
-	services:   make(map[string][]ReflectionServiceInfo),
-	files:      protoregistry.GlobalFiles,
-	fileHashes: make(map[string]string),
+	services:     make(map[string][]ReflectionServiceInfo),
+	files:        protoregistry.GlobalFiles,
+	fileHashes:   make(map[string]string),
+	fingerprints: make(map[string]string),
+	pending:      make(map[string]string),
+	stale:        make(map[string]StaleInfo),
+}
+
+// StaleInfo 描述一个服务被检测到、但网关无法热加载的 proto 变更
+type StaleInfo struct {
+	ServiceName string    // 服务名（配置中的 key）
+	Files       []string  // 内容已变更的 proto 文件
+	DetectedAt  time.Time // 首次检测到的时间
+	Count       int       // 累计检测次数
 }
 
 // routeRegistry 存储已注册的 HTTP 路由
+//
+// seen 不是洁癖：每次 reconcile 都无条件 append 的话，一个反复重连的下游服务
+// 会让这个切片无界增长（mux 侧没有同样的问题，ServeMux.Handle 是前插，
+// 重复注册会被新的那条盖住）
+// [EN] seen keeps the slice from growing without bound when a flapping service is
+// re-registered repeatedly; the mux itself is fine because Handle prepends
 var routeRegistry = &struct {
 	mu     sync.RWMutex
 	routes []HTTPRoute
-}{}
+	seen   map[string]struct{} // "METHOD PATH" -> 已记录
+}{
+	seen: make(map[string]struct{}),
+}
 
 // defaultJSONPb 默认 JSON 序列化器（protojson.MarshalOptions 为只读配置，并发安全）
 var defaultJSONPb = &runtime.JSONPb{
@@ -121,10 +171,38 @@ func GetReflectionRegistry(serviceName string) []ReflectionServiceInfo {
 }
 
 // GetRoutes 获取所有已注册的 HTTP 路由
+// 返回副本：调用方拿到切片后，动态注册仍可能继续向 routeRegistry 追加
+// [EN] Returns a copy, since dynamic registration may keep appending after the caller returns
 func GetRoutes() []HTTPRoute {
 	routeRegistry.mu.RLock()
 	defer routeRegistry.mu.RUnlock()
-	return routeRegistry.routes
+	if len(routeRegistry.routes) == 0 {
+		return nil
+	}
+	out := make([]HTTPRoute, len(routeRegistry.routes))
+	copy(out, routeRegistry.routes)
+	return out
+}
+
+// GetStaleServices 返回检测到 proto 契约变更、但网关无法热加载的服务
+//
+// 这些服务当前走的仍是网关进程启动时加载的旧 descriptor：新增/删除字段、改类型
+// 对网关不可见，必须重启网关进程才能生效暴露出来是为了让这件事可被监控，
+// 而不是只躺在一条滚走的日志里
+// [EN] These services still resolve against the descriptors loaded at process start;
+// only a restart picks up the new ones. Exposed so it can be monitored
+func GetStaleServices() []StaleInfo {
+	reflectionRegistry.mu.RLock()
+	defer reflectionRegistry.mu.RUnlock()
+	if len(reflectionRegistry.stale) == 0 {
+		return nil
+	}
+	out := make([]StaleInfo, 0, len(reflectionRegistry.stale))
+	for _, info := range reflectionRegistry.stale {
+		out = append(out, info)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ServiceName < out[j].ServiceName })
+	return out
 }
 
 // ClearRegistry 清空 reflection 发现的服务和路由（主要用于测试，不清空 GlobalFiles）
@@ -132,12 +210,173 @@ func ClearRegistry() {
 	reflectionRegistry.mu.Lock()
 	reflectionRegistry.services = make(map[string][]ReflectionServiceInfo)
 	reflectionRegistry.fileHashes = make(map[string]string)
+	reflectionRegistry.fingerprints = make(map[string]string)
+	reflectionRegistry.pending = make(map[string]string)
+	reflectionRegistry.stale = make(map[string]StaleInfo)
 	reflectionRegistry.initialized = false
 	reflectionRegistry.mu.Unlock()
 
 	routeRegistry.mu.Lock()
 	routeRegistry.routes = nil
+	routeRegistry.seen = make(map[string]struct{})
 	routeRegistry.mu.Unlock()
+}
+
+// =============================================================================
+// 注册串行化与契约指纹
+// =============================================================================
+
+// muxRegisterMu 串行化所有对 runtime.ServeMux 的注册
+//
+// ServeMux.handlers 是 map[string][]handler，Handle/HandlePath 直接读写它，没有任何
+// 互斥保护 —— RegisterDynamicHandlers 的 Phase 2 已经为此串行化过但漏了另一条路：
+// onRecover 是在 HealthChecker 的周期检查里「每服务一个 goroutine」的上下文中调用的
+// （health.go 的 go func(...) 内 callback(name)），两个下游服务同时恢复，就是两个
+// goroutine 同时往同一个 mux 上 HandlePath —— Go map 的并发写，直接 panic 掉整个进程
+// ServiceWatcher 又加入了第三条触发路径，所以把三条全部收口到这把锁上
+//
+// 只锁注册本身，不锁 discovery：reflection 要走网络，把它圈进来会让一个慢服务
+// 卡住其他服务的注册
+// [EN] Serializes every write to the ServeMux. Phase 2 of RegisterDynamicHandlers already
+// did this locally, but the onRecover path did not: it runs inside the health checker's
+// per-service goroutines, so two services recovering together wrote the same map
+// concurrently and panicked the process. Only registration is inside the lock —
+// discovery does network I/O and would make one slow service block the others
+var muxRegisterMu sync.Mutex
+
+// addRoutes 把新注册的路由并入 routeRegistry，按 "METHOD PATH" 去重
+func addRoutes(routes []HTTPRoute) {
+	if len(routes) == 0 {
+		return
+	}
+	routeRegistry.mu.Lock()
+	defer routeRegistry.mu.Unlock()
+	if routeRegistry.seen == nil {
+		routeRegistry.seen = make(map[string]struct{}, len(routes))
+	}
+	for _, route := range routes {
+		key := route.HTTPMethod + " " + route.HTTPPath
+		if _, dup := routeRegistry.seen[key]; dup {
+			continue
+		}
+		routeRegistry.seen[key] = struct{}{}
+		routeRegistry.routes = append(routeRegistry.routes, route)
+	}
+}
+
+// registerAndTrackRoutes 在 muxRegisterMu 保护下注册某个服务的路由并记账
+func registerAndTrackRoutes(ctx context.Context, mux *runtime.ServeMux, serviceName string, svcInfos []ReflectionServiceInfo) []string {
+	muxRegisterMu.Lock()
+	registered := registerClientHandlers(ctx, mux, serviceName, svcInfos)
+	muxRegisterMu.Unlock()
+
+	addRoutes(collectRoutes(registered))
+	return registered
+}
+
+// contractFingerprint 计算一个服务当前 proto 契约的指纹
+//
+// 输入是 reflection 这一轮返回的全部文件名 + 各自内容哈希，外加服务名列表，
+// 所以新增/删除文件、改字段、给已有 service 加一个 RPC 或一条 google.api.http 注解，
+// 都会让指纹变化指纹相同就代表这一轮什么都不用做 —— 稳态下 reconcile 的成本
+// 到此为止：一次 reflection 往返 + 若干次 SHA256，不碰 mux、不写注册表、不打日志
+// [EN] Fingerprints the contract from the file hashes plus the service list, so any proto
+// change moves it. An unchanged fingerprint ends the reconcile right there: in steady state
+// the cost is one reflection round trip plus a few SHA256s, with no mux or registry writes
+func contractFingerprint(svcInfos []ReflectionServiceInfo, fileCache map[string]*descriptorpb.FileDescriptorProto) string {
+	names := make([]string, 0, len(fileCache))
+	for name := range fileCache {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	h := sha256.New()
+	for _, name := range names {
+		hash, err := computeFileHash(fileCache[name])
+		if err != nil {
+			// 算不出哈希就让指纹不可比：返回空串，调用方按"有变化"处理，
+			// 宁可多注册一次，也不要因为一个文件出错而永久跳过变更检测
+			// [EN] An unhashable file makes the fingerprint incomparable: re-register rather
+			// than risk skipping real changes forever
+			return ""
+		}
+		h.Write([]byte(name))
+		h.Write([]byte{0})
+		h.Write([]byte(hash))
+		h.Write([]byte{0})
+	}
+
+	svcNames := make([]string, 0, len(svcInfos))
+	for _, info := range svcInfos {
+		svcNames = append(svcNames, info.ServiceName)
+	}
+	sort.Strings(svcNames)
+	for _, name := range svcNames {
+		h.Write([]byte(name))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// loadFingerprint 读取某服务上次注册成功时的契约指纹
+func loadFingerprint(serviceName string) (string, bool) {
+	reflectionRegistry.mu.RLock()
+	defer reflectionRegistry.mu.RUnlock()
+	fp, ok := reflectionRegistry.fingerprints[serviceName]
+	return fp, ok
+}
+
+// storeFingerprint 记录某服务注册成功后的契约指纹
+// 空指纹（计算失败）不记录，避免把"不可比"固化成"已注册"
+func storeFingerprint(serviceName, fingerprint string) {
+	if fingerprint == "" {
+		return
+	}
+	reflectionRegistry.mu.Lock()
+	reflectionRegistry.fingerprints[serviceName] = fingerprint
+	reflectionRegistry.mu.Unlock()
+}
+
+// stagePendingFingerprint 暂存启动期算出的指纹，等注册成功后由 commitPendingFingerprints 提交
+func stagePendingFingerprint(serviceName, fingerprint string) {
+	if fingerprint == "" {
+		return
+	}
+	reflectionRegistry.mu.Lock()
+	if reflectionRegistry.pending == nil {
+		reflectionRegistry.pending = make(map[string]string)
+	}
+	reflectionRegistry.pending[serviceName] = fingerprint
+	reflectionRegistry.mu.Unlock()
+}
+
+// commitPendingFingerprints 把暂存的指纹提升为已注册指纹
+func commitPendingFingerprints(serviceNames []string) {
+	reflectionRegistry.mu.Lock()
+	defer reflectionRegistry.mu.Unlock()
+	for _, name := range serviceNames {
+		if fp, ok := reflectionRegistry.pending[name]; ok {
+			reflectionRegistry.fingerprints[name] = fp
+			delete(reflectionRegistry.pending, name)
+		}
+	}
+}
+
+// markStale 记录某服务存在无法热加载的 proto 变更
+func markStale(serviceName string, files []string) {
+	if len(files) == 0 {
+		return
+	}
+	sort.Strings(files)
+	reflectionRegistry.mu.Lock()
+	defer reflectionRegistry.mu.Unlock()
+	info, exists := reflectionRegistry.stale[serviceName]
+	if !exists {
+		info = StaleInfo{ServiceName: serviceName, DetectedAt: time.Now()}
+	}
+	info.Files = files
+	info.Count++
+	reflectionRegistry.stale[serviceName] = info
 }
 
 // =============================================================================
@@ -201,13 +440,13 @@ func initAllConnections(ctx context.Context, healthChecker *HealthChecker, clien
 // registerFileDescriptors 注册未在 GlobalFiles 中的 FileDescriptorProto
 // 业务 import 的 proto 包已在 GlobalFiles 中，跳过；只注册 reflection 获取的新文件
 // 多趟注册解决文件间依赖顺序问题（被依赖的文件需先注册），用 recover 防 panic
-// 返回新注册数、跳过数和版本不一致数
+// 返回新注册数、跳过数和内容已变更（无法热加载）的文件名列表
 //
 // 版本不一致检测：通过比较 FileDescriptorProto 的 SHA256 哈希判断 reflection 获取的
-// proto 文件是否与上次注册的版本相同。若不一致，说明服务发版后 proto 定义已变更，
+// proto 文件是否与上次注册的版本相同若不一致，说明服务发版后 proto 定义已变更，
 // 但 protoregistry.GlobalFiles/GlobalTypes 不可变（无 Unregister API），运行时无法
 // 热替换，只能告警提示重启网关进程以加载新版本
-func registerFileDescriptors(fileDescriptors map[string]*descriptorpb.FileDescriptorProto) (registered, skipped, mismatched int) {
+func registerFileDescriptors(fileDescriptors map[string]*descriptorpb.FileDescriptorProto) (registered, skipped int, mismatched []string) {
 	if len(fileDescriptors) == 0 {
 		return
 	}
@@ -236,7 +475,7 @@ func registerFileDescriptors(fileDescriptors map[string]*descriptorpb.FileDescri
 			if entry.hash != "" {
 				if hasStored && storedHash != entry.hash {
 					// 版本不一致：已注册的 proto 文件与 reflection 获取的版本不同
-					mismatched++
+					mismatched = append(mismatched, name)
 					gwglobal.LOGGER.Error("⚠️ proto 文件版本不一致: %s (已注册: %.8s, 当前: %.8s)，GlobalFiles 不可变，请重启网关以加载新版本",
 						name, storedHash, entry.hash)
 				}
@@ -291,8 +530,13 @@ func registerFileDescriptors(fileDescriptors map[string]*descriptorpb.FileDescri
 
 // computeFileHash 计算 FileDescriptorProto 的内容哈希，用于版本一致性检测
 // 对序列化后的二进制内容取 SHA256，能感知字段增删改、类型变更等任何 proto 定义变化
+//
+// 必须用 Deterministic：protobuf 不保证 Marshal 输出字节稳定（同一消息两次序列化
+// 可以得到不同字节序），哈希拿它做输入就会凭空"变更"，把整套热注册反复触发一遍
+// [EN] Deterministic is required: protobuf does not guarantee byte-stable output, and a
+// non-stable hash input would report phantom changes and re-trigger registration forever
 func computeFileHash(fdp *descriptorpb.FileDescriptorProto) (string, error) {
-	data, err := proto.Marshal(fdp)
+	data, err := proto.MarshalOptions{Deterministic: true}.Marshal(fdp)
 	if err != nil {
 		return "", err
 	}
@@ -379,6 +623,11 @@ func DiscoverAllServices(ctx context.Context, clients map[string]*gwconfig.GRPCC
 				return
 			}
 
+			// 指纹要在合并进 allFileDescriptors 之前按服务各自算，
+			// 合并后就分不清哪个文件属于哪个服务了
+			// [EN] Fingerprint per service before merging, which loses file ownership
+			stagePendingFingerprint(name, contractFingerprint(services, fileCache))
+
 			mu.Lock()
 			servicesMap[name] = services
 			for k, v := range fileCache {
@@ -401,8 +650,8 @@ func DiscoverAllServices(ctx context.Context, clients map[string]*gwconfig.GRPCC
 	reflectionRegistry.initialized = true
 	reflectionRegistry.mu.Unlock()
 
-	if mismatched > 0 {
-		gwglobal.LOGGER.ErrorContext(ctx, "⚠️ reflection: 检测到 %d 个 proto 文件版本不一致，请重启网关以加载新版本", mismatched)
+	if len(mismatched) > 0 {
+		gwglobal.LOGGER.ErrorContext(ctx, "⚠️ reflection: 检测到 %d 个 proto 文件版本不一致，请重启网关以加载新版本: %v", len(mismatched), mismatched)
 	}
 	gwglobal.LOGGER.InfoContext(ctx, "✅ reflection: 新注册 %d 个 proto 文件，跳过 %d 个已注册文件，发现 %d 个服务组", registered, skipped, len(servicesMap))
 }
@@ -595,6 +844,12 @@ func RegisterDynamicHandlers(
 	services := reflectionRegistry.services
 	reflectionRegistry.mu.RUnlock()
 
+	// 本轮处理到的服务，注册走完后提交其暂存指纹，使 ServiceWatcher 的
+	// 首次兜底轮询不会把启动时已注册的路由重复注册一遍
+	// [EN] Collected so their staged fingerprints can be committed after registration,
+	// which keeps the watcher's first poll from re-registering what startup already did
+	handledServices := make([]string, 0, len(services))
+
 	// Phase 1: 并行提取所有服务的 HTTP 路由
 	type svcRoutes struct {
 		conn    *grpc.ClientConn
@@ -611,6 +866,7 @@ func RegisterDynamicHandlers(
 			gwglobal.LOGGER.WarnContext(ctx, "动态注册: 服务 %s 未建立连接，跳过", serviceName)
 			continue
 		}
+		handledServices = append(handledServices, serviceName)
 
 		for _, svcInfo := range svcInfos {
 			wg.Add(1)
@@ -651,8 +907,13 @@ func RegisterDynamicHandlers(
 	}
 
 	// Phase 2: 串行注册到 mux（ServeMux.handlers 为 map[string][]handler，非线程安全）
+	// 锁是包级的 muxRegisterMu，而不是本函数内的局部串行：并发的另一端是
+	// onRecover 与 ServiceWatcher，它们注册的是同一个 mux
+	// [EN] The lock is package-level because the other side of the race is onRecover and
+	// ServiceWatcher registering into the same mux, not another call to this function
 	var registered []string
 	var newRoutes []HTTPRoute
+	muxRegisterMu.Lock()
 	for _, sr := range allRoutes {
 		for _, route := range sr.routes {
 			if err := registerSingleRoute(mux, sr.conn, sr.svcDesc, route); err != nil {
@@ -663,11 +924,11 @@ func RegisterDynamicHandlers(
 			newRoutes = append(newRoutes, route)
 		}
 	}
+	muxRegisterMu.Unlock()
 
 	// 缓存路由
-	routeRegistry.mu.Lock()
-	routeRegistry.routes = append(routeRegistry.routes, newRoutes...)
-	routeRegistry.mu.Unlock()
+	addRoutes(newRoutes)
+	commitPendingFingerprints(handledServices)
 
 	sort.Strings(registered)
 	return registered, nil
@@ -678,60 +939,101 @@ func RegisterDynamicHandlers(
 // 包含重试机制（3 次），避免服务刚恢复时 reflection 瞬态失败导致路由永久丢失
 func RediscoverAndRegisterService(ctx context.Context, mux *runtime.ServeMux, serviceName string) error {
 	gwglobal.LOGGER.InfoContext(ctx, "🔄 服务 %s 恢复健康，重新发现并注册...", serviceName)
+	_, err := reconcileServiceWithRetry(ctx, mux, serviceName, 3)
+	return err
+}
 
-	const maxAttempts = 3
+// reconcileServiceWithRetry 带重试的 reconcile
+// 重试只针对 discovery 失败：服务刚恢复时 reflection 可能瞬态失败，
+// 不重试就意味着这一版的新路由永久缺失
+// [EN] Retries only cover discovery failures; without them a transient reflection error
+// right after recovery would drop this version's new routes for good
+func reconcileServiceWithRetry(ctx context.Context, mux *runtime.ServeMux, serviceName string, maxAttempts int) (reconcileOutcome, error) {
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if attempt > 1 {
 			delay := time.Duration(attempt) * time.Second
 			gwglobal.LOGGER.ErrorContext(ctx, "🔄 服务 %s 重新发现第 %d 次尝试（等待 %v）...", serviceName, attempt, delay)
-			time.Sleep(delay)
+			select {
+			case <-ctx.Done():
+				return reconcileOutcome{}, ctx.Err()
+			case <-time.After(delay):
+			}
 		}
-		lastErr = rediscoverAndRegisterOnce(ctx, mux, serviceName)
-		if lastErr == nil {
-			return nil
+		outcome, err := reconcileService(ctx, mux, serviceName)
+		if err == nil {
+			return outcome, nil
 		}
-		gwglobal.LOGGER.ErrorContext(ctx, "⚠️ 服务 %s 重新发现第 %d/%d 次失败: %v", serviceName, attempt, maxAttempts, lastErr)
+		lastErr = err
+		gwglobal.LOGGER.ErrorContext(ctx, "⚠️ 服务 %s 重新发现第 %d/%d 次失败: %v", serviceName, attempt, maxAttempts, err)
 	}
-	return fmt.Errorf("服务 %s 重新发现失败（已重试 %d 次）: %w", serviceName, maxAttempts, lastErr)
+	return reconcileOutcome{}, fmt.Errorf("服务 %s 重新发现失败（已重试 %d 次）: %w", serviceName, maxAttempts, lastErr)
 }
 
-// rediscoverAndRegisterOnce 执行一次完整的重新发现和注册流程
-func rediscoverAndRegisterOnce(ctx context.Context, mux *runtime.ServeMux, serviceName string) error {
+// reconcileOutcome 一次 reconcile 的结果
+type reconcileOutcome struct {
+	Changed     bool     // 契约指纹变化并完成了重注册
+	Fingerprint string   // 本轮契约指纹（空串表示不可比）
+	Stale       []string // 检测到内容变更但无法热加载的 proto 文件
+	Routes      []string // 本轮注册的 HTTP 路由
+}
+
+// reconcileService 把单个服务的 proto 契约与网关当前的注册状态对齐
+//
+// 先取指纹再决定做不做事，是这条路径能被高频调用的前提：契约没变就在第 2 步返回，
+// 既不碰 mux 也不写注册表无条件重注册会有两个实际代价 ——
+// ServeMux.Handle 是前插，每次重复注册都会在 handlers 切片里压进一条永不被命中的
+// 旧 handler（一个反复重连的服务就是一条稳定增长的内存泄漏）；而重复的 reflection
+// 注册日志会把真正的变更淹掉
+// [EN] Fingerprinting first is what makes this path safe to call often: an unchanged contract
+// returns at step 2 without touching the mux or the registries. Unconditional re-registration
+// leaks: Handle prepends, so each repeat buries another handler that will never be reached
+func reconcileService(ctx context.Context, mux *runtime.ServeMux, serviceName string) (reconcileOutcome, error) {
 	// 1. 重新发现服务
 	services, fileCache, err := discoverSingleClient(ctx, serviceName)
 	if err != nil {
-		return fmt.Errorf("重新发现服务 %s 失败: %w", serviceName, err)
+		return reconcileOutcome{}, fmt.Errorf("重新发现服务 %s 失败: %w", serviceName, err)
 	}
 
-	// 2. 注册 FileDescriptorProto
+	// 2. 指纹比对：契约未变则直接返回
+	fingerprint := contractFingerprint(services, fileCache)
+	if fingerprint != "" {
+		if prev, ok := loadFingerprint(serviceName); ok && prev == fingerprint {
+			return reconcileOutcome{Changed: false, Fingerprint: fingerprint}, nil
+		}
+	}
+
+	outcome := reconcileOutcome{Changed: true, Fingerprint: fingerprint}
+
+	// 3. 注册 FileDescriptorProto
 	registered, skipped, mismatched := registerFileDescriptors(fileCache)
-	if mismatched > 0 {
-		gwglobal.LOGGER.ErrorContext(ctx, "⚠️ reflection: 服务 %s 检测到 %d 个 proto 文件版本不一致，请重启网关以加载新版本",
-			serviceName, mismatched)
+	if len(mismatched) > 0 {
+		outcome.Stale = mismatched
+		markStale(serviceName, mismatched)
+		gwglobal.LOGGER.ErrorContext(ctx, "⚠️ reflection: 服务 %s 检测到 %d 个 proto 文件版本不一致，请重启网关以加载新版本: %v",
+			serviceName, len(mismatched), mismatched)
 	}
 	gwglobal.LOGGER.InfoContext(ctx, "✅ reflection: 服务 %s 新注册 %d 个 proto 文件，跳过 %d 个已注册文件，发现 %d 个 gRPC 服务",
 		serviceName, registered, skipped, len(services))
 
-	// 3. 更新 reflectionRegistry
+	// 4. 更新 reflectionRegistry
 	reflectionRegistry.mu.Lock()
 	reflectionRegistry.services[serviceName] = services
 	reflectionRegistry.files = protoregistry.GlobalFiles
 	reflectionRegistry.initialized = true
 	reflectionRegistry.mu.Unlock()
 
-	// 4. 注册 HTTP 路由
-	registeredRoutes := registerClientHandlers(ctx, mux, serviceName, services)
-	if len(registeredRoutes) > 0 {
-		routeRegistry.mu.Lock()
-		routeRegistry.routes = append(routeRegistry.routes, collectRoutes(registeredRoutes)...)
-		routeRegistry.mu.Unlock()
-		gwglobal.LOGGER.InfoContext(ctx, "✅ 服务 %s 重新注册 %d 个 HTTP 路由: %v", serviceName, len(registeredRoutes), registeredRoutes)
+	// 5. 注册 HTTP 路由
+	outcome.Routes = registerAndTrackRoutes(ctx, mux, serviceName, services)
+	if len(outcome.Routes) > 0 {
+		gwglobal.LOGGER.InfoContext(ctx, "✅ 服务 %s 重新注册 %d 个 HTTP 路由: %v", serviceName, len(outcome.Routes), outcome.Routes)
 	} else {
 		gwglobal.LOGGER.InfoContext(ctx, "✅ 服务 %s 无 HTTP 路由需要注册", serviceName)
 	}
 
-	return nil
+	// 6. 指纹只在注册走完后才记录，保证"指纹命中 ⟹ 路由已在 mux 里"
+	storeFingerprint(serviceName, fingerprint)
+	return outcome, nil
 }
 
 // collectRoutes 将 "METHOD PATH" 字符串列表转换为 HTTPRoute 列表
