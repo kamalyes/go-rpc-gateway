@@ -1,3 +1,5 @@
+//go:build ots
+
 /*
  * @Author: kamalyes 501893067@qq.com
  * @Date: 2026-11-07 11:35:00
