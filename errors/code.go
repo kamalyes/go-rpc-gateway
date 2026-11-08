@@ -81,27 +81,27 @@ const (
 	ErrCodeSwaggerLoadFailed   ErrorCode = 8002
 	ErrCodeSwaggerRenderFailed ErrorCode = 8003
 
-	// JWT和认证扩展错误 (2100-2199)
-	ErrCodeTokenMalformed        ErrorCode = 2101
-	ErrCodeTokenNotValidYet      ErrorCode = 2102
-	ErrCodeAccountLoginElsewhere ErrorCode = 2103
-	ErrCodeRedisParseError       ErrorCode = 2104
-	ErrCodeDBQueryError          ErrorCode = 2105
-	ErrCodeClaimsParseFailed     ErrorCode = 2106
+	// JWT 错误 (2100-2199)
+	//
+	// 只保留 JWT 本身的状态。原先这里还有「账号已在其他地方登录」「解析 Redis 中的用户
+	// token 出错」「从数据库获取用户 token 异常」这类码 —— 那是具体业务的事，
+	// 连文案都是产品文案，不该由一个网关框架定义
+	// [EN] Only JWT's own states. This range also held codes for "account logged in
+	// elsewhere" and for parsing a user token out of Redis or a database — those are one
+	// application's concerns, down to the product copy, not a gateway framework's
+	ErrCodeTokenMalformed   ErrorCode = 2101
+	ErrCodeTokenNotValidYet ErrorCode = 2102
 
-	// 数据转换和验证错误 (3100-3199)
-	ErrCodePBMessageNil         ErrorCode = 3101
-	ErrCodeModelMessageNil      ErrorCode = 3102
-	ErrCodeFieldConversionError ErrorCode = 3103
-	ErrCodeTypeConversionError  ErrorCode = 3104
-	ErrCodeInitializationError  ErrorCode = 3105
-	ErrCodeInvalidFieldMapping  ErrorCode = 3106
-	ErrCodeUserIDMissing        ErrorCode = 3107
-	ErrCodeMustBePointer        ErrorCode = 3108
-	ErrCodeMustBeSlice          ErrorCode = 3109
-	ErrCodeMustBeStruct         ErrorCode = 3110
-	ErrCodeElementConversion    ErrorCode = 3111
-	ErrCodeItemNil              ErrorCode = 3112
+	// 初始化错误 (3100-3199)
+	//
+	// 这一段原先叫「数据转换和验证错误」，放着 PB/Model 互转、反射类型断言失败这类码。
+	// 那些是转换库的职责（pbmo 自己就有 NewConversionError / NewNilValueError /
+	// NewTypeMismatchError），网关一个都没用过，下游也没有，所以删掉，只留初始化这一个
+	// [EN] This range used to be "data conversion and validation", holding PB/Model
+	// conversion and reflection type-assertion codes. Those belong to the conversion
+	// library — pbmo has NewConversionError, NewNilValueError and NewTypeMismatchError of
+	// its own — and the gateway never used a single one, nor did anything downstream
+	ErrCodeInitializationError ErrorCode = 3105
 
 	// 中间件和国际化错误 (5100-5199)
 	ErrCodeLanguageLoadFailed ErrorCode = 5101
@@ -116,11 +116,9 @@ const (
 	ErrCodeHealthManagerFailed   ErrorCode = 1105
 	ErrCodeGRPCServerInitFailed  ErrorCode = 1106
 	ErrCodeHTTPGatewayInitFailed ErrorCode = 1107
-	ErrCodeUserAuthNotFound      ErrorCode = 1110
 
 	// 服务器和基础设施错误 (1200-1299)
 	ErrCodeServerCreationFailed ErrorCode = 1201
-	ErrCodeScanTypeMismatch     ErrorCode = 1202
 
 	// 通用错误 (9000-9999)
 	ErrCodeUnknown          ErrorCode = 9000

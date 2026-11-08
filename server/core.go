@@ -19,7 +19,7 @@ import (
 // initCore 初始化核心组件，集成企业级组件
 func (s *Server) initCore() error {
 	if global.POOL_MANAGER == nil {
-		return errors.NewError(errors.ErrCodeInternalServerError, "global POOL_MANAGER is not initialized, ensure InitializerChain has run")
+		return errors.NewError(errors.ErrCodeInternalServerError, errors.WithDetails("global POOL_MANAGER is not initialized, ensure InitializerChain has run"))
 	}
 
 	// 将连接池管理器保存到服务器中

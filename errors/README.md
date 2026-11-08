@@ -20,11 +20,12 @@ go-rpc-gateway 采用**纯错误码模式**的企业级错误管理系统，所�
 // 直接使用预定义错误
 return errors.ErrTokenExpired
 
-// 使用错误码创建（无details）
-return errors.NewError(errors.ErrCodeInvalidConfiguration, "")
+// 使用错误码创建（消息取自码表）
+return errors.NewError(errors.ErrCodeInvalidConfiguration)
 
-// 使用错误码创建（带details）
-return errors.NewError(errors.ErrCodeResourceNotFound, userID)
+// 带详情
+return errors.NewError(errors.ErrCodeResourceNotFound, errors.WithDetails(userID))
+return errors.NewError(errors.ErrCodeResourceNotFound, errors.WithDetailsf("user_id: %s", userID))
 ```
 
 ### 2. 包装现有错误（推荐）
@@ -66,7 +67,7 @@ errors.ErrCodeServiceUnavailable     // 1003: Service unavailable
 ```go
 errors.ErrCodeUnauthorized           // 2001: Unauthorized
 errors.ErrCodeTokenExpired           // 2004: Token expired
-errors.ErrCodeAccountLoginElsewhere  // 2103: 账号已在其他地方登录
+errors.ErrCodeTokenMalformed         // 2101: Malformed token
 ```
 
 ### 请求处理错误 (3000-3999)
@@ -115,7 +116,7 @@ if errors.IsErrorCode(err, errors.ErrCodeTokenExpired) {
 
 ```go
 // ❌ 不要硬编码消息
-return errors.NewError(errors.ErrCodeOperationFailed, "创建服务器失败")
+return errors.NewError(errors.ErrCodeOperationFailed, errors.WithMessage("创建服务器失败"))
 
 // ❌ 不要使用 fmt.Errorf
 return fmt.Errorf("token expired")
@@ -127,7 +128,7 @@ return errors.New("服务不可用")
 ## 🔍 错误信息获取
 
 ```go
-appErr := errors.NewError(errors.ErrCodeTokenExpired, "")
+appErr := errors.NewError(errors.ErrCodeTokenExpired)
 
 // 获取错误代码
 code := appErr.GetCode()  // 2004
@@ -150,47 +151,170 @@ result := appErr.ToResult()
 
 ## 🌐 业务错误码与国际化
 
-`biz.go` 提供业务错误码到 gRPC 状态码的可注册映射及 i18n 消息解析，适用于微服务场景。
+业务错误码这一套原先住在独立的 `go-bizerror` 仓库，现已并入本包：码表、映射、内置文案、
+构造器与收集器都在这里，下游只依赖本包即可，不需要再引一个错误码库
 
-### 注册与查找
+> 两套码不要混：`ErrCode*` 是网关层的数值码（`ErrorCode`，进响应包络的 `code`），
+> `BizErrCode*` 是业务语义串（同时就是 i18n key）。前者描述「网关怎么回」，
+> 后者描述「业务出了什么事」，由注册表把后者映射到前者
+
+### 通用业务错误码
+
+`bizcodes.go` 里有 15 个跨服务通用码，码值本身就是 i18n key：
+
+| 常量 | 码值 | gRPC | 网关码 |
+|---|---|---|---|
+| `BizErrCodeInvalidArgument` | `error.invalid_argument` | InvalidArgument | `ErrCodeBadRequest` |
+| `BizErrCodeUnauthenticated` | `error.unauthenticated` | Unauthenticated | `ErrCodeUnauthorized` |
+| `BizErrCodePermissionDenied` | `error.permission_denied` | PermissionDenied | `ErrCodeForbidden` |
+| `BizErrCodeNotFound` | `error.not_found` | NotFound | `ErrCodeNotFound` |
+| `BizErrCodeConflict` | `error.conflict` | AlreadyExists | `ErrCodeConflict` |
+| `BizErrCodeValidationFailed` | `error.validation_failed` | InvalidArgument | `ErrCodeBadRequest` |
+| `BizErrCodeInvalidParameter` | `error.invalid_parameter` | InvalidArgument | `ErrCodeBadRequest` |
+| `BizErrCodeCannotBeSelf` | `error.cannot_be_self` | FailedPrecondition | `ErrCodeBadRequest` |
+| `BizErrCodeDatabaseError` | `error.database_error` | Internal | `ErrCodeInternalServerError` |
+| `BizErrCodeDatabaseOperationFailed` | `error.database_operation_failed` | Internal | `ErrCodeInternalServerError` |
+| `BizErrCodeConversionFailed` | `error.conversion_failed` | Internal | `ErrCodeInternalServerError` |
+| `BizErrCodeInternalError` | `error.internal` | Internal | `ErrCodeInternalServerError` |
+| `BizErrCodeRepositoryNotInitialized` | `error.repository_not_initialized` | Internal | `ErrCodeInternalServerError` |
+| `BizErrCodeUnsupportedOperation` | `error.unsupported_operation` | Unimplemented | `ErrCodeInternalServerError` |
+| `BizErrCodeExternalServiceError` | `error.external_service_error` | Internal | `ErrCodeInternalServerError` |
+
+这 15 个在包 `init()` 里已注册好，**零注册即可用**。
+
+### 一行直出：具名构造器
+
+每个通用码都有一个同名构造器，省掉 `ToGRPCError(ctx, BizErrCodeXxx)` 的两段式写法：
 
 ```go
-// bootstrap 阶段批量注册业务错误码 → gRPC codes 映射
-errors.RegisterBizCodeMap(map[string]codes.Code{
-    "user_not_found": codes.NotFound,
-})
-
-// 注册单个映射
-errors.RegisterBizCode("payment_failed", codes.Internal)
-
-// 运行时查找：精确匹配 → _not_found 后缀 → 兜底 Internal
-grpcCode := errors.MapBizCodeToGRPCCode("user_not_found") // codes.NotFound
+return nil, errors.NotFound(ctx)
+return nil, errors.Unauthenticated(ctx)
+return nil, errors.DatabaseOperationFailed(ctx)  // 别返回原始 err，表名和 SQL 会漏给调用方
 ```
+
+> 构造器是函数，同包的 `ErrNotFound` 之类是 `*AppError` 值，靠括号区分。
+> 有一条测试直接读码表源码，保证每加一个 `BizErrCode*` 就必须有对应构造器。
+
+### 要带变量或原因：链式构造器
+
+```go
+// 服务自注册的码也走这里，不必在服务里再包一层
+return errors.Of(errcodes.BizErrCodeQuotaExceeded).
+    With("limit", limit).
+    Cause(err).            // 写入 {reason}；err 为 nil 时不改变链，调用方不必判空
+    Err(ctx)
+
+// 只要文案不要 gRPC 包装（写日志或塞响应体）
+msg := errors.Of(errcodes.BizErrCodeQuotaExceeded).With("limit", limit).Message(ctx)
+```
+
+`*Chain` 的所有方法对 nil 接收者安全：`Err` 返回 nil，`Message` 返回空串。
+
+### 注册服务自己的码
+
+```go
+// 推荐：gRPC 码与网关码一起注册，二者是一个决定的两面
+errors.RegisterMany(map[string]errors.CodeMapping{
+    "error.quota_exceeded":  {codes.ResourceExhausted, errors.ErrCodeTooManyRequests},
+    "error.order_cancelled": {codes.FailedPrecondition, errors.ErrCodeBadRequest},
+})
+errors.Register("error.payment_failed", errors.CodeMapping{codes.Internal, errors.ErrCodeInternalServerError})
+
+// 只给 gRPC 码时，网关码按 gRPC 码推导（不会留零值——那等于 ErrCodeOK，
+// 会让一个错误在包络里显示成成功）
+errors.RegisterBizCode("error.payment_failed", codes.Internal)
+errors.RegisterBizCodeMap(map[string]codes.Code{"error.user_not_found": codes.NotFound})
+
+// 查找顺序：显式注册 → _not_found 后缀规则 → 兜底 Internal
+m := errors.Mapping("error.widget_not_found")        // {NotFound, ErrCodeNotFound}
+errors.MapBizCodeToGRPCCode("error.quota_exceeded")  // codes.ResourceExhausted
+errors.MapBizCodeToGatewayCode("error.quota_exceeded")
+```
+
+> ⚠️ **除 `_not_found` 结尾的码之外必须显式注册**：其余一律兜底 `Internal`，
+> 也就是说漏登记的 `_already_exists` 会变成 **500 而不是 409**，而且没有任何报错提示。
+
+注册表带读写锁：注册在 bootstrap 期发生，查找在每个请求的错误路径上发生，
+而 Go 对并发读写 map 是直接 fatal，不是返回错误。
 
 ### 转换为 gRPC 错误
 
-> 注意：包级函数 `errors.ToGRPCError(ctx, bizCode)` 与 `AppError.ToGRPCError()` 方法不同。
+> 包级 `errors.ToGRPCError(ctx, bizCode)` 与 `AppError.ToGRPCError()` 方法不是一回事。
 
 ```go
-// 通过 i18n 键获取消息并构建 gRPC 错误
-err := errors.ToGRPCError(ctx, "user_not_found")
-
-// 支持模板变量替换
-err := errors.ToGRPCErrorWithTemplate(ctx, "error.hello", map[string]interface{}{
-    "name": "张三",
-})
+err := errors.ToGRPCError(ctx, errors.BizErrCodeNotFound)
+err := errors.ToGRPCErrorWithTemplate(ctx, errors.BizErrCodeInvalidParameter,
+    map[string]interface{}{"reason": "age 必须为正数"})
+err := errors.ToGRPCErrorWithCause(ctx, errors.BizErrCodeInvalidParameter, dbErr) // cause 为 nil 时退化
 ```
 
-### i18n 消息与错误串解析
+### 文案解析：三层兜底
 
 ```go
-// 获取国际化消息（翻译失败返回 bizCode 本身）
-msg := errors.NewI18nError(ctx, "user_not_found")
-msg := errors.NewI18nErrorWithTemplate(ctx, "error.hello", map[string]interface{}{"name": "张三"})
-
-// 从 gRPC 错误串中提取 JSON 内的 msg 字段；非 JSON 返回原串
-msg := errors.ExtractRpcErrorMsg(rpcErr.Error())
+msg := errors.NewI18nError(ctx, errors.BizErrCodeNotFound)
+msg := errors.NewI18nErrorWithTemplate(ctx, errors.BizErrCodeInvalidParameter,
+    map[string]interface{}{"reason": "连接被重置"})
+msg := errors.BuiltinMessage("zh", errors.BizErrCodeNotFound) // "资源未找到"；未收录返回空串
 ```
+
+| 层 | 来源 |
+|---|---|
+| 1 | 服务自己的 locales（同名 key 优先） |
+| 2 | 本包 `builtin_messages.go` 的内置文案（中英两套） |
+| 3 | 错误码本身，保证返回值永不为空 |
+
+第 2 层是「新服务零配置即有可读错误消息」的保证 —— 没有它，还没写 locales 的服务
+会把 `error.not_found` 这样的内部标识符直接返给前端。内置文案兜底时模板一样会套上，
+否则调用方会收到字面量 `{reason}`。
+
+### 从错误里取可读消息
+
+两个函数名字相近、输入不同，别用错：
+
+```go
+// 收 error：取链上最内层 gRPC status 的 Message
+// 用标准库的 stderrors.As 而不是 status.FromError —— 后者在遇到 %w 包裹的 status 时，
+// 会把外层 error 的完整文案覆盖进 Message，于是提取结果带上 "rpc error: code = ..." 信封
+msg := errors.ExtractRpcErrorMsg(err)
+
+// 收字符串：从网关包络 {code,msg} 里取 msg；不是 JSON 则返回原串
+msg := errors.ExtractEnvelopeMsg(raw)
+```
+
+### 逐字段违规项收集
+
+标签表达不了的业务规则校验用它 —— 跨字段、跨记录、要查库、或一条规则牵涉整个集合
+（阶梯价要逐档递增这类）。能用标签说清的（必填、长度、区间、格式、枚举合法性）
+交给 proto 上的 `validate:"..."`，由校验拦截器统一执行，业务代码里不该再写一遍。
+
+```go
+v := errors.NewViolations()
+for i, tier := range req.GetTiers() {
+    if tier.GetMinAmount() <= prev {
+        v.Addf("tiers", i, "minAmount", "must_ascend", "阶梯下限必须逐档递增")
+    }
+}
+if v.Has() {
+    return nil, v.Err(ctx, errors.BizErrCodeValidationFailed)
+}
+```
+
+收集而不是遇错即返：一次提交里有三处填错时逐条返回，会让使用者改一处、提交一次、
+再被拒一次。`Violation.Rule` 是机器可读的稳定串，前端按它定位到具体输入框；
+`Msg` 可本地化，`Rule` 不变。`IndexedField("tiers", 2, "minAmount")` 拼出 `tiers[2].minAmount`，
+格式必须稳定，前端靠它定位到具体那一行。
+
+明细走日志而不是 `status.WithDetails`：本仓库的错误统一由 `ToGRPCError` 构造、
+由网关包络成 `{code,msg,data}`，两套机制混用会让同一个接口有两种错误形状。
+
+```go
+// 日志出口由网关在初始化与热重载时注入；未注入时明细不记录，但错误照常返回
+errors.SetViolationLogger(global.LOGGER)
+```
+
+> 本包**不导入** `global`：那条边会经 `cpool` 把 MySQL 驱动、Redis、NATS、MQTT 与
+> ClickHouse 拖进一个只做错误码映射的包（实测传递依赖 404 个包）。错误码是最底层的
+> 契约，应该谁都能引用它，而不是它反过来引用连接池，所以日志器由上层注入
 
 ## 🌍 添加新错误类型
 
@@ -231,7 +355,7 @@ var statusCodeMapping = map[ErrorCode]commonapis.StatusCode{
 
 ```go
 var (
-    ErrYourNewError = NewError(ErrCodeYourNewError, "")
+    ErrYourNewError = NewError(ErrCodeYourNewError)
 )
 ```
 
@@ -269,7 +393,8 @@ func NewServer() (*Server, error) {
     cfg := global.GATEWAY
     if cfg == nil {
         // ✅ 纯错误码：自动使用 "Invalid configuration"
-        return nil, errors.NewError(errors.ErrCodeInvalidConfiguration, "global GATEWAY config is not initialized")
+        return nil, errors.NewError(errors.ErrCodeInvalidConfiguration,
+            errors.WithDetails("global GATEWAY config is not initialized"))
     }
     
     server := &Server{
@@ -285,22 +410,6 @@ func NewServer() (*Server, error) {
     
     return server, nil
 }
-
-// cpool/jwt/jwt.go
-func (j *JWT) checkRedisMultipointAuth(claims *CustomClaims, jsonStr string) error {
-    var clis CustomClaims
-    if err := json.Unmarshal([]byte(jsonStr), &clis); err != nil {
-        // ✅ 纯错误码：自动使用 "解析Redis中的用户token时出错"
-        return errors.Wrap(err, errors.ErrCodeRedisParseError)
-    }
-    
-    if clis.TokenId != "" && claims.TokenId != clis.TokenId {
-        // ✅ 使用预定义错误
-        return errors.ErrAccountLoginElsewhere
-    }
-    
-    return nil
-}
 ```
 
 ## 📝 总结
@@ -312,3 +421,12 @@ func (j *JWT) checkRedisMultipointAuth(claims *CustomClaims, jsonStr string) err
 - ❌ **避免 fmt.Errorf**
 - ❌ **避免 errors.New**
 - ❌ **避免硬编码消息字符串**
+
+业务错误码那一半：
+
+- ✅ **用具名构造器**（`errors.NotFound(ctx)`），不要在每个服务里重新包一层
+- ✅ **要带变量或原因时走链式**（`errors.Of(code).With(...).Cause(err).Err(ctx)`）
+- ✅ **注册服务自己的码时 gRPC 码与网关码一起给**（`Register` / `RegisterMany`）
+- ✅ **跨字段、跨记录的校验用 `Violations` 一次收齐**，不要遇错即返
+- ❌ **别漏登记非 `_not_found` 结尾的码** —— 会静默兜底成 500
+- ❌ **别把 `ExtractRpcErrorMsg`（收 error）和 `ExtractEnvelopeMsg`（收字符串）用混**

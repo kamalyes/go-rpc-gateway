@@ -199,7 +199,7 @@ func (b *GatewayBuilder) WithGrpcGatewayMiddleware(mw runtime.Middleware) *Gatew
 func (b *GatewayBuilder) Build() (*Gateway, error) {
 	// 首先初始化一个临时 logger，用于记录配置加载过程
 	if err := global.EnsureLoggerInitialized(); err != nil {
-		return nil, errors.NewError(errors.ErrCodeInitializationError, errors.FormatInitError("日志器", err))
+		return nil, errors.NewError(errors.ErrCodeInitializationError, errors.WithDetails(errors.FormatInitError("日志器", err)))
 	}
 
 	// 创建配置实例：先放入默认值，再让配置文件覆盖
@@ -305,7 +305,7 @@ func (b *GatewayBuilder) BuildAndStart(ctx ...context.Context) (*Gateway, error)
 	}
 
 	if err != nil {
-		return nil, errors.NewError(errors.ErrCodeOperationFailed, errors.FormatStartupError("Gateway", err))
+		return nil, errors.NewError(errors.ErrCodeOperationFailed, errors.WithDetails(errors.FormatStartupError("Gateway", err)))
 	}
 
 	return gateway, nil
@@ -359,12 +359,12 @@ func (b *GatewayBuilder) initializeGlobalState(manager *config.IntegratedConfigM
 
 	// 注册全局配置变更回调
 	if err := b.registerGlobalConfigCallbacks(manager); err != nil {
-		return errors.NewError(errors.ErrCodeInvalidConfiguration, errors.FormatConfigError("注册全局配置回调", err))
+		return errors.NewError(errors.ErrCodeInvalidConfiguration, errors.WithDetails(errors.FormatConfigError("注册全局配置回调", err)))
 	}
 
 	// 初始化其他组件
 	if err := b.initializeComponents(); err != nil {
-		return errors.NewError(errors.ErrCodeInitializationError, errors.FormatInitError("组件", err))
+		return errors.NewError(errors.ErrCodeInitializationError, errors.WithDetails(errors.FormatInitError("组件", err)))
 	}
 
 	return nil
@@ -398,7 +398,7 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *config.Integrate
 	})
 
 	if err != nil {
-		return errors.NewError(errors.ErrCodeInvalidConfiguration, errors.FormatConfigError("注册配置变更回调", err))
+		return errors.NewError(errors.ErrCodeInvalidConfiguration, errors.WithDetails(errors.FormatConfigError("注册配置变更回调", err)))
 	}
 
 	// 注册环境变更回调
@@ -409,7 +409,7 @@ func (b *GatewayBuilder) registerGlobalConfigCallbacks(manager *config.Integrate
 		}, -100, false) // 高优先级
 
 	if err != nil {
-		return errors.NewError(errors.ErrCodeInvalidConfiguration, errors.FormatConfigError("注册环境变更回调", err))
+		return errors.NewError(errors.ErrCodeInvalidConfiguration, errors.WithDetails(errors.FormatConfigError("注册环境变更回调", err)))
 	}
 
 	return nil
@@ -1241,7 +1241,7 @@ func QuickStart(configPath ...string) error {
 		BuildAndStart()
 
 	if err != nil {
-		return errors.NewError(errors.ErrCodeOperationFailed, errors.FormatStartupError("快速启动", err))
+		return errors.NewError(errors.ErrCodeOperationFailed, errors.WithDetails(errors.FormatStartupError("快速启动", err)))
 	}
 
 	// 等待关闭信号
@@ -1258,7 +1258,7 @@ func QuickStartWithConfigFile(configFilePath string) error {
 		BuildAndStart()
 
 	if err != nil {
-		return errors.NewError(errors.ErrCodeOperationFailed, errors.FormatStartupError("使用指定配置文件启动", err))
+		return errors.NewError(errors.ErrCodeOperationFailed, errors.WithDetails(errors.FormatStartupError("使用指定配置文件启动", err)))
 	}
 
 	return gw.WaitForShutdown()
@@ -1275,7 +1275,7 @@ func QuickStartWithConfigFilePrefix(configFilePath string, prefix string) error 
 		BuildAndStart()
 
 	if err != nil {
-		return errors.NewError(errors.ErrCodeOperationFailed, errors.FormatStartupError("使用指定配置文件和前缀启动", err))
+		return errors.NewError(errors.ErrCodeOperationFailed, errors.WithDetails(errors.FormatStartupError("使用指定配置文件和前缀启动", err)))
 	}
 
 	return gw.WaitForShutdown()

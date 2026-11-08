@@ -21,6 +21,7 @@ import (
 	"github.com/bwmarrin/snowflake"
 	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/kamalyes/go-rpc-gateway/cpool"
+	gwerrors "github.com/kamalyes/go-rpc-gateway/errors"
 	"github.com/kamalyes/go-toolbox/pkg/logger"
 	"github.com/kamalyes/go-toolbox/pkg/mathx"
 	"github.com/kamalyes/go-toolbox/pkg/osx"
@@ -240,6 +241,9 @@ func (i *LoggerInitializer) Initialize(ctx context.Context, cfg *gwconfig.Gatewa
 
 	LOGGER = cfg.Middleware.Logging.ToLoggerInstance()
 	LOG = LOGGER // 兼容别名
+	// 热重载会换掉日志器，违规明细的出口要跟着换
+	// [EN] Hot reload swaps the logger; the violation-detail sink follows it
+	gwerrors.SetViolationLogger(LOGGER)
 
 	// 根据初始化状态输出不同日志
 	msg := mathx.IF(isFirstInit, "🔄 Logger reconfigured with settings from config file", "ℹ️ [INFO] Logger initialized successfully with go-logger")

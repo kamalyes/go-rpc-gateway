@@ -33,7 +33,7 @@ func (s *Server) Start() error {
 	logger := global.LOGGER
 
 	if s.running {
-		return errors.NewError(errors.ErrCodeServiceUnavailable, "server is already running")
+		return errors.NewError(errors.ErrCodeServiceUnavailable, errors.WithDetails("server is already running"))
 	}
 
 	// 启动gRPC服务器

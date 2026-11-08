@@ -11,7 +11,7 @@
 | 层 | 来源 | 谁提供 |
 |---|---|---|
 | 1 | 服务自己的 locales | 你的服务，路径由你传给 loader |
-| 2 | 包内置通用文案 | go-bizerror 的 `builtin_messages.go`，编译进二进制的 Go map |
+| 2 | 包内置通用文案 | 本仓库 `errors/builtin_messages.go`，编译进二进制的 Go map（中英两套） |
 | 3 | 错误码本身 | 兜底，保证 Code 始终可读 |
 
 所以一个新服务**零配置**就有可读的错误消息 —— 走第 2 层 配了自己的 locales 就覆盖第 2 层，同名 key 优先

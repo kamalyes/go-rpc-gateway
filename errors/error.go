@@ -64,42 +64,25 @@ var errorMessages = map[ErrorCode]string{
 	ErrCodeSwaggerNotFound:        "Swagger JSON not found",
 	ErrCodeSwaggerLoadFailed:      "Failed to load Swagger",
 	ErrCodeSwaggerRenderFailed:    "Failed to render Swagger UI",
-	// JWT和认证扩展
-	ErrCodeTokenMalformed:        "Token格式错误",
-	ErrCodeTokenNotValidYet:      "Token尚未激活",
-	ErrCodeAccountLoginElsewhere: "账号已在其他地方登录，您已被迫下线",
-	ErrCodeRedisParseError:       "解析Redis中的用户token时出错",
-	ErrCodeDBQueryError:          "从数据库获取用户token异常",
-	ErrCodeClaimsParseFailed:     "获取用户claims失败",
-	// 数据转换和验证
-	ErrCodePBMessageNil:         "PB message不能为空",
-	ErrCodeModelMessageNil:      "Model message不能为空",
-	ErrCodeFieldConversionError: "字段转换失败",
-	ErrCodeTypeConversionError:  "类型转换失败",
-	ErrCodeInitializationError:  "初始化失败",
-	ErrCodeInvalidFieldMapping:  "无效的字段映射",
-	ErrCodeUserIDMissing:        "缺少用户ID",
-	ErrCodeMustBePointer:        "必须是指针类型",
-	ErrCodeMustBeSlice:          "必须是切片类型",
-	ErrCodeMustBeStruct:         "必须是结构体类型",
-	ErrCodeElementConversion:    "元素转换失败",
-	ErrCodeItemNil:              "项目为空",
-	// 中间件和国际化
-	ErrCodeLanguageLoadFailed: "语言加载失败",
-	ErrCodeLanguageNotFound:   "语言未找到",
-	ErrCodeJSONParseFailed:    "JSON解析失败",
-	// 配置和特性
-	ErrCodeInvalidConfigType:     "无效的配置类型",
-	ErrCodeFeatureNotRegistered:  "特性未注册",
-	ErrCodeFeatureEnableFailed:   "特性启用失败",
-	ErrCodeMiddlewareInitFailed:  "中间件初始化失败",
-	ErrCodeHealthManagerFailed:   "健康检查管理器创建失败",
-	ErrCodeGRPCServerInitFailed:  "gRPC服务器初始化失败",
-	ErrCodeHTTPGatewayInitFailed: "HTTP网关初始化失败",
-	ErrCodeUserAuthNotFound:      "未找到用户认证信息",
-	// 服务器和基础设施
-	ErrCodeServerCreationFailed: "创建服务器失败",
-	ErrCodeScanTypeMismatch:     "扫描类型不匹配",
+	// JWT | JWT
+	ErrCodeTokenMalformed:   "Malformed token",
+	ErrCodeTokenNotValidYet: "Token not valid yet",
+	// 初始化 | initialization
+	ErrCodeInitializationError: "Initialization failed",
+	// 中间件与国际化 | middleware and i18n
+	ErrCodeLanguageLoadFailed: "Failed to load language",
+	ErrCodeLanguageNotFound:   "Language not found",
+	ErrCodeJSONParseFailed:    "Failed to parse JSON",
+	// 配置与特性 | configuration and features
+	ErrCodeInvalidConfigType:     "Invalid configuration type",
+	ErrCodeFeatureNotRegistered:  "Feature not registered",
+	ErrCodeFeatureEnableFailed:   "Failed to enable feature",
+	ErrCodeMiddlewareInitFailed:  "Failed to initialize middleware",
+	ErrCodeHealthManagerFailed:   "Failed to create health manager",
+	ErrCodeGRPCServerInitFailed:  "Failed to initialize gRPC server",
+	ErrCodeHTTPGatewayInitFailed: "Failed to initialize HTTP gateway",
+	// 服务器与基础设施 | server and infrastructure
+	ErrCodeServerCreationFailed: "Failed to create server",
 	ErrCodeUnknown:              "Unknown error",
 	ErrCodeInternal:             "Internal error",
 	ErrCodeOperationFailed:      "Operation failed",
@@ -151,31 +134,16 @@ var httpStatusMapping = map[ErrorCode]int{
 	ErrCodeSwaggerNotFound:        http.StatusNotFound,
 	ErrCodeSwaggerLoadFailed:      http.StatusInternalServerError,
 	ErrCodeSwaggerRenderFailed:    http.StatusInternalServerError,
-	// JWT和认证扩展
-	ErrCodeTokenMalformed:        http.StatusUnauthorized,
-	ErrCodeTokenNotValidYet:      http.StatusUnauthorized,
-	ErrCodeAccountLoginElsewhere: http.StatusUnauthorized,
-	ErrCodeRedisParseError:       http.StatusInternalServerError,
-	ErrCodeDBQueryError:          http.StatusInternalServerError,
-	ErrCodeClaimsParseFailed:     http.StatusUnauthorized,
-	// 数据转换和验证
-	ErrCodePBMessageNil:         http.StatusBadRequest,
-	ErrCodeModelMessageNil:      http.StatusBadRequest,
-	ErrCodeFieldConversionError: http.StatusInternalServerError,
-	ErrCodeTypeConversionError:  http.StatusBadRequest,
-	ErrCodeInitializationError:  http.StatusInternalServerError,
-	ErrCodeInvalidFieldMapping:  http.StatusInternalServerError,
-	ErrCodeUserIDMissing:        http.StatusBadRequest,
-	ErrCodeMustBePointer:        http.StatusBadRequest,
-	ErrCodeMustBeSlice:          http.StatusBadRequest,
-	ErrCodeMustBeStruct:         http.StatusBadRequest,
-	ErrCodeElementConversion:    http.StatusInternalServerError,
-	ErrCodeItemNil:              http.StatusBadRequest,
-	// 中间件和国际化
+	// JWT | JWT
+	ErrCodeTokenMalformed:   http.StatusUnauthorized,
+	ErrCodeTokenNotValidYet: http.StatusUnauthorized,
+	// 初始化 | initialization
+	ErrCodeInitializationError: http.StatusInternalServerError,
+	// 中间件与国际化 | middleware and i18n
 	ErrCodeLanguageLoadFailed: http.StatusInternalServerError,
 	ErrCodeLanguageNotFound:   http.StatusNotFound,
 	ErrCodeJSONParseFailed:    http.StatusInternalServerError,
-	// 配置和特性
+	// 配置与特性 | configuration and features
 	ErrCodeInvalidConfigType:     http.StatusInternalServerError,
 	ErrCodeFeatureNotRegistered:  http.StatusInternalServerError,
 	ErrCodeFeatureEnableFailed:   http.StatusInternalServerError,
@@ -183,10 +151,8 @@ var httpStatusMapping = map[ErrorCode]int{
 	ErrCodeHealthManagerFailed:   http.StatusInternalServerError,
 	ErrCodeGRPCServerInitFailed:  http.StatusInternalServerError,
 	ErrCodeHTTPGatewayInitFailed: http.StatusInternalServerError,
-	ErrCodeUserAuthNotFound:      http.StatusUnauthorized,
-	// 服务器和基础设施
+	// 服务器与基础设施 | server and infrastructure
 	ErrCodeServerCreationFailed: http.StatusInternalServerError,
-	ErrCodeScanTypeMismatch:     http.StatusInternalServerError,
 	ErrCodeUnknown:              http.StatusInternalServerError,
 	ErrCodeInternal:             http.StatusInternalServerError,
 	ErrCodeOperationFailed:      http.StatusInternalServerError,
@@ -238,31 +204,16 @@ var statusCodeMapping = map[ErrorCode]commonapis.StatusCode{
 	ErrCodeSwaggerNotFound:        commonapis.StatusCode_NotFound,
 	ErrCodeSwaggerLoadFailed:      commonapis.StatusCode_Internal,
 	ErrCodeSwaggerRenderFailed:    commonapis.StatusCode_Internal,
-	// JWT和认证扩展
-	ErrCodeTokenMalformed:        commonapis.StatusCode_Unauthenticated,
-	ErrCodeTokenNotValidYet:      commonapis.StatusCode_Unauthenticated,
-	ErrCodeAccountLoginElsewhere: commonapis.StatusCode_Unauthenticated,
-	ErrCodeRedisParseError:       commonapis.StatusCode_Internal,
-	ErrCodeDBQueryError:          commonapis.StatusCode_Internal,
-	ErrCodeClaimsParseFailed:     commonapis.StatusCode_Unauthenticated,
-	// 数据转换和验证
-	ErrCodePBMessageNil:         commonapis.StatusCode_InvalidArgument,
-	ErrCodeModelMessageNil:      commonapis.StatusCode_InvalidArgument,
-	ErrCodeFieldConversionError: commonapis.StatusCode_Internal,
-	ErrCodeTypeConversionError:  commonapis.StatusCode_InvalidArgument,
-	ErrCodeInitializationError:  commonapis.StatusCode_Internal,
-	ErrCodeInvalidFieldMapping:  commonapis.StatusCode_Internal,
-	ErrCodeUserIDMissing:        commonapis.StatusCode_InvalidArgument,
-	ErrCodeMustBePointer:        commonapis.StatusCode_InvalidArgument,
-	ErrCodeMustBeSlice:          commonapis.StatusCode_InvalidArgument,
-	ErrCodeMustBeStruct:         commonapis.StatusCode_InvalidArgument,
-	ErrCodeElementConversion:    commonapis.StatusCode_Internal,
-	ErrCodeItemNil:              commonapis.StatusCode_InvalidArgument,
-	// 中间件和国际化
+	// JWT | JWT
+	ErrCodeTokenMalformed:   commonapis.StatusCode_Unauthenticated,
+	ErrCodeTokenNotValidYet: commonapis.StatusCode_Unauthenticated,
+	// 初始化 | initialization
+	ErrCodeInitializationError: commonapis.StatusCode_Internal,
+	// 中间件与国际化 | middleware and i18n
 	ErrCodeLanguageLoadFailed: commonapis.StatusCode_Internal,
 	ErrCodeLanguageNotFound:   commonapis.StatusCode_NotFound,
 	ErrCodeJSONParseFailed:    commonapis.StatusCode_Internal,
-	// 配置和特性
+	// 配置与特性 | configuration and features
 	ErrCodeInvalidConfigType:     commonapis.StatusCode_Internal,
 	ErrCodeFeatureNotRegistered:  commonapis.StatusCode_Internal,
 	ErrCodeFeatureEnableFailed:   commonapis.StatusCode_Internal,
@@ -270,10 +221,8 @@ var statusCodeMapping = map[ErrorCode]commonapis.StatusCode{
 	ErrCodeHealthManagerFailed:   commonapis.StatusCode_Internal,
 	ErrCodeGRPCServerInitFailed:  commonapis.StatusCode_Internal,
 	ErrCodeHTTPGatewayInitFailed: commonapis.StatusCode_Internal,
-	ErrCodeUserAuthNotFound:      commonapis.StatusCode_Unauthenticated,
-	// 服务器和基础设施
+	// 服务器与基础设施 | server and infrastructure
 	ErrCodeServerCreationFailed: commonapis.StatusCode_Internal,
-	ErrCodeScanTypeMismatch:     commonapis.StatusCode_Internal,
 	ErrCodeUnknown:              commonapis.StatusCode_Unknown,
 	ErrCodeInternal:             commonapis.StatusCode_Internal,
 	ErrCodeOperationFailed:      commonapis.StatusCode_Internal,
@@ -288,23 +237,82 @@ type AppError struct {
 	Details string    // 错误详情
 }
 
-// NewError 创建新错误
-func NewError(code ErrorCode, details string) *AppError {
+// ErrorOption 构造 AppError 时的可选项
+//
+// 为什么从「必填 details 形参」改成选项：原签名是 NewError(code, details string)，
+// 而本包里 72 处预定义错误变量全都写成 NewError(ErrCodeXxx) —— 那个空串不表达
+// 任何信息，只是形参要求你填点什么。有详情的调用不到二十处，让多数派去伺候少数派
+// 是反的。
+//
+// 选项名与 AppError 的链式方法同名（WithDetails / WithDetailsf）：方法在类型的命名
+// 空间里，包级函数在包的命名空间里，Go 允许重名，而两处同名同义比起名成
+// WithDetail（差一个字母）要好记得多：
+//
+//	errors.NewError(code, errors.WithDetails("..."))  // 构造时给
+//	appErr.WithDetails("...")                          // 拿到之后给
+//
+// [EN] Options for constructing an AppError.
+//
+// The old signature was NewError(code, details string), and all 72 predefined error variables
+// in this package wrote NewError(ErrCodeXxx) — an empty string carrying no information,
+// present only because the parameter demanded something. Fewer than twenty call sites have
+// real details, so making the majority serve the minority had it backwards.
+//
+// The options share names with AppError's chaining methods: methods live in the type's
+// namespace and package functions in the package's, so Go permits it, and one name meaning one
+// thing in both places is easier to remember than a WithDetail that differs by one letter
+type ErrorOption func(*AppError)
+
+// WithDetails 填充错误详情
+// [EN] WithDetails fills in the error's details
+func WithDetails(details string) ErrorOption {
+	return func(e *AppError) { e.Details = details }
+}
+
+// WithDetailsf 格式化填充错误详情
+// [EN] WithDetailsf fills in the details from a format string
+func WithDetailsf(format string, args ...interface{}) ErrorOption {
+	return func(e *AppError) { e.Details = fmt.Sprintf(format, args...) }
+}
+
+// WithMessage 覆盖码表给出的消息
+//
+// 码表是单一来源，所以这个选项是给「同一个码在某一处需要更贴切的说法」用的例外口子，
+// 不是绕开码表的常规写法 —— 消息写死在调用点，就回到了硬编码文案那条路上
+//
+// [EN] Overrides the message the code table supplies.
+//
+// The table is the single source, so this is an escape hatch for the one place where a code
+// needs more precise wording, not the ordinary way to phrase an error: a message written at
+// the call site is hardcoded copy again
+func WithMessage(message string) ErrorOption {
+	return func(e *AppError) { e.Message = message }
+}
+
+// NewError 按错误码创建错误；消息取自码表，详情等由选项给出
+// [EN] NewError creates an error from a code, taking the message from the table and anything
+// else from options
+func NewError(code ErrorCode, opts ...ErrorOption) *AppError {
 	message := errorMessages[ErrCodeUnknown]
 	if msg, ok := errorMessages[code]; ok {
 		message = msg
 	}
 
-	return &AppError{
+	e := &AppError{
 		Code:    code,
 		Message: message,
-		Details: details,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(e)
+		}
+	}
+	return e
 }
 
 // NewErrorf 使用格式化字符串创建错误
 func NewErrorf(code ErrorCode, format string, args ...interface{}) *AppError {
-	return NewError(code, fmt.Sprintf(format, args...))
+	return NewError(code, WithDetailsf(format, args...))
 }
 
 // Error 实现 error 接口
@@ -385,7 +393,7 @@ func Wrap(err error, code ErrorCode) *AppError {
 	if appErr, ok := err.(*AppError); ok {
 		return appErr
 	}
-	return NewError(code, err.Error())
+	return NewError(code, WithDetails(err.Error()))
 }
 
 // Wrapf 包装标准错误并添加额外的详细信息
@@ -402,7 +410,7 @@ func Wrapf(err error, code ErrorCode, format string, args ...interface{}) *AppEr
 	if err.Error() != "" {
 		fullDetails = fmt.Sprintf("%s: %s", fullDetails, err.Error())
 	}
-	return NewError(code, fullDetails)
+	return NewError(code, WithDetails(fullDetails))
 }
 
 // ToGRPCError 将 AppError 转换为 gRPC status.Error
@@ -493,124 +501,107 @@ func ErrorCodeString(code ErrorCode) string {
 
 // 网关核心错误
 var (
-	ErrGatewayNotInitialized = NewError(ErrCodeGatewayNotInitialized, "")
-	ErrInvalidConfiguration  = NewError(ErrCodeInvalidConfiguration, "")
-	ErrServiceUnavailable    = NewError(ErrCodeServiceUnavailable, "")
-	ErrInternalServerError   = NewError(ErrCodeInternalServerError, "")
-	ErrGatewayTimeout        = NewError(ErrCodeGatewayTimeout, "")
+	ErrGatewayNotInitialized = NewError(ErrCodeGatewayNotInitialized)
+	ErrInvalidConfiguration  = NewError(ErrCodeInvalidConfiguration)
+	ErrServiceUnavailable    = NewError(ErrCodeServiceUnavailable)
+	ErrInternalServerError   = NewError(ErrCodeInternalServerError)
+	ErrGatewayTimeout        = NewError(ErrCodeGatewayTimeout)
 )
 
 // 认证授权错误
 var (
-	ErrUnauthorized       = NewError(ErrCodeUnauthorized, "")
-	ErrForbidden          = NewError(ErrCodeForbidden, "")
-	ErrInvalidToken       = NewError(ErrCodeInvalidToken, "")
-	ErrTokenExpired       = NewError(ErrCodeTokenExpired, "")
-	ErrInvalidCredentials = NewError(ErrCodeInvalidCredentials, "")
-	ErrCSRFTokenInvalid   = NewError(ErrCodeCSRFTokenInvalid, "")
+	ErrUnauthorized       = NewError(ErrCodeUnauthorized)
+	ErrForbidden          = NewError(ErrCodeForbidden)
+	ErrInvalidToken       = NewError(ErrCodeInvalidToken)
+	ErrTokenExpired       = NewError(ErrCodeTokenExpired)
+	ErrInvalidCredentials = NewError(ErrCodeInvalidCredentials)
+	ErrCSRFTokenInvalid   = NewError(ErrCodeCSRFTokenInvalid)
 )
 
 // 请求处理错误
 var (
-	ErrBadRequest         = NewError(ErrCodeBadRequest, "")
-	ErrNotFound           = NewError(ErrCodeNotFound, "")
-	ErrMethodNotAllowed   = NewError(ErrCodeMethodNotAllowed, "")
-	ErrInvalidContentType = NewError(ErrCodeInvalidContentType, "")
-	ErrRequestTooLarge    = NewError(ErrCodeRequestTooLarge, "")
-	ErrInvalidParameter   = NewError(ErrCodeInvalidParameter, "")
-	ErrMissingParameter   = NewError(ErrCodeMissingParameter, "")
+	ErrBadRequest         = NewError(ErrCodeBadRequest)
+	ErrNotFound           = NewError(ErrCodeNotFound)
+	ErrMethodNotAllowed   = NewError(ErrCodeMethodNotAllowed)
+	ErrInvalidContentType = NewError(ErrCodeInvalidContentType)
+	ErrRequestTooLarge    = NewError(ErrCodeRequestTooLarge)
+	ErrInvalidParameter   = NewError(ErrCodeInvalidParameter)
+	ErrMissingParameter   = NewError(ErrCodeMissingParameter)
 )
 
 // 限流和熔断错误
 var (
-	ErrTooManyRequests    = NewError(ErrCodeTooManyRequests, "")
-	ErrRateLimitExceeded  = NewError(ErrCodeRateLimitExceeded, "")
-	ErrCircuitBreakerOpen = NewError(ErrCodeCircuitBreakerOpen, "")
-	ErrServiceDegraded    = NewError(ErrCodeServiceDegraded, "")
-	ErrServiceOverloaded  = NewError(ErrCodeServiceOverloaded, "")
+	ErrTooManyRequests    = NewError(ErrCodeTooManyRequests)
+	ErrRateLimitExceeded  = NewError(ErrCodeRateLimitExceeded)
+	ErrCircuitBreakerOpen = NewError(ErrCodeCircuitBreakerOpen)
+	ErrServiceDegraded    = NewError(ErrCodeServiceDegraded)
+	ErrServiceOverloaded  = NewError(ErrCodeServiceOverloaded)
 )
 
 // 中间件错误
 var (
-	ErrMiddlewareError  = NewError(ErrCodeMiddlewareError, "")
-	ErrRecoveryError    = NewError(ErrCodeRecoveryError, "")
-	ErrLoggingError     = NewError(ErrCodeLoggingError, "")
-	ErrTracingError     = NewError(ErrCodeTracingError, "")
-	ErrMetricsError     = NewError(ErrCodeMetricsError, "")
-	ErrSecurityError    = NewError(ErrCodeSecurityError, "")
-	ErrSignatureInvalid = NewError(ErrCodeSignatureInvalid, "")
+	ErrMiddlewareError  = NewError(ErrCodeMiddlewareError)
+	ErrRecoveryError    = NewError(ErrCodeRecoveryError)
+	ErrLoggingError     = NewError(ErrCodeLoggingError)
+	ErrTracingError     = NewError(ErrCodeTracingError)
+	ErrMetricsError     = NewError(ErrCodeMetricsError)
+	ErrSecurityError    = NewError(ErrCodeSecurityError)
+	ErrSignatureInvalid = NewError(ErrCodeSignatureInvalid)
 )
 
 // gRPC相关错误
 var (
-	ErrGRPCConnectionFailed = NewError(ErrCodeGRPCConnectionFailed, "")
-	ErrGRPCServiceNotFound  = NewError(ErrCodeGRPCServiceNotFound, "")
-	ErrGRPCMethodNotFound   = NewError(ErrCodeGRPCMethodNotFound, "")
-	ErrGRPCTimeout          = NewError(ErrCodeGRPCTimeout, "")
-	ErrGRPCCanceled         = NewError(ErrCodeGRPCCanceled, "")
+	ErrGRPCConnectionFailed = NewError(ErrCodeGRPCConnectionFailed)
+	ErrGRPCServiceNotFound  = NewError(ErrCodeGRPCServiceNotFound)
+	ErrGRPCMethodNotFound   = NewError(ErrCodeGRPCMethodNotFound)
+	ErrGRPCTimeout          = NewError(ErrCodeGRPCTimeout)
+	ErrGRPCCanceled         = NewError(ErrCodeGRPCCanceled)
 )
 
 // 健康检查错误
 var (
-	ErrHealthCheckFailed      = NewError(ErrCodeHealthCheckFailed, "")
-	ErrHealthCheckTimeout     = NewError(ErrCodeHealthCheckTimeout, "")
-	ErrHealthCheckUnavailable = NewError(ErrCodeHealthCheckUnavailable, "")
+	ErrHealthCheckFailed      = NewError(ErrCodeHealthCheckFailed)
+	ErrHealthCheckTimeout     = NewError(ErrCodeHealthCheckTimeout)
+	ErrHealthCheckUnavailable = NewError(ErrCodeHealthCheckUnavailable)
 )
 
 // Swagger文档错误
 var (
-	ErrSwaggerNotFound     = NewError(ErrCodeSwaggerNotFound, "")
-	ErrSwaggerLoadFailed   = NewError(ErrCodeSwaggerLoadFailed, "")
-	ErrSwaggerRenderFailed = NewError(ErrCodeSwaggerRenderFailed, "")
+	ErrSwaggerNotFound     = NewError(ErrCodeSwaggerNotFound)
+	ErrSwaggerLoadFailed   = NewError(ErrCodeSwaggerLoadFailed)
+	ErrSwaggerRenderFailed = NewError(ErrCodeSwaggerRenderFailed)
 )
 
 // JWT和认证扩展错误
 var (
-	ErrTokenMalformed        = NewError(ErrCodeTokenMalformed, "")
-	ErrTokenNotValidYet      = NewError(ErrCodeTokenNotValidYet, "")
-	ErrAccountLoginElsewhere = NewError(ErrCodeAccountLoginElsewhere, "")
-	ErrRedisParseError       = NewError(ErrCodeRedisParseError, "")
-	ErrDBQueryError          = NewError(ErrCodeDBQueryError, "")
-	ErrClaimsParseFailed     = NewError(ErrCodeClaimsParseFailed, "")
+	ErrTokenMalformed   = NewError(ErrCodeTokenMalformed)
+	ErrTokenNotValidYet = NewError(ErrCodeTokenNotValidYet)
 )
 
 // 数据转换和验证错误
 var (
-	ErrPBMessageNil         = NewError(ErrCodePBMessageNil, "")
-	ErrModelMessageNil      = NewError(ErrCodeModelMessageNil, "")
-	ErrFieldConversionError = NewError(ErrCodeFieldConversionError, "")
-	ErrTypeConversionError  = NewError(ErrCodeTypeConversionError, "")
-	ErrInitializationError  = NewError(ErrCodeInitializationError, "")
-	ErrInvalidFieldMapping  = NewError(ErrCodeInvalidFieldMapping, "")
-	ErrUserIDMissing        = NewError(ErrCodeUserIDMissing, "")
-	ErrMustBePointer        = NewError(ErrCodeMustBePointer, "")
-	ErrMustBeSlice          = NewError(ErrCodeMustBeSlice, "")
-	ErrMustBeStruct         = NewError(ErrCodeMustBeStruct, "")
-	ErrElementConversion    = NewError(ErrCodeElementConversion, "")
-	ErrItemNil              = NewError(ErrCodeItemNil, "")
+	ErrInitializationError = NewError(ErrCodeInitializationError)
 )
 
 // 中间件和国际化错误
 var (
-	ErrLanguageLoadFailed = NewError(ErrCodeLanguageLoadFailed, "")
-	ErrLanguageNotFound   = NewError(ErrCodeLanguageNotFound, "")
-	ErrJSONParseFailed    = NewError(ErrCodeJSONParseFailed, "")
+	ErrLanguageLoadFailed = NewError(ErrCodeLanguageLoadFailed)
+	ErrLanguageNotFound   = NewError(ErrCodeLanguageNotFound)
+	ErrJSONParseFailed    = NewError(ErrCodeJSONParseFailed)
 )
 
 // 配置和特性错误
 var (
-	ErrInvalidConfigType     = NewError(ErrCodeInvalidConfigType, "")
-	ErrFeatureNotRegistered  = NewError(ErrCodeFeatureNotRegistered, "")
-	ErrFeatureEnableFailed   = NewError(ErrCodeFeatureEnableFailed, "")
-	ErrMiddlewareInitFailed  = NewError(ErrCodeMiddlewareInitFailed, "")
-	ErrHealthManagerFailed   = NewError(ErrCodeHealthManagerFailed, "")
-	ErrGRPCServerInitFailed  = NewError(ErrCodeGRPCServerInitFailed, "")
-	ErrHTTPGatewayInitFailed = NewError(ErrCodeHTTPGatewayInitFailed, "")
-	ErrUserAuthNotFound      = NewError(ErrCodeUserAuthNotFound, "")
+	ErrInvalidConfigType     = NewError(ErrCodeInvalidConfigType)
+	ErrFeatureNotRegistered  = NewError(ErrCodeFeatureNotRegistered)
+	ErrFeatureEnableFailed   = NewError(ErrCodeFeatureEnableFailed)
+	ErrMiddlewareInitFailed  = NewError(ErrCodeMiddlewareInitFailed)
+	ErrHealthManagerFailed   = NewError(ErrCodeHealthManagerFailed)
+	ErrGRPCServerInitFailed  = NewError(ErrCodeGRPCServerInitFailed)
+	ErrHTTPGatewayInitFailed = NewError(ErrCodeHTTPGatewayInitFailed)
 )
 
 // 服务器和基础设施错误
 var (
-	ErrServerCreationFailed = NewError(ErrCodeServerCreationFailed, "")
-	ErrScanTypeMismatch     = NewError(ErrCodeScanTypeMismatch, "")
+	ErrServerCreationFailed = NewError(ErrCodeServerCreationFailed)
 )
