@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"time"
 
+	gwconfig "github.com/kamalyes/go-rpc-gateway/config/core"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -289,7 +290,17 @@ func (h *HealthManager) RegisterChecker(checker HealthChecker) {
 // Check 执行健康检查
 func (h *HealthManager) Check(ctx context.Context, detailed bool) HealthCheckResult {
 	// 使用全局配置
-	cfg := global.GATEWAY
+	//
+	// 走 GetGatewayConfig 并补 nil 保护：原先直接 `cfg := global.GATEWAY` 再读 cfg.Name，
+	// 关停流程把配置置空之后，这个端点就会 panic —— 而它恰好是负载均衡在探的那个
+	//
+	// [EN] GetGatewayConfig plus a nil guard: this used to read cfg.Name straight off
+	// global.GATEWAY, so once shutdown cleared the config this endpoint panicked — and it is
+	// precisely the one the load balancer is probing.
+	cfg := global.GetGatewayConfig()
+	if cfg == nil {
+		cfg = &gwconfig.Gateway{}
+	}
 	result := HealthCheckResult{
 		Service:   cfg.Name,
 		Version:   cfg.Version,

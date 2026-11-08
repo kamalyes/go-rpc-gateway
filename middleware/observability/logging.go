@@ -61,8 +61,9 @@ func getProtojsonOptions() protojson.MarshalOptions {
 	}
 
 	var opts protojson.MarshalOptions
-	if global.GATEWAY != nil && global.GATEWAY.JSON != nil {
-		j := global.GATEWAY.JSON
+	cfg := global.GetGatewayConfig()
+	if cfg != nil && cfg.JSON != nil {
+		j := cfg.JSON
 		opts = protojson.MarshalOptions{
 			UseProtoNames:   j.UseProtoNames,
 			EmitUnpopulated: j.EmitUnpopulated,
@@ -253,10 +254,10 @@ func (rl *RequestLogger) Log(level string, message string, fields *LogFields) {
 
 // getLoggingConfig 获取日志配置
 func getLoggingConfig() *gcmiddleware.Logging {
-	if global.GATEWAY != nil &&
-		global.GATEWAY.Middleware != nil &&
-		global.GATEWAY.Middleware.Logging != nil {
-		return global.GATEWAY.Middleware.Logging
+	if cfg := global.GetGatewayConfig(); cfg != nil &&
+		cfg.Middleware != nil &&
+		cfg.Middleware.Logging != nil {
+		return cfg.Middleware.Logging
 	}
 	return gcmiddleware.DefaultLogging()
 }

@@ -101,7 +101,7 @@ func (s *Server) GetGatewayMux() *runtime.ServeMux {
 
 // NewServer 创建新的Gateway服务器 - 使用全局 GATEWAY 配置
 func NewServer() (*Server, error) {
-	cfg := global.GATEWAY
+	cfg := global.GetGatewayConfig()
 	if cfg == nil {
 		return nil, errors.NewError(errors.ErrCodeInvalidConfiguration, "global GATEWAY config is not initialized")
 	}
