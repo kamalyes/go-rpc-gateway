@@ -548,14 +548,14 @@ func BenchmarkMarshalerLookup(b *testing.B) {
 
 	b.Run("Shared", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			m, _ := runtime.MarshalerForRequest(marshalerMux, r)
 			_ = m
 		}
 	})
 	b.Run("PerRequestNewServeMux", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			m, _ := runtime.MarshalerForRequest(runtime.NewServeMux(), r)
 			_ = m
 		}

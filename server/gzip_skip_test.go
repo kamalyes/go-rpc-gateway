@@ -249,8 +249,7 @@ func BenchmarkShouldSkipGzip_NoMatch(b *testing.B) {
 	r := gzipTestRequest("/api/v1/users/12345/orders")
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if s.shouldSkipGzip(r) {
 			b.Fatal("这条路径不该命中")
 		}
@@ -260,8 +259,7 @@ func BenchmarkShouldSkipGzip_NoMatch(b *testing.B) {
 func BenchmarkShouldSkipGzip_Legacy_NoMatch(b *testing.B) {
 	cfg := gwconfig.DefaultHTTPServer()
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if legacyShouldSkipGzip(cfg.GzipSkipPaths, cfg.GzipSkipExtensions, "/api/v1/users/12345/orders") {
 			b.Fatal("这条路径不该命中")
 		}
@@ -274,8 +272,7 @@ func BenchmarkShouldSkipGzip_PrefixMatch(b *testing.B) {
 	r := gzipTestRequest("/metrics")
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if !s.shouldSkipGzip(r) {
 			b.Fatal("这条路径该命中")
 		}
@@ -288,8 +285,7 @@ func BenchmarkShouldSkipGzip_ExtensionMatch(b *testing.B) {
 	r := gzipTestRequest("/static/assets/logo.png")
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if !s.shouldSkipGzip(r) {
 			b.Fatal("这条路径该命中")
 		}

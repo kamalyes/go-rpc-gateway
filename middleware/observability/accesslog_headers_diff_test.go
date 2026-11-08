@@ -253,8 +253,8 @@ func TestHeaderKeyActionMatchesMaskerActionFor(t *testing.T) {
 			}
 		}
 
-		if got := headerKeyAction(name, extra); got != want {
-			t.Errorf("键 %q：headerKeyAction = %v，期望 %v", name, got, want)
+		if got := keyMaskAction(name, extra); got != want {
+			t.Errorf("键 %q：keyMaskAction = %v，期望 %v", name, got, want)
 		}
 	}
 }
@@ -285,6 +285,119 @@ func TestContainsFoldMatchesStringsLower(t *testing.T) {
 //
 // 同一个二进制里对比，避免跨次运行的噪声
 // [EN] Compared in one binary to avoid cross-run noise
+// legacyMaskHeadersPerSlice 平坦数组改造之前的实现：每个头各自分配一个切片
+//
+// 原样保留供两件事用：差分断言（下面的 TestMaskHeadersSharesOneBackingArray）
+// 与同一个二进制内的 A/B（BenchmarkMaskHeaders 的 perSlice 档）
+// 机器漂移对两档的影响相同，所以这种 A/B 才是可信的时间证据
+//
+// [EN] The implementation before the flat-array change, one slice per header, kept for the
+// differential assertion below and for the same-binary A/B in BenchmarkMaskHeaders: both arms
+// see the same machine drift, which is what makes that comparison trustworthy
+func legacyMaskHeadersPerSlice(header http.Header) map[string][]string {
+	if len(header) == 0 {
+		return nil
+	}
+
+	mask := headerMaskText()
+	extra := headerExtraSensitiveKeys()
+
+	out := make(map[string][]string, len(header))
+	for name, values := range header {
+		switch keyMaskAction(name, extra) {
+		case desensitize.KeepAsIs:
+			out[name] = append(make([]string, 0, len(values)), values...)
+		default:
+			out[name] = []string{mask}
+		}
+	}
+	return out
+}
+
+// TestMaskHeadersSharesOneBackingArray 平坦底层数组的三个前提
+//
+//  1. 与「每头一个切片」的实现逐项等价 —— 这同时就是「cap 上界没算错」的测试：
+//     一旦 append 扩容，先前交出去的子切片会继续指向旧数组、拿不到后续写入，
+//     表现为某些头的值是空的或过期的，而不会有任何报错
+//  2. 每个子切片的 cap 等于 len —— 否则钩子对某个头的值 append 一下，
+//     写进去的东西会落到相邻头的值上
+//  3. 分配次数不随头数线性增长 —— 这正是这次改动的目的，不闸住就会被改回去
+//
+// [EN] The three preconditions of the flat backing array: item-by-item equivalence with the
+// one-slice-per-header implementation (which doubles as the test that the capacity bound is
+// right, since a reallocation silently strands the sub-slices already handed out), cap equal
+// to len on every sub-slice (or a hook appending to one header's values would overwrite the
+// next header's), and an allocation count that no longer grows with the header count
+func TestMaskHeadersSharesOneBackingArray(t *testing.T) {
+	cfg := gwconfig.Default()
+	global.SetGatewayConfig(cfg)
+	headerMaskerCache.Store(nil)
+	t.Cleanup(func() {
+		global.SetGatewayConfig(gwconfig.Default())
+		headerMaskerCache.Store(nil)
+	})
+
+	cases := append(diffHeaderCases(),
+		// 值为空切片：擦除分支仍要写一个掩码，上界必须给它留位置
+		// [EN] An empty value slice still gets one mask written, so the bound must leave room
+		http.Header{"Authorization": {}, "Accept": {}, "X-Trace-Id": {"t1"}},
+		// 全部命中敏感键：每个头只写 1 个掩码，上界会宽出很多
+		// [EN] All sensitive: one mask each, so the bound is much looser than the writes
+		http.Header{
+			"Authorization": {"a", "b", "c"},
+			"Cookie":        {"x", "y"},
+			"X-Token":       {"z"},
+		},
+		// 全部保留且多值：上界刚好等于写入量，这是最容易算错的一档
+		// [EN] All kept and multi-valued: the bound exactly equals what is written, the case
+		// most easily miscounted
+		http.Header{
+			"Accept":          {"application/json", "text/plain", "*/*"},
+			"Accept-Language": {"zh-CN", "en"},
+			"X-Trace-Id":      {"t1", "t2", "t3", "t4"},
+		},
+	)
+
+	for i, h := range cases {
+		got := map[string][]string(maskHeaders(h))
+		want := legacyMaskHeadersPerSlice(h)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("用例 %d 与每头一个切片的实现不等价\n现实现: %v\n旧实现: %v",
+				i, sortedDump(got), sortedDump(want))
+		}
+
+		for name, values := range got {
+			if cap(values) != len(values) {
+				t.Errorf("用例 %d 的头 %s：cap=%d len=%d，cap 必须掐到 len，"+
+					"否则钩子 append 会改写相邻头的值", i, name, cap(values), len(values))
+			}
+		}
+	}
+
+	// 分配次数与头数无关：20 个头与 3 个头相差不应超过 map 自身的桶增长
+	// 改动前这里是每个头 1 次，20 个头就是 21 次
+	// [EN] The allocation count is independent of the header count: the gap between 20 headers
+	// and 3 must not exceed the map's own bucket growth. Before the change it was one per
+	// header, so twenty headers cost twenty-one allocations
+	small := http.Header{"Accept": {"application/json"}, "X-Trace-Id": {"t1"}, "Authorization": {"Bearer x"}}
+	large := http.Header{}
+	for _, name := range []string{
+		"Accept", "Accept-Language", "Accept-Encoding", "Cache-Control", "Connection",
+		"Content-Type", "Content-Length", "User-Agent", "Referer", "Origin",
+		"X-Trace-Id", "X-Request-Id", "X-Forwarded-For", "X-Forwarded-Proto", "X-Real-Ip",
+		"Authorization", "Cookie", "X-Token", "X-Access-Key", "X-Signature",
+	} {
+		large[name] = []string{"v1", "v2"}
+	}
+
+	allocsSmall := int(testing.AllocsPerRun(200, func() { _ = maskHeaders(small) }))
+	allocsLarge := int(testing.AllocsPerRun(200, func() { _ = maskHeaders(large) }))
+	if allocsLarge > allocsSmall+2 {
+		t.Errorf("3 个头 %d 次分配，20 个头 %d 次：分配次数仍随头数增长，"+
+			"平坦数组没生效（允许的差额只有 map 桶增长的 2 次）", allocsSmall, allocsLarge)
+	}
+}
+
 func BenchmarkMaskHeaders(b *testing.B) {
 	cfg := gwconfig.Default()
 	global.SetGatewayConfig(cfg)
@@ -306,16 +419,21 @@ func BenchmarkMaskHeaders(b *testing.B) {
 
 	b.Run("direct", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			_ = maskHeaders(h)
+		}
+	})
+
+	b.Run("perSlice", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = legacyMaskHeadersPerSlice(h)
 		}
 	})
 
 	b.Run("legacyJSON", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			_ = legacyMaskHeadersViaJSON(h)
 		}
 	})

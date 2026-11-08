@@ -121,8 +121,7 @@ func BenchmarkRequestContextMiddleware_Shapes(b *testing.B) {
 			// harness cost, not middleware cost, and must not enter the measurement
 			rec := httptest.NewRecorder()
 			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				handler.ServeHTTP(rec, req)
 			}
 		})

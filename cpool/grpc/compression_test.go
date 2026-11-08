@@ -464,8 +464,7 @@ func BenchmarkGzipCompress(b *testing.B) {
 		data[i] = byte(i % 256)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var buf bytes.Buffer
 		wc, _ := c.Compress(&buf)
 		wc.Write(data)
@@ -485,8 +484,7 @@ func BenchmarkGzipDecompress(b *testing.B) {
 	wc.Write(data)
 	wc.Close()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		buf := compressed.Bytes()
 		rc, _ := c.Decompress(bytes.NewReader(buf))
 		io.ReadAll(rc)
@@ -503,8 +501,7 @@ func BenchmarkZstdCompress(b *testing.B) {
 		data[i] = byte(i % 256)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var buf bytes.Buffer
 		wc, _ := c.Compress(&buf)
 		wc.Write(data)
@@ -524,8 +521,7 @@ func BenchmarkZstdDecompress(b *testing.B) {
 	wc.Write(data)
 	wc.Close()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		buf := compressed.Bytes()
 		rc, _ := c.Decompress(bytes.NewReader(buf))
 		io.ReadAll(rc)

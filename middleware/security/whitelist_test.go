@@ -392,8 +392,7 @@ func BenchmarkWhitelist(b *testing.B) {
 	for _, bm := range benchmarks {
 		b.Run(bm.name, func(b *testing.B) {
 			fn := bm.setup()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				fn()
 			}
 		})

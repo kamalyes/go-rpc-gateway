@@ -79,8 +79,7 @@ func drive(b *testing.B, h http.Handler) {
 	reqBody := resetReadCloser{Reader: reader}
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// 每轮把请求体复位，而不是复用上一轮被中间件包过的 r.Body：
 		// logging 会把 r.Body 换成 prefixedBody{prefix, rest: original}，
 		// 复用同一个 request 就是每轮在旧包装外再套一层。包装链随 b.N 线性增长，

@@ -562,8 +562,7 @@ func BenchmarkRequestContextMiddleware(b *testing.B) {
 
 	req := httptest.NewRequest("GET", "/test", nil)
 
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 	}
@@ -577,8 +576,7 @@ func BenchmarkEnrichContextFromMetadata(b *testing.B) {
 	)
 	ctx := metadata.NewIncomingContext(context.Background(), md)
 
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_ = enrichContextFromMetadata(ctx)
 	}
 }
@@ -592,8 +590,7 @@ func BenchmarkGetRequestCommonMeta(b *testing.B) {
 		UserID:    "bench-user",
 	})
 
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_ = GetRequestCommonMeta(ctx)
 	}
 }
@@ -604,8 +601,7 @@ func BenchmarkGetRequestCommonMetaFallback(b *testing.B) {
 	ctx = WithTraceID(ctx, "bench-trace")
 	ctx = WithRequestID(ctx, "bench-request")
 
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_ = GetRequestCommonMeta(ctx)
 	}
 }
@@ -622,8 +618,7 @@ func BenchmarkInjectTraceToOutgoingContext(b *testing.B) {
 		UserID:    "bench-user",
 	})
 
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_ = injectTraceToOutgoingContext(ctx)
 	}
 }
