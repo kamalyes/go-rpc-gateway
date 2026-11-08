@@ -53,6 +53,18 @@ const maxEnumChips = 12
 // maxRefDepth $ref 展开的最大层数，防止自引用定义把展开转成死循环
 const maxRefDepth = 8
 
+// modelAnchorPrefix Models 区块里每个定义的 DOM id 前缀
+//
+// Swagger UI 给每个 definition 渲染 <div id="model-Xxx">，所以 #model-Xxx 是现成的锚点，
+// 不需要我们另造一套编号页面里的 JS 只是在此之上补「展开 Models 区块 + 展开这一条 +
+// 高亮落点」，JS 不生效时浏览器仍会按原生锚点滚过去
+//
+// [EN] Swagger UI renders every definition as <div id="model-Xxx">, so #model-Xxx is an anchor
+// that already exists and needs no numbering scheme of our own. The page script only adds
+// "expand the Models section, expand this entry, highlight where we landed" on top of it; with
+// the script disabled the browser still scrolls there through the plain anchor.
+const modelAnchorPrefix = "model-"
+
 // isUIView 判断请求是否来自内置 Swagger UI（specURL 带 view=ui 查询参数）
 func isUIView(r *http.Request) bool {
 	return r != nil && r.URL.Query().Get("view") == "ui"
@@ -205,14 +217,30 @@ func buildBodyParamSection(opMap map[string]interface{}, res *refResolver) strin
 		}
 
 		var b strings.Builder
-		title := "**body**"
+		schema, _ := p["schema"].(map[string]interface{})
+
+		// 标题带上 body 自己的定义名并做成锚点：顶层结构体同样是「想点进去看字段」的那一个
+		//
+		// 链接必须写在 ** ** 之内：挪到外面，strong 就多了个兄弟元素，
+		// 描述区 `p > strong:only-child` 的色条规则不再命中，标题会矮下去一截
+		//
+		// [EN] The body's own definition name goes into the heading as an anchor: the top-level
+		// struct is just as much a "click through to the fields" target as the nested ones.
+		//
+		// The link has to sit inside the ** ** pair. Outside it the strong gains an element
+		// sibling, the description area's `p > strong:only-child` accent-bar rule stops matching,
+		// and the heading visibly flattens.
+		title := "**body"
+		if _, name := res.resolve(schema); name != "" {
+			title += " " + modelLink(name)
+		}
+		title += "**"
 		if required, _ := p["required"].(bool); required {
 			title += "（必填）"
 		}
 		b.WriteString(title)
 		b.WriteString("\n\n")
 
-		schema, _ := p["schema"].(map[string]interface{})
 		if table := buildBodyFieldTable(schema, res); table != "" {
 			b.WriteString(table)
 		}
@@ -478,7 +506,14 @@ func rangeText(min, max interface{}) string {
 	return ""
 }
 
-// schemaTypeText 推断类型展示值，展开 $ref 后取底层类型，对象则显示定义名
+// schemaTypeText 推断类型展示值，展开 $ref 后取底层类型，对象则渲染成可跳转 Models 区块的定义名
+//
+// 为什么标量定义不给链接：枚举这类被引用的定义展开后就是 string/integer，底层类型已是它的
+// 全部信息，可选值也由 describeCell 单独列出，再挂个链接只是让人多点一次
+//
+// [EN] Scalar definitions get no link: an enum-style definition resolves to string or integer,
+// which is all the information it carries, and its allowed values are already listed separately
+// by describeCell. A link there would only cost the reader one more click.
 func schemaTypeText(schema map[string]interface{}, res *refResolver) string {
 	if mustString(schema[constants.FieldRef]) != "" {
 		resolved, name := res.resolve(schema)
@@ -486,7 +521,7 @@ func schemaTypeText(schema map[string]interface{}, res *refResolver) string {
 			return escapeHTML(typ)
 		}
 		if name != "" {
-			return markdownCode(name)
+			return modelLink(name)
 		}
 		return "object"
 	}
@@ -500,14 +535,25 @@ func schemaTypeText(schema map[string]interface{}, res *refResolver) string {
 		return schemaTypeText(inner, res)
 	}
 
-	if typ == "array" {
+	switch typ {
+	case "array":
 		if items, ok := schema["items"].(map[string]interface{}); ok {
 			// 尖括号必须转义：description 走的是 html:true 的渲染器，
 			// 原样的 <string> 会被当成未知标签整段吞掉，只剩下 "array"
 			// [EN] The angle brackets must be escaped: descriptions go through the renderer with
 			// html:true, where a literal <string> is taken for an unknown tag and swallowed whole,
 			// leaving a bare "array" behind.
-			return "array&lt;" + stripCode(schemaTypeText(items, res)) + "&gt;"
+			return "array&lt;" + schemaTypeText(items, res) + "&gt;"
+		}
+	case "object":
+		// protobuf 的 map 字段落在 additionalProperties 上，不看这一层只能显示成 object，
+		// 值是结构体时连个可点的入口都没有（additionalProperties 为 true 时断言失败，照常显示 object）
+		//
+		// [EN] protobuf map fields land on additionalProperties. Without this branch they can
+		// only render as "object", and a struct-valued map offers nothing to click through. A
+		// bare `additionalProperties: true` fails the assertion and still renders as "object".
+		if additional, ok := schema["additionalProperties"].(map[string]interface{}); ok {
+			return "map&lt;string, " + schemaTypeText(additional, res) + "&gt;"
 		}
 	}
 	return escapeHTML(typ)
@@ -560,8 +606,7 @@ func markdownCell(s string) string {
 	// cell and the backslash shows up verbatim. It matters here because these proto comments are
 	// written as "中文 | [EN] English", so each description carries pipes and the whole table
 	// collapses into one row spanning five columns with stray backslashes in it.
-	s = strings.ReplaceAll(escapeHTML(s), "|", "&#124;")
-	return strings.ReplaceAll(s, "\n", "<br>")
+	return strings.ReplaceAll(escapeInline(s), "\n", "<br>")
 }
 
 // markdownCode 把名称、枚举值、正则等渲染成行内代码（等宽 + 主题色），让它们在整行说明里一眼可辨
@@ -578,7 +623,33 @@ func markdownCode(s string) string {
 	if s == "" {
 		return ""
 	}
-	return "<code>" + strings.ReplaceAll(escapeHTML(s), "|", "&#124;") + "</code>"
+	return "<code>" + escapeInline(s) + "</code>"
+}
+
+// modelLink 把定义名渲染成指向 Models 区块的锚点，点一下就跳到该结构体的字段列表
+//
+// 为什么只留 href：Swagger UI 的描述要过一遍 DOMPurify，默认配置的 FORBID_ATTR 里有
+// class 和 style，写上去也会被摘掉所以配色只能挂在 a[href^="#model-"] 这个属性选择器上，
+// 页面 JS 也只能按 href 前缀认出这些链接
+//
+// 为什么不再套 <code>：这个链接要嵌进 array<...>、map<string, ...>，外面已经有一层尖括号，
+// 再叠一层代码块底色会让一格类型压三层背景，等宽与配色改由上面那个选择器给
+//
+// [EN] Only href survives: Swagger UI runs descriptions through DOMPurify, whose default config
+// lists class and style in FORBID_ATTR, so both are stripped. That is why the colours hang off
+// an `a[href^="#model-"]` attribute selector and why the page script can only recognise these
+// links by their href prefix.
+//
+// No <code> wrapper either: the link nests inside array<...> and map<string, ...>, which already
+// contribute a layer of brackets, and a code chip would stack a third background into one type
+// cell. The monospace face and colour come from that same selector instead.
+func modelLink(name string) string {
+	text := escapeInline(name)
+	// 定义名直接进 href 属性：规范可能来自远端服务，引号要一并实体化，
+	// 不能让一个定义名提前把属性闭合
+	// [EN] The name goes straight into the href, and specs can come from a remote service, so
+	// quotes are escaped too: a definition name must not be able to close the attribute early.
+	return `<a href="#` + modelAnchorPrefix + strings.ReplaceAll(text, `"`, "&quot;") + `">` + text + `</a>`
 }
 
 // joinCode 把一组取值渲染成顿号分隔的行内代码
@@ -590,17 +661,16 @@ func joinCode(values []string) string {
 	return strings.Join(chips, "、")
 }
 
-// stripCode 去掉 markdownCode 包裹的标签，用于嵌进 array<...> 这类复合类型
-func stripCode(s string) string {
-	s = strings.TrimPrefix(s, "<code>")
-	return strings.TrimSuffix(s, "</code>")
-}
-
 // escapeHTML 转义 HTML 特殊字符（描述走 html:true 渲染，未转义的尖括号会被当成标签丢掉）
 func escapeHTML(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	return strings.ReplaceAll(s, ">", "&gt;")
+}
+
+// escapeInline 转义进表格的行内内容：HTML 特殊字符实体化，竖线也走实体，免得把单元格切开
+func escapeInline(s string) string {
+	return strings.ReplaceAll(escapeHTML(s), "|", "&#124;")
 }
 
 // ==================== 取值辅助 ====================
