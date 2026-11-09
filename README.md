@@ -36,7 +36,7 @@ flowchart TB
     Client["🌐 客户端"]
     
     %% Gateway 入口
-    Client --> |HTTP/gRPC/WebSocket| Gateway
+    Client --> |HTTP / gRPC| Gateway
     
     subgraph Gateway["🚀 Gateway 网关层"]
         direction TB
@@ -54,7 +54,7 @@ flowchart TB
         subgraph Protocol["协议处理"]
             GRPC["gRPC Server :9090"]
             HTTP["HTTP Server :8080"]
-            WS["WebSocket 可选"]
+            NL["命名监听器 多端口可选"]
         end
         
         subgraph Router["路由注册"]
@@ -134,10 +134,11 @@ flowchart TB
         
         L1["① Logger P:1"]
         L2["② Context P:2"]
-        L3["③ Snowflake P:5"]
-        L4["④ PoolManager P:10"]
+        L3["③ ServerNode P:3"]
+        L4["④ Snowflake P:5"]
+        L5["⑤ PoolManager P:10"]
         
-        Chain --> L1 --> L2 --> L3 --> L4
+        Chain --> L1 --> L2 --> L3 --> L4 --> L5
     end
     
     %% 连接池管理
@@ -181,6 +182,7 @@ flowchart TB
         G_DB["DB"]
         G_REDIS["REDIS"]
         G_Node["Node"]
+        G_SNODE["SERVER_NODE"]
     end
     
     %% 外部系统
@@ -256,8 +258,7 @@ sequenceDiagram
     GB->>+IC: InitializeAll(ctx, config)
     
     IC->>IC: ① LoggerInitializer (P:1)
-    IC->>IC: EnsureLoggerInitialized()
-    IC->>IC: CreateSimpleLogger(level)
+    IC->>IC: cfg.Middleware.Logging.ToLoggerInstance()
     IC->>G: global.LOGGER = logger
     IC->>G: global.LOG = logger
     Note over IC,G: ✅ 日志器初始化完成
@@ -266,12 +267,16 @@ sequenceDiagram
     IC->>G: global.CTX, CANCEL = WithCancel()
     Note over IC,G: ✅ 上下文初始化完成
     
-    IC->>IC: ③ SnowflakeInitializer (P:5)
+    IC->>IC: ③ ServerNodeInitializer (P:3)
+    IC->>G: global.SERVER_NODE = osx.GetServerNode()
+    Note over IC,G: ✅ 服务节点标识初始化完成
+    
+    IC->>IC: ④ SnowflakeInitializer (P:5)
     IC->>IC: snowflake.NewNode(nodeID)
     IC->>G: global.Node = node
     Note over IC,G: ✅ Snowflake初始化完成
     
-    IC->>+PM: ④ PoolManagerInitializer (P:10)
+    IC->>+PM: ⑤ PoolManagerInitializer (P:10)
     PM->>PM: NewManager(LOGGER)
     PM->>PM: Initialize(ctx, config)
     
@@ -313,8 +318,8 @@ sequenceDiagram
     S->>S: startHTTPServer()
     Note over S: 监听 :8080
     
-    opt WebSocket 启用
-        S->>S: startWebSocketService()
+    opt 命名监听器已配置
+        S->>S: startNamedListeners()
     end
     
     S-->>-User: ✅ 启动完成
@@ -367,6 +372,8 @@ graph LR
 | **工具** | [错误体系](./docs/ERRORS.md) | ErrorCode、AppError、三态映射 |
 | | [HTTP 响应工具](./docs/RESPONSE.md) | 统一 JSON 响应写入 |
 | | [熔断器](./docs/BREAKER.md) | 断路器状态机、管理器 |
+| | [自适应降载](./docs/SHEDDER.md) | CPU + 飞行请求双判定、丢弃策略 |
+| **对比** | [与其他框架对比](./docs/COMPARISON.md) | 与 go-zero / kratos 的取舍差异 |
 
 ## 🤝 贡献与支持
 

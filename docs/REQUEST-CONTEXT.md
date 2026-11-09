@@ -2,7 +2,7 @@
 
 ## 概述
 
-`RequestCommonMeta` 实现 HTTP → gRPC → Service → Repository 全链路上下文传递，确保 trace\_id、tenant\_id、user\_id 等 30+ 个关键字段在整个调用链中不丢失。
+`RequestCommonMeta` 实现 HTTP → gRPC → Service → Repository 全链路上下文传递，确保 trace\_id、tenant\_id、user\_id 等 30+ 个关键字段在整个调用链中不丢失（33 个字段中有 3 个只在 gRPC 入口生效，见[下文](#三个字段只在-grpc-入口生效)）。
 
 > 源码：[middleware/request\_context.go](../middleware/core/request_context.go)
 
@@ -203,6 +203,27 @@ flowchart LR
 | AcceptLanguage   | `Accept-Language`       | `accept-language`       | `accept-language`       | `GetAcceptLanguageFromMeta(ctx)` | [metadata.go](../constants/metadata.go) |
 
 > 注意：gRPC Metadata 键必须小写，这是 gRPC 协议规范。HTTP Header 使用大写 `X-` 前缀，gRPC-Gateway 的 `WithIncomingHeaderMatcher` 自动完成大小写转换。`Authorization` 与 `Accept-Language` 因属标准 Header，键名不带 `x-` 前缀。
+
+### 三个字段只在 gRPC 入口生效
+
+`UserName`、`XNsID`、`AcceptLanguage` 这三个字段**不会**从 HTTP Header 提取 ——
+HTTP 侧的提取由 `gwconfig.RequestContext` 的来源清单驱动（见
+[request_attr_index.go:attrSpecs](../middleware/core/request_attr_index.go)），
+而配置里没有 `user-name-sources` / `x-ns-id-sources` / `accept-language-sources` 这三项，
+所以边缘进来的 `X-User-Name` / `X-Ns-ID` / `Accept-Language` 落不进 `RequestCommonMeta`。
+gRPC 入口走的是 `enrichContextFromMetadata`，逐个读 metadata 键，三者都正常。
+
+实测（同一个服务，同一个 `GetUserName(ctx)` 调用）：
+
+| 入口 | 请求携带 | `GetUserName(ctx)` | `GetAcceptLanguageFromMeta(ctx)` | `GetXNsID(ctx)` |
+|------|---------|--------------------|----------------------------------|-----------------|
+| HTTP（REST → 本地 handler） | `X-User-Name: alice`、`Accept-Language: zh-CN`、`X-Ns-Id: ns-http` | `""` | `""` | `""` |
+| gRPC（metadata 直连） | `x-user-name: bob`、`accept-language: en-US`、`x-ns-id: ns-1` | `"bob"` | `"en-US"` | `"ns-1"` |
+
+需要在 HTTP 入口拿到这三个值时：直接从 `r.Header` 读，或用
+`mwcore.WithUserName(ctx, name)` 这类 `WithXxx` 自己写进上下文。
+其余 30 个字段（28 项来源驱动 + `IPAddress` 走 `netx.GetClientIP` + `UserAgent` 走
+`r.UserAgent()`）两条入口都生效。
 
 ## HTTP 中间件详解
 

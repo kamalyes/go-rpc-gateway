@@ -216,14 +216,14 @@ type Shedder struct {
 
 ```go
 // CPU 信号取自进程级采样器
-func NewShedder(cfg *shedderconfig.Shedder) *Shedder
+func NewShedder(cfg *gcmiddleware.Shedder) *Shedder
 // 指定 CPU 使用率来源（测试，或接入监控 agent 推下来的使用率）
-func NewShedderWithCPUFunc(cfg *shedderconfig.Shedder, cpuUsageFn func() (int64, bool)) *Shedder
+func NewShedderWithCPUFunc(cfg *gcmiddleware.Shedder, cpuUsageFn func() (int64, bool)) *Shedder
 ```
 
-配置类型是 go-config 的 `shedderconfig.Shedder`（`github.com/kamalyes/go-rpc-gateway/config/shedder`），详见下面的[配置](#配置)小节。
+配置类型是 `gcmiddleware.Shedder`（`github.com/kamalyes/go-rpc-gateway/config/middleware`），详见下面的[配置](#配置)小节。
 
-`cfg` 为 `nil` 时取 `shedderconfig.Default()`；非法字段一律回落默认而不是报错——一份写错的降载配置不该让网关起不来。归一化返回的是配置副本，不会改写传进来的那一份（传进来的通常就是 `cfg.Middleware.Shedder` 本身，就地改写会把回落后的值写回全局配置树）。`cpuUsageFn` 为 `nil` 时按「不支持采样」处理。
+`cfg` 为 `nil` 时取 `gcmiddleware.DefaultShedder()`；非法字段一律回落默认而不是报错——一份写错的降载配置不该让网关起不来。归一化返回的是配置副本，不会改写传进来的那一份（传进来的通常就是 `cfg.Middleware.Shedder` 本身，就地改写会把回落后的值写回全局配置树）。`cpuUsageFn` 为 `nil` 时按「不支持采样」处理。
 
 > 源码：[shedder.go:NewShedder()](../middleware/resilience/shedder.go)、[shedder_config.go:normalizeShedderConfig()](../middleware/resilience/shedder_config.go)
 
@@ -270,9 +270,9 @@ type ShedderSnapshot struct {
 > 源码：[middleware/shedder.go:ShedderManager](../middleware/resilience/shedder.go)
 
 ```go
-func NewShedderManager(cfg *shedderconfig.Shedder) *ShedderManager
+func NewShedderManager(cfg *gcmiddleware.Shedder) *ShedderManager
 func (m *ShedderManager) Shedder() *Shedder
-func (m *ShedderManager) Config() *shedderconfig.Shedder // 已补齐默认值的生效配置（副本）
+func (m *ShedderManager) Config() *gcmiddleware.Shedder // 已补齐默认值的生效配置（副本）
 func (m *ShedderManager) IsPathProtected(path string) bool
 func (m *ShedderManager) Snapshot() ShedderSnapshot
 func (m *ShedderManager) Reset()
@@ -373,7 +373,7 @@ Stream 拦截器只在**建流时**判定一次（与限流、熔断的 Stream �
 ## 降载拒绝时返回的错误
 
 ```go
-var shedderDropGRPCErr = errors.NewError(errors.ErrCodeServiceOverloaded, "").ToGRPCError()
+var shedderDropGRPCErr = errors.NewError(errors.ErrCodeServiceOverloaded).ToGRPCError()
 ```
 
 新增错误码 `ErrCodeServiceOverloaded(4005)`，三态映射（登记见 [错误体系](./ERRORS.md#三态映射)）：
@@ -494,7 +494,7 @@ CPU 不可采样时刻意不导出使用率：导出一个 0 会被读成「CPU 
 
 ## 配置
 
-配置类型定义在 `go-config` 的 `pkg/shedder`（`shedderconfig.Shedder`，`go-config >= v0.25.1`），与熔断配置下沉到 `pkg/breaker` 的惯例一致。本仓库不再自带一份同构类型，`Manager` 直接读 `cfg.Middleware.Shedder`（[middleware/manager.go](../middleware/manager.go)）。
+配置类型定义在 [config/middleware/shedder.go](../config/middleware/shedder.go)（`gcmiddleware.Shedder`），与熔断配置 `gcmiddleware.CircuitBreaker` 同包。`Manager` 直接读 `cfg.Middleware.Shedder`（[middleware/manager.go](../middleware/manager.go)）。
 
 ```yaml
 middleware:
@@ -562,12 +562,13 @@ func (m *Manager) GetShedderManager() *ShedderManager
 单独使用核心降载器（不经中间件，例如保护一段自己写的后台任务入口）：
 
 ```go
-// shedderconfig 为 github.com/kamalyes/go-rpc-gateway/config/shedder
+// gcmiddleware 为 github.com/kamalyes/go-rpc-gateway/config/middleware
 // 注意 enabled 只由 Manager 在创建 ShedderManager 时判定，直接 new 出来的降载器总是生效
-shedder := middleware.NewShedder(shedderconfig.Default())
+shedder := middleware.NewShedder(gcmiddleware.DefaultShedder())
 
 if !shedder.Allow() {
-    return errors.NewError(errors.ErrCodeServiceOverloaded, "overloaded")
+    return errors.NewError(errors.ErrCodeServiceOverloaded,
+        errors.WithDetails("overloaded"))
 }
 start := time.Now()
 result, err := doWork()

@@ -17,7 +17,6 @@ server/
 ├── startup.go         # 启动展示统一模型与渲染入口
 ├── swagger.go         # Swagger 文档服务启用
 ├── swagger_embed.go   # Swagger 文件嵌入与端点解析
-├── wsc.go             # WebSocket 服务（go-wsc 薄封装）
 ├── endpoint_utils.go  # API 端点信息聚合工具
 └── README.md          # 本文件
 ```
@@ -27,8 +26,8 @@ server/
 ### server.go
 
 - `Server` 结构体定义
-- 构造函数 `NewServer()`（使用全局 `global.GATEWAY` 配置）
-- 访问器方法：`GetConfig`、`GetMiddlewareManager`、`GetBannerManager`、`GetPoolManager`、`GetWebSocketService`、`GetEndpointCollector`、`GetDataMasker`、`GetGRPCServer`、`GetEndpoint`、`GetGatewayMux`、`GetContext`、`GetDialOptions`
+- 构造函数 `NewServer()`（经 `global.GetGatewayConfig()` 读取全局配置）
+- 访问器方法：`GetConfig`、`GetMiddlewareManager`、`GetBannerManager`、`GetPoolManager`、`GetEndpointCollector`、`GetDataMasker`、`GetGRPCServer`、`GetEndpoint`、`GetGatewayMux`、`GetContext`、`GetDialOptions`
 - 注册方法：`RegisterGRPCService`、`AddGrpcGatewayMiddleware`、`AddGrpcGatewayMiddlewareProvider`
 
 ### core.go
@@ -101,15 +100,6 @@ server/
 - `EmbeddedSwaggerProvider` 嵌入式文件提供器
 - `NewEmbeddedSwaggerProvider(files)`
 
-### wsc.go
-
-- `WebSocketService` 结构体（go-wsc Hub 薄封装）
-- 创建服务：`NewWebSocketService(cfg)`
-- 生命周期：`Start()`、`Stop()`、`IsRunning()`
-- 访问器：`GetHub()`、`GetConfig()`
-- 消息发送：`SendToUserWithRetry(ctx, userID, msg)`
-- 回调注册：`OnClientConnect`、`OnClientDisconnect`、`OnMessageReceived`、`OnError`、`OnHeartbeatTimeout` 等
-
 ### endpoint_utils.go
 
 - `EndpointCollector` 端点收集器
@@ -131,7 +121,7 @@ server/
 ## 使用示例
 
 ```go
-// 创建服务器（使用全局 global.GATEWAY 配置）
+// 创建服务器（配置取自 global.GetGatewayConfig()，由 Gateway 构建流程提前装好）
 server, err := NewServer()
 if err != nil {
     log.Fatal(err)

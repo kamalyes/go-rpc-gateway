@@ -434,6 +434,101 @@ func TestAuth_ConfigAuthTypeNormalization(t *testing.T) {
 	}
 }
 
+// TestAuth_EnabledFieldFailsSecure Enabled 与 Type 任一表达「要加锁」就必须加锁
+// 这条钉住的是取舍方向：只看 Enabled 会让 WithBasicAuth 这类不设 Enabled 的构造方式
+// 静默失去锁，是从「锁住」滑向「敞开」，必须守住
+//
+// [EN] Either Enabled or Type signalling an intent to lock must lock the docs. This pins the
+// trade-off direction: honoring Enabled alone would make constructors like WithBasicAuth, which
+// never set it, silently lose the lock — a slide from locked towards wide open
+func TestAuth_EnabledFieldFailsSecure(t *testing.T) {
+	cases := []struct {
+		name   string
+		auth   *goswagger.AuthConfig
+		locked bool
+	}{
+		{
+			// 显式关掉却配了凭据：按安全侧仍然加锁
+			// [EN] Explicitly switched off yet credentials are configured: the safe side still locks
+			name:   "enabled=false 配上完整 Basic 凭据",
+			auth:   &goswagger.AuthConfig{Enabled: false, Type: goswagger.AuthBasic, Username: "admin", Password: "s3cret"},
+			locked: true,
+		},
+		{
+			// WithBasicAuth 走的就是这条路径，它从不设 Enabled
+			// [EN] This is the path WithBasicAuth takes; it never sets Enabled
+			name:   "只给 Type 不给 Enabled",
+			auth:   &goswagger.AuthConfig{Type: goswagger.AuthBearer, Token: "tok"},
+			locked: true,
+		},
+		{
+			// 只喊了「要开」但没说怎么开：拒绝全部，而不是当成没配
+			// [EN] Asks to be on without saying how: deny everything rather than treat it as unset
+			name:   "enabled=true 但没写 type",
+			auth:   &goswagger.AuthConfig{Enabled: true},
+			locked: true,
+		},
+		{
+			name:   "两个信号都没有表达加锁",
+			auth:   &goswagger.AuthConfig{Enabled: false, Type: goswagger.AuthNone},
+			locked: false,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := newAuthTestMiddleware(c.auth)
+
+			if got := m.config.IsAuthEnabled(); got != c.locked {
+				t.Fatalf("IsAuthEnabled 应为 %v，got %v", c.locked, got)
+			}
+
+			rec := getUIPage(m, "/swagger/", nil)
+			if c.locked {
+				if rec.Code != http.StatusUnauthorized {
+					t.Errorf("加锁状态下匿名访问应被拒绝，got %d", rec.Code)
+				}
+				return
+			}
+			if rec.Code != http.StatusOK {
+				t.Errorf("未加锁时应放行，got %d", rec.Code)
+			}
+		})
+	}
+}
+
+// TestAuth_EnabledWithoutTypeDeniesEveryCredential enabled=true 却无 type 时不能被任何凭据蒙对
+// [EN] With enabled=true and no type, no credential may slip through
+func TestAuth_EnabledWithoutTypeDeniesEveryCredential(t *testing.T) {
+	m := newAuthTestMiddleware(&goswagger.AuthConfig{Enabled: true})
+
+	attempts := []func(*http.Request){
+		nil,
+		func(r *http.Request) { r.SetBasicAuth("admin", "s3cret") },
+		func(r *http.Request) { r.SetBasicAuth("", "") },
+		func(r *http.Request) { r.Header.Set(constants.HeaderAuthorization, constants.AuthSchemeBearer+" tok") },
+		func(r *http.Request) { r.AddCookie(&http.Cookie{Name: constants.AuthCookieName, Value: "tok"}) },
+	}
+
+	for i, decorate := range attempts {
+		if rec := getUIPage(m, "/swagger/", decorate); rec.Code != http.StatusUnauthorized {
+			t.Errorf("第 %d 种凭据应被拒绝，got %d", i, rec.Code)
+		}
+	}
+
+	// 查询参数也不能换发出 Cookie —— 否则等于凭空造出一把能开的钥匙
+	// [EN] A query parameter must not mint a cookie either, which would conjure a working key
+	rec := getUIPage(m, "/swagger/?"+constants.AuthQueryToken+"=anything", nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("查询参数不应换发凭据，got %d", rec.Code)
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == constants.AuthCookieName && c.Value != "" {
+			t.Error("配置不全时不应换发任何凭据 Cookie")
+		}
+	}
+}
+
 func contains(list []string, want string) bool {
 	for _, v := range list {
 		if v == want {

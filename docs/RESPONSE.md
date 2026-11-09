@@ -184,7 +184,7 @@ response.WriteCSRFTokenResponse(w, "csrf-token-value")
 
 ```go
 // 直接写入 AppError
-appErr := errors.NewError(errors.ErrCodeNotFound, "user not found")
+appErr := errors.NewError(errors.ErrCodeNotFound, errors.WithDetails("user not found"))
 response.WriteAppError(w, appErr)
 
 // 格式化创建并写入

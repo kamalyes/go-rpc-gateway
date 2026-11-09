@@ -257,8 +257,9 @@ gw, err := gateway.NewGateway().
 
 ### WebSocket
 
-| 方法 | 说明 | 源码 |
-|------|------|------|
+内置的 `WebSocketService` 已从框架移除，`*Gateway` 上没有对应方法。
+做法改为自己用 `RegisterHTTPRoute` 挂一个升级 handler，详见
+[Server 内部机制 · WebSocket](./SERVER.md#websocket)。
 
 ### 其他（继承自 Server）
 

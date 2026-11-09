@@ -130,7 +130,7 @@ gateway.SetDynamicRateLimitProvider(provider)
 
 ```go
 type ResolvedSignature struct {
-    Config    *signature.Signature   // 该请求使用的签名配置
+    Config    *gcmiddleware.Signature   // 该请求使用的签名配置
     Validator SignatureValidator     // 该请求使用的验证器
     Skip      bool                   // 是否跳过签名验证
 }
@@ -182,9 +182,9 @@ gateway.SetDynamicSignatureProvider(&MySignatureProvider{})
 
 ```go
 type RateLimitDecision struct {
-    Rule     *ratelimit.LimitRule   // 限流规则
+    Rule     *gcmiddleware.LimitRule   // 限流规则
     Key      string                 // 限流 Key（如 "user:123"）
-    Strategy ratelimit.Strategy     // 限流策略实例
+    Strategy gcmiddleware.Strategy     // 限流策略实例
 }
 
 type DynamicRateLimitResult struct {
@@ -211,17 +211,17 @@ func (p *MyRateLimitProvider) ResolveRateLimit(r *http.Request) (*middleware.Dyn
     if strings.HasPrefix(path, "/api/v1/login") {
         ip := r.RemoteAddr
         decisions = append(decisions, middleware.RateLimitDecision{
-            Rule:     &ratelimit.LimitRule{RequestsPerSecond: 5, BurstSize: 10, WindowSize: 60 * time.Second},
+            Rule:     &gcmiddleware.LimitRule{RequestsPerSecond: 5, BurstSize: 10, WindowSize: 60 * time.Second},
             Key:      "login:" + ip,
-            Strategy: ratelimit.StrategySlidingWindow,
+            Strategy: gcmiddleware.StrategySlidingWindow,
         })
     }
 
     if userID != "" {
         decisions = append(decisions, middleware.RateLimitDecision{
-            Rule:     &ratelimit.LimitRule{RequestsPerSecond: 100, BurstSize: 200},
+            Rule:     &gcmiddleware.LimitRule{RequestsPerSecond: 100, BurstSize: 200},
             Key:      "user:" + userID,
-            Strategy: ratelimit.StrategyTokenBucket,
+            Strategy: gcmiddleware.StrategyTokenBucket,
         })
     }
 
@@ -312,14 +312,14 @@ cors:
 从配置读取 CSP 策略，设置基础安全头部（X-Content-Type-Options、X-Frame-Options、X-XSS-Protection、HSTS、Referrer-Policy、Content-Security-Policy）。
 
 ```go
-func SCPMiddleware(cspConfig *security.CSP) HTTPMiddleware
+func SCPMiddleware(cspConfig *gcmiddleware.CSP) HTTPMiddleware
 ```
 
 同文件还提供：
 
 - `CSRFProtectionMiddleware(enabled bool) HTTPMiddleware` — CSRF 防护
 - `IPWhitelistMiddleware(allowedIPs []string) HTTPMiddleware` — IP 白名单
-- `PathProtectionMiddleware(pathPrefix string, cfg *security.ServiceProtection) HTTPMiddleware` — 路径级保护（pprof/swagger/metrics 等敏感端点）
+- `PathProtectionMiddleware(pathPrefix string, cfg *gcmiddleware.ServiceProtection) HTTPMiddleware` — 路径级保护（pprof/swagger/metrics 等敏感端点）
 - `CSRFTokenHandler(w http.ResponseWriter, r *http.Request)` — CSRF Token 端点
 
 ### RateLimitMiddleware — 多策略限流
@@ -330,17 +330,17 @@ func SCPMiddleware(cspConfig *security.CSP) HTTPMiddleware
 
 ```go
 type RateLimiter interface {
-    Allow(ctx context.Context, key string, rule *ratelimit.LimitRule) (bool, error)
+    Allow(ctx context.Context, key string, rule *gcmiddleware.LimitRule) (bool, error)
     Reset(ctx context.Context, key string) error
 }
 
-func NewTokenBucketLimiter(cfg *ratelimit.RateLimit) *TokenBucketLimiter    // 令牌桶（atomic，无锁）
-func NewSlidingWindowLimiter(config *ratelimit.RateLimit) *SlidingWindowLimiter // 滑动窗口（Redis + Lua）
-func NewFixedWindowLimiter(config *ratelimit.RateLimit) *FixedWindowLimiter // 固定窗口（atomic）
+func NewTokenBucketLimiter(cfg *gcmiddleware.RateLimit) *TokenBucketLimiter    // 令牌桶（atomic，无锁）
+func NewSlidingWindowLimiter(config *gcmiddleware.RateLimit) *SlidingWindowLimiter // 滑动窗口（Redis + Lua）
+func NewFixedWindowLimiter(config *gcmiddleware.RateLimit) *FixedWindowLimiter // 固定窗口（atomic）
 func (f *FixedWindowLimiter) Stop()                                         // 停止清理协程
 
-func RateLimitMiddleware(config *ratelimit.RateLimit) HTTPMiddleware
-func RateLimitMiddlewareWithProvider(config *ratelimit.RateLimit, provider DynamicRateLimitProvider) HTTPMiddleware
+func RateLimitMiddleware(config *gcmiddleware.RateLimit) HTTPMiddleware
+func RateLimitMiddlewareWithProvider(config *gcmiddleware.RateLimit, provider DynamicRateLimitProvider) HTTPMiddleware
 ```
 
 | 策略 | Key 格式 | 说明 |
@@ -366,7 +366,7 @@ func RateLimitMiddlewareWithProvider(config *ratelimit.RateLimit, provider Dynam
 进程唯一的降载器，在服务端自身过载时主动丢请求。判定只用三个本地信号（不走 Redis）：CPU 使用率、飞行请求数、响应时间滑窗；两个条件必须同时成立才丢弃——`CPU 超阈值（或仍在冷却期）` 且 `飞行请求数超过滑窗估出的承载上限`：
 
 ```go
-func NewShedderManager(cfg *shedderconfig.Shedder) *ShedderManager
+func NewShedderManager(cfg *gcmiddleware.Shedder) *ShedderManager
 func (m *ShedderManager) Shedder() *Shedder
 func (m *ShedderManager) IsPathProtected(path string) bool
 func (m *ShedderManager) Snapshot() ShedderSnapshot
@@ -388,7 +388,7 @@ func CPUUsageSource() string    // cgroup2 / cgroup1 / procstat / rusage / unsup
 - 路径策略与熔断相反：默认保护全部流量，只按 `exclude-paths` 前缀排除（默认排除 `/health` `/healthz` `/readyz` `/livez` `/metrics` `/debug`）
 - 完整的三信号实现、链路位置理由、与限流/熔断的相互作用分析见 [自适应降载](./SHEDDER.md)
 
-配置类型是 go-config 的 `shedderconfig.Shedder`（`github.com/kamalyes/go-rpc-gateway/config/shedder`），`Manager` 直接读 `cfg.Middleware.Shedder`：
+配置类型是 `gcmiddleware.Shedder`（`github.com/kamalyes/go-rpc-gateway/config/middleware`），`Manager` 直接读 `cfg.Middleware.Shedder`：
 
 ```yaml
 middleware:
@@ -428,7 +428,7 @@ func StreamServerBreakerInterceptor(manager *BreakerManager) grpc.StreamServerIn
 func IsBreakerFailureCode(code codes.Code) bool
 ```
 
-- 熔断打开时返回 `errors.NewError(errors.ErrCodeCircuitBreakerOpen, "").ToGRPCError()` 预构建的错误，即 `codes.Unavailable` + 消息 `Circuit breaker open`，与 HTTP 侧 503 对应同一个错误码
+- 熔断打开时返回 `errors.NewError(errors.ErrCodeCircuitBreakerOpen).ToGRPCError()` 预构建的错误，即 `codes.Unavailable` + 消息 `Circuit breaker open`，与 HTTP 侧 503 对应同一个错误码
 - 计入失败的 code 只有 `Unknown` / `DeadlineExceeded` / `Internal` / `Unavailable` / `DataLoss`（对应 HTTP 5xx）；`InvalidArgument`、`NotFound`、`PermissionDenied`、`ResourceExhausted`、`Unimplemented` 等客户端侧问题不计入
 - `prevention-paths` / `exclude-paths` 对 gRPC 需按 `/包名.服务名/方法名` 配置，HTTP 路径前缀不会命中 gRPC 方法
 - 完整的失败判定表、链路位置理由与 Stream 计数粒度见 [熔断器](./BREAKER.md#grpc-拦截器)
@@ -455,17 +455,17 @@ middleware:
 
 ```go
 type SignatureValidator interface {
-    Validate(r *http.Request, config *signature.Signature) error
+    Validate(r *http.Request, config *gcmiddleware.Signature) error
 }
 
 // 自动根据 config.Type 选择验证器（hmac → HMACValidator，rsa → RSAValidator）
-func SignatureMiddleware(config *signature.Signature) HTTPMiddleware
+func SignatureMiddleware(config *gcmiddleware.Signature) HTTPMiddleware
 
 // 按请求动态解析配置/验证器
-func SignatureMiddlewareWithProvider(config *signature.Signature, provider DynamicSignatureProvider) HTTPMiddleware
+func SignatureMiddlewareWithProvider(config *gcmiddleware.Signature, provider DynamicSignatureProvider) HTTPMiddleware
 
 // 使用自定义验证器（内部通过 staticSignatureProvider 适配）
-func SignatureMiddlewareWithValidator(config *signature.Signature, validator SignatureValidator) HTTPMiddleware
+func SignatureMiddlewareWithValidator(config *gcmiddleware.Signature, validator SignatureValidator) HTTPMiddleware
 
 // 验证器构造
 func NewRSAValidator(publicKeyPEM []byte) (*RSAValidator, error)
@@ -496,7 +496,7 @@ middleware:
 使用 Redis INCR 原子操作记录 Nonce 使用次数，检测重放攻击。Nonces 从 `RequestCommonMeta.Nonce` 读取，受 `require-nonce` 开关控制。旧客户端未携带 Nonce 时，基于请求指纹（Authorization + AccessKey + Timestamp + Query + Body 的 MD5）自动派生，原样重放会被拦截；Timestamp 同时缺失则跳过防重放检查：
 
 ```go
-func NonceMiddleware(config *signature.Signature) HTTPMiddleware
+func NonceMiddleware(config *gcmiddleware.Signature) HTTPMiddleware
 ```
 
 ### TimestampMiddleware — 时间戳验证
@@ -506,7 +506,7 @@ func NonceMiddleware(config *signature.Signature) HTTPMiddleware
 验证请求时间戳是否在有效时间窗口内，防止重放攻击。时间戳从 `RequestCommonMeta.Timestamp` 读取，受 `require-timestamp` 开关控制：
 
 ```go
-func TimestampMiddleware(config *signature.Signature) HTTPMiddleware
+func TimestampMiddleware(config *gcmiddleware.Signature) HTTPMiddleware
 ```
 
 ### WhitelistManager — 白名单规则引擎
@@ -584,10 +584,10 @@ type MetricsManager struct {
     httpMetrics       *HTTPMetrics
     panicCounter      prometheus.Counter
     rateLimitRejected *prometheus.CounterVec // 限流拒绝计数器（按 strategy 打标）
-    config            *monitoring.Monitoring
+    config            *gcmiddleware.Monitoring
 }
 
-func NewMetricsManager(cfg *monitoring.Monitoring) *MetricsManager
+func NewMetricsManager(cfg *gcmiddleware.Monitoring) *MetricsManager
 func (mm *MetricsManager) Handler() http.Handler            // Prometheus 抓取处理器
 func (mm *MetricsManager) RecordRateLimitRejected(strategy string)
 func (mm *MetricsManager) SetPoolHealthFn(fn func() map[string]bool)

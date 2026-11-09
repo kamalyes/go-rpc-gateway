@@ -241,7 +241,7 @@ DSN 里驱动不认识的参数会被当成 ClickHouse 会话 setting 原样下�
 获取连接（返回 `*gorm.DB`，由 `NewClickHouseDB` 创建，内部基于 gorm clickhouse 驱动，并复用 `cpool/database` 的 `GormLogger` 统一 SQL 日志）：
 
 ```go
-chDB := gwglobal.GetClickHouse()
+chDB := gwglobal.GetPoolManager().GetClickHouse()
 rows, err := chDB.Raw("SELECT * FROM events LIMIT 10").Rows()
 defer rows.Close()
 ```
@@ -281,7 +281,7 @@ nats:
 获取连接：
 
 ```go
-natsConn := gwglobal.GetNats()
+natsConn := gwglobal.GetPoolManager().GetNats()
 natsConn.Conn.Publish("subject", data)
 
 // 使用 JetStream（需配置 jetstream-enabled）
