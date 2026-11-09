@@ -35,6 +35,7 @@ func init() {
 	errorx.RegisterError(ErrTypeSerializeFailed, "序列化JSON失败: %v")
 	errorx.RegisterError(ErrTypeInvalidFileFormat, "不支持的文件格式: %s")
 	errorx.RegisterError(ErrTypeNoServicesConfig, "没有配置聚合服务")
+	errorx.RegisterError(ErrTypeAuthConfigInvalid, "Swagger认证配置无效: %v")
 
 	// ==================== 加载器错误 ====================
 	errorx.RegisterError(ErrTypeLoaderFileNotFound, "Swagger文件未找到: %s")

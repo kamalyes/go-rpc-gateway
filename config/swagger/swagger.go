@@ -13,6 +13,7 @@ package swagger
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/kamalyes/go-rpc-gateway/config/internal"
 	"github.com/kamalyes/go-toolbox/pkg/syncx"
@@ -652,17 +653,48 @@ func (c *Swagger) IsEnabled() bool {
 	return c.Enabled
 }
 
-// IsAuthEnabled 检查是否启用了认证
-func (c *Swagger) IsAuthEnabled() bool {
-	return c.Auth != nil && c.Auth.Type != AuthNone
+// NormalizeAuthType 将认证类型归一化为标准常量
+// YAML/JSON 配置里写 basic、Bearer、CUSTOM 都应当生效：键名由 FlexibleMatchName 兼容各种
+// 命名风格，但取值不会被归一化，不处理的话 type: basic 会既不等于 AuthNone（于是判定为已启用）
+// 又匹配不上任何分支（于是拒绝所有请求），表现为文档整个打不开且看不出原因
+// 空值视为未配置，返回 AuthNone；无法识别的取值原样返回，交由上层按「失败即锁死」处理
+//
+// [EN] NormalizeAuthType canonicalizes an auth type constant. Writing basic, Bearer or CUSTOM in
+// YAML/JSON must work: FlexibleMatchName already tolerates any key naming style, but values are
+// never normalized, and without this a `type: basic` is neither equal to AuthNone (so auth counts
+// as enabled) nor matches any branch (so every request is denied) — the docs simply stop opening
+// with no visible cause. An empty value means unconfigured and maps to AuthNone; an unrecognizable
+// value is returned as-is so the caller can apply its fail-closed policy
+func NormalizeAuthType(authType AuthType) AuthType {
+	switch AuthType(strings.ToUpper(strings.TrimSpace(string(authType)))) {
+	case "":
+		return AuthNone
+	case AuthNone:
+		return AuthNone
+	case AuthBasic:
+		return AuthBasic
+	case AuthBearer:
+		return AuthBearer
+	case AuthCustom:
+		return AuthCustom
+	default:
+		return authType
+	}
 }
 
-// GetAuthType 获取认证类型
+// IsAuthEnabled 检查是否启用了认证
+// [EN] IsAuthEnabled reports whether authentication is enabled
+func (c *Swagger) IsAuthEnabled() bool {
+	return c.Auth != nil && NormalizeAuthType(c.Auth.Type) != AuthNone
+}
+
+// GetAuthType 获取认证类型（已归一化）
+// [EN] GetAuthType returns the normalized auth type
 func (c *Swagger) GetAuthType() AuthType {
 	if c.Auth == nil {
 		return AuthNone
 	}
-	return c.Auth.Type
+	return NormalizeAuthType(c.Auth.Type)
 }
 
 // GetFullUIPath 获取完整的UI路径
@@ -683,11 +715,11 @@ func (c *Swagger) GetFullJSONPath() string {
 
 // ValidateAuth 验证认证配置
 func (c *Swagger) ValidateAuth() error {
-	if c.Auth == nil || c.Auth.Type == AuthNone {
+	if c.Auth == nil || !c.IsAuthEnabled() {
 		return nil
 	}
 
-	switch c.Auth.Type {
+	switch c.GetAuthType() {
 	case AuthBasic:
 		if c.Auth.Username == "" || c.Auth.Password == "" {
 			return fmt.Errorf("basic auth requires username and password")

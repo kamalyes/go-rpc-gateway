@@ -460,12 +460,12 @@ func (m *Middleware) generateScopedSwaggerUI(title, heading, description, specUR
         .scoped-header a:hover {
             background: #3b7bbf;
         }
-
+`+authBadgeCSS+`
 %s
 %s
     </style>
 </head>
-<body>
+<body>%s
     <div class="scoped-header">
         <h1>%s</h1>
         <p>%s</p>%s
@@ -493,7 +493,7 @@ func (m *Middleware) generateScopedSwaggerUI(title, heading, description, specUR
     </script>
     <script>%s</script>
 </body>
-</html>`, title, descriptionMarkdownCSS, modelJumpCSS, heading, description, linksHTML.String(), specURL, modelJumpScript)
+</html>`, title, descriptionMarkdownCSS, modelJumpCSS, m.authBadgeHTML(), heading, description, linksHTML.String(), specURL, modelJumpScript)
 }
 
 // commonSwaggerUIActions 返回聚合模式下的通用导航链接

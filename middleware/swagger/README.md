@@ -9,6 +9,7 @@
 - **独立子文档**：按路径和方法粒度筛选，生成面向特定场景的 API 文档
 - **文件热重载**：基于 fsnotify 实现规范文件变动自动重载，支持防抖
 - **Swagger UI**：内置 CDN 版 Swagger UI，支持聚合/服务/文档三级导航
+- **访问认证**：支持 Basic / Bearer / 自定义头三种加锁方式，UI 右上角展示锁状态
 - **灵活加载**：支持本地文件（JSON/YAML）和远程 URL 两种规范来源
 - **可扩展**：支持自定义错误响应、日志记录和选项配置
 
@@ -166,12 +167,10 @@ import (
     config.Enabled = true
     config.SpecPath = "./api/swagger.json"  // 或 config.YamlPath = "./api/swagger.yaml"
     config.UIPath = "/swagger"
-    middleware, err := swaggerMiddleware.NewMiddleware(config,
+    // NewMiddleware 只返回 *Middleware，没有 error
+    middleware := swaggerMiddleware.NewMiddleware(config,
         swaggerMiddleware.WithLogger(myLogger),
     )
-    if err != nil {
-        log.Fatal(err)
-    }
     // 作为 HTTP 中间件使用
     handler := middleware.Handler()
     http.Handle("/", handler(existingHandler))
@@ -205,7 +204,7 @@ config.Aggregate.Services = []*goswagger.ServiceSpec{
         Tags:     []string{"订单服务"},
     },
 }
-middleware, _ := swaggerMiddleware.NewMiddleware(config)
+middleware := swaggerMiddleware.NewMiddleware(config)
 ```
 
 ### 3. 聚合模式 - Selector
@@ -265,9 +264,9 @@ fmt.Println(middleware.FormatWatchPaths())
 ### 6. 自定义选项
 
 ```go
-middleware, _ := swaggerMiddleware.NewMiddleware(config,
+middleware := swaggerMiddleware.NewMiddleware(config,
     swaggerMiddleware.WithLogger(myLogger),
-    swaggerMiddleware.WithErrorResponseFunc(func(w http.ResponseWriter, httpStatus int, message string) {
+    swaggerMiddleware.WithErrorResponseFn(func(w http.ResponseWriter, httpStatus int, message string) {
         w.Header().Set("Content-Type", "application/json")
         w.WriteHeader(httpStatus)
         json.NewEncoder(w).Encode(map[string]string{
@@ -289,6 +288,60 @@ if err := middleware.UpdateConfig(newConfig); err != nil {
 }
 ```
 
+### 8. 文档访问认证（加锁）
+
+接口文档往往把全部路由、参数结构和错误码一次性摊开，是对外暴露面最大的一个端点。
+配置 `Auth` 后，`{UIPath}` 下的全部路由（UI 页面、规范 JSON、服务/文档列表、调试端点）统一收口鉴权。
+
+```go
+config := goswagger.Default()
+config.Enabled = true
+
+// 方式一：Basic 认证，浏览器会弹出原生登录框
+config.WithBasicAuth("admin", "s3cret")
+
+// 方式二：Bearer Token
+config.WithBearerAuth("your-token")
+
+// 方式三：自定义请求头
+config.Auth = &goswagger.AuthConfig{
+    Type:        goswagger.AuthCustom,
+    HeaderName:  "X-Docs-Key",
+    HeaderValue: "your-key",
+}
+```
+
+**凭据传递方式**
+
+| 认证类型   | 请求头                            | Cookie | 查询参数      |
+| ------ | ------------------------------ | ------ | --------- |
+| Basic  | `Authorization: Basic xxx`     | -      | -         |
+| Bearer | `Authorization: Bearer xxx`    | 支持     | `?token=` |
+| 自定义头   | 配置的 `HeaderName`               | 支持     | `?token=` |
+
+Bearer 与自定义头无法由浏览器原生弹窗承接，因此额外支持 Cookie 与查询参数：
+
+- 浏览器访问 `{UIPath}?token=xxx`，凭据校验通过后换发为 `HttpOnly` 会话 Cookie，
+  并重定向到剥掉 `token` 的地址，避免凭据残留在地址栏、浏览器历史与 Referer 中；
+- 换发 Cookie 后，页面内 Swagger UI 发起的 `swagger.json` 等 XHR 才能继续通过鉴权；
+- 未带凭据直接访问时返回一个仅含凭据输入框的登录页。
+
+**UI 锁标识**
+
+所有 UI 页面右上角固定展示当前认证状态：
+
+- 🔒 **已认证 · {类型}**：已加锁，附带「退出」入口（`{UIPath}/logout`，清理 Cookie 并重新发起 401 挑战）
+- 🔓 **公开访问**：未配置认证，提醒该文档可被任意访问
+
+**行为约定**
+
+- 凭据比较使用 `crypto/subtle` 恒定时间实现，不会因逐字节提前返回形成时序侧信道；
+- 认证类型无法识别（多为配置拼写错误）或凭据漏配时**一律拒绝访问**，
+  宁可访问不了文档，也不会因为一个错别字让文档彻底裸奔；
+- `UpdateConfig` 会先校验认证配置，残缺时返回错误并保留旧配置，不会换上一把拦不住人的锁；
+- CORS 预检（`OPTIONS`）按规范不携带凭据，放行；
+- `.json` 结尾的规范请求返回 JSON 错误，其余返回页面，便于机器调用方与浏览器分别处理。
+
 ## 路由结构
 
 | 路径                          | 说明                           |
@@ -301,6 +354,7 @@ if err := middleware.UpdateConfig(newConfig); err != nil {
 | `{UIPath}/documents/{name}` | 独立文档 Swagger UI（聚合模式）        |
 | `{UIPath}/aggregate.json`   | 聚合信息 JSON（聚合模式）              |
 | `{UIPath}/debug/services`   | 调试信息 JSON（聚合模式）              |
+| `{UIPath}/logout`           | 退出登录（仅启用认证时注册）               |
 
 ## API 文档
 
@@ -311,7 +365,7 @@ if err := middleware.UpdateConfig(newConfig); err != nil {
 创建新的 Swagger 中间件实例
 
 ```go
-func NewMiddleware(config *goswagger.Swagger, opts ...Option) (*Middleware, error)
+func NewMiddleware(config *goswagger.Swagger, opts ...Option) *Middleware
 ```
 
 #### 中间件方法

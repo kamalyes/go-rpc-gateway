@@ -21,6 +21,10 @@ const (
 	DebugPath     = "/debug/services"
 	IndexHTML     = "/index.html"
 	JSONExt       = ".json"
+
+	// LogoutPath 退出登录路径：清理凭据 Cookie 并重新发起 401 挑战
+	// [EN] LogoutPath clears the credential cookie and re-issues the 401 challenge
+	LogoutPath = "/logout"
 )
 
 // ==================== 路径分隔与匹配 ====================
