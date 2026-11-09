@@ -106,7 +106,6 @@ require (
 	github.com/golang/snappy v1.0.0
 	github.com/kamalyes/go-toolbox v0.19.4
 	github.com/kamalyes/go-toolbox/pkg/argus/protoenum v0.19.4
-	github.com/kamalyes/go-toolbox/pkg/protox v0.19.4
 	github.com/segmentio/kafka-go v0.4.51
 	github.com/spf13/viper v1.21.0
 )

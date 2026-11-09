@@ -90,8 +90,6 @@ github.com/kamalyes/go-toolbox v0.19.4 h1:Tg4yOn1zfarjhFzxov7PsSmn/xY6zSEXHyUrHw
 github.com/kamalyes/go-toolbox v0.19.4/go.mod h1:aWbifGn+KHbQXHuAHCfv3vsYZXXya+Z7fnf/daMD7w4=
 github.com/kamalyes/go-toolbox/pkg/argus/protoenum v0.19.4 h1:PaQNhKZ6PaHs+VMVqdj20Hvoc/1wPghKID9dCB1I3RA=
 github.com/kamalyes/go-toolbox/pkg/argus/protoenum v0.19.4/go.mod h1:0I1RduooXV8sVasZ0nzmJVRVIrn/Bg0RVsiPpQnu9tk=
-github.com/kamalyes/go-toolbox/pkg/protox v0.19.4 h1:fiyVOK8cOlViTvRK0+e1ncYW+1o480okgccJFCEp2uw=
-github.com/kamalyes/go-toolbox/pkg/protox v0.19.4/go.mod h1:M2eKc00vhxR7+Kmd0BKsXuhgEgU/9gUxe0F0Qbahs3E=
 github.com/klauspost/compress v1.20.3 h1:zWNoFqq/lSuYQRim3dUXlXeA0IqwuZGicdG5ZTfY5j4=
 github.com/klauspost/compress v1.20.3/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
 github.com/klauspost/cpuid/v2 v2.4.0 h1:S6Hrbc7+ywsr0r+RLapfGBHfyefhCTwEh3A0tV913Dw=

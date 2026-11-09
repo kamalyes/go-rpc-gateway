@@ -514,24 +514,29 @@ func UnaryServerShedderInterceptor(manager *ShedderManager) grpc.UnaryServerInte
 // 类型别名：别名与子包中的定义是同一类型，完整保留其方法集
 // [EN] Type aliases: an alias is the very same type as the subpackage definition and keeps its full method set
 type (
-	AccessLogHandler  = observability.AccessLogHandler
-	AccessLogKind     = observability.AccessLogKind
-	AccessRecord      = observability.AccessRecord
-	BreakerStat       = observability.BreakerStat
-	HTTPMetrics       = observability.HTTPMetrics
-	HealthCheckResult = observability.HealthCheckResult
-	HealthChecker     = observability.HealthChecker
-	HealthManager     = observability.HealthManager
-	HealthStatus      = observability.HealthStatus
-	LogFields         = observability.LogFields
-	MetricsManager    = observability.MetricsManager
-	MySQLChecker      = observability.PostgreSQLChecker // 兼容旧名
-	PostgreSQLChecker = observability.PostgreSQLChecker
-	PProfServer       = observability.PProfServer
-	RedisChecker      = observability.RedisChecker
-	RequestLogger     = observability.RequestLogger
-	ShedderStat       = observability.ShedderStat
-	TracingManager    = observability.TracingManager
+	AccessHeaders       = observability.AccessHeaders
+	AccessLogCodec      = observability.AccessLogCodec
+	AccessLogHandler    = observability.AccessLogHandler
+	AccessLogKind       = observability.AccessLogKind
+	AccessRecord        = observability.AccessRecord
+	AccessText          = observability.AccessText
+	BreakerStat         = observability.BreakerStat
+	GzipAccessLogCodec  = observability.GzipAccessLogCodec
+	HTTPMetrics         = observability.HTTPMetrics
+	HealthCheckResult   = observability.HealthCheckResult
+	HealthChecker       = observability.HealthChecker
+	HealthManager       = observability.HealthManager
+	HealthStatus        = observability.HealthStatus
+	LogFields           = observability.LogFields
+	MetricsManager      = observability.MetricsManager
+	MySQLChecker        = observability.PostgreSQLChecker // 兼容旧名
+	PlainAccessLogCodec = observability.PlainAccessLogCodec
+	PostgreSQLChecker   = observability.PostgreSQLChecker
+	PProfServer         = observability.PProfServer
+	RedisChecker        = observability.RedisChecker
+	RequestLogger       = observability.RequestLogger
+	ShedderStat         = observability.ShedderStat
+	TracingManager      = observability.TracingManager
 )
 
 // 常量再导出：常量带有子包中声明的类型
@@ -639,6 +644,10 @@ func RegisterAccessLog(h AccessLogHandler) (unregister func()) {
 
 func ResetProtojsonOptions() {
 	observability.ResetProtojsonOptions()
+}
+
+func SetAccessLogCodec(codec AccessLogCodec) (restore func()) {
+	return observability.SetAccessLogCodec(codec)
 }
 
 func StartPProfServer(cfg *gcmiddleware.PProf) error {

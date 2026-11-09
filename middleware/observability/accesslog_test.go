@@ -26,11 +26,11 @@ import (
 // TestMaskHeadersRedactsCredentials 凭据类请求头不得明文进入访问日志
 //
 // 回归点：请求体与响应体都过了 masker.Mask，唯独请求头是
-// sqltypes.CompressedTextMap(r.Header) 原样入库 —— Authorization、Cookie、X-Token、
+// AccessHeaders(r.Header) 原样入库 —— Authorization、Cookie、X-Token、
 // 签名头全以明文落在审计库里，而审计库恰恰是会被导出、被下游分析、保留期最长的那一份
 //
 // [EN] Regression: request and response bodies both went through masker.Mask while the headers
-// went in verbatim as sqltypes.CompressedTextMap(r.Header), so Authorization, Cookie, X-Token
+// went in verbatim as AccessHeaders(r.Header), so Authorization, Cookie, X-Token
 // and the signature headers landed in the audit store in clear — and the audit store is
 // precisely the data that gets exported, analysed downstream and retained longest.
 func TestMaskHeadersRedactsCredentials(t *testing.T) {
@@ -152,11 +152,11 @@ func flattenHeaders(h map[string][]string) string {
 // 记录已经脱敏
 //
 // 上面几条只测 maskHeaders 这个函数本身，把 captureAccessLog 里的调用点换回
-// sqltypes.CompressedTextMap(r.Header) 它们照样全绿 —— 守不住「接线被改回去」
+// AccessHeaders(r.Header) 它们照样全绿 —— 守不住「接线被改回去」
 // 从钩子收到的记录上断言，才真正覆盖调用点
 //
 // [EN] The tests above exercise maskHeaders itself and stay green if the call site inside
-// captureAccessLog is reverted to sqltypes.CompressedTextMap(r.Header), so they cannot hold the
+// captureAccessLog is reverted to AccessHeaders(r.Header), so they cannot hold the
 // wiring. This one asserts on the record the hook receives, which does cover the call site.
 func TestCaptureAccessLogMasksHeaders(t *testing.T) {
 	var got *AccessRecord

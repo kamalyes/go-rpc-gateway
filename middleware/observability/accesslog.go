@@ -20,7 +20,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kamalyes/go-rpc-gateway/constants"
-	sqltypes "github.com/kamalyes/go-rpc-gateway/cpool/database/types"
 	"github.com/kamalyes/go-rpc-gateway/global"
 	"github.com/kamalyes/go-rpc-gateway/middleware/core"
 	"github.com/kamalyes/go-toolbox/pkg/desensitize"
@@ -45,34 +44,50 @@ func (k AccessLogKind) Value() (driver.Value, error) {
 // AccessRecord 一次请求/响应的结构化快照（访问日志）
 // 字段与运营日志详情页一一对应：请求时间、响应时间、响应时长、用户、
 // 租户、IP、操作结果、路径、headers、query、body、response
-// gorm tag 仅保留 column/default/comment，不含任何 DB 专属类型——多 DB 适配由 go-sqlbuilder 方言层负责
+// gorm tag 仅保留 column/default/comment，不含任何 DB 专属类型：
+// 三个大字段（headers/body/response）的列类型由 AccessText / AccessHeaders 按方言给出，
+// 具体存成什么样由调用方注入的 AccessLogCodec 决定，见 accesslog_types.go
+//
+// 这个结构体本身只是交给钩子的快照，网关不落库；需要落库的调用方既可以直接把它当
+// gorm 模型用（上述列类型让它在 ClickHouse / MySQL / PG / SQLite 下都能建表），
+// 也可以在钩子里映射成自己的模型
+//
+// [EN] The gorm tags carry only column/default/comment and no DB-specific type: the column
+// types of the three large fields (headers/body/response) come from AccessText and
+// AccessHeaders per dialect, and how they are actually stored is decided by the
+// AccessLogCodec the caller injects — see accesslog_types.go.
+//
+// The struct itself is just the snapshot handed to hooks; the gateway never persists it. A
+// caller that does can either use it as a gorm model directly (those column types let it
+// migrate on ClickHouse, MySQL, PostgreSQL and SQLite alike) or map it to its own model
+// inside the hook
 type AccessRecord struct {
-	ID           string                     `gorm:"column:id;comment:日志ID" json:"id"`
-	Kind         AccessLogKind              `gorm:"column:kind;default:'';comment:来源类型(http/grpc_server/grpc_client)" json:"kind"`
-	RequestTime  time.Time                  `gorm:"column:request_time;comment:请求时间" json:"requestTime"`
-	ResponseTime time.Time                  `gorm:"column:response_time;comment:响应时间" json:"responseTime"`
-	DurationMS   int64                      `gorm:"column:duration_ms;default:0;comment:响应时长(毫秒)" json:"durationMs"`
-	Service      string                     `gorm:"column:service;default:'';comment:服务名(网关或下游服务)" json:"service"`
-	Method       string                     `gorm:"column:method;default:'';comment:HTTP Method / gRPC FullMethod" json:"method"`
-	Path         string                     `gorm:"column:path;default:'';comment:请求路径" json:"path"`
-	Query        string                     `gorm:"column:query;default:'';comment:URL Query 参数" json:"query"`
-	Headers      sqltypes.CompressedTextMap `gorm:"column:headers;comment:请求头" json:"headers"`
-	Body         sqltypes.CompressedText    `gorm:"column:body;default:'';comment:请求体" json:"body"`
-	UserAgent    string                     `gorm:"column:user_agent;default:'';comment:User-Agent" json:"userAgent"`
-	Source       string                     `gorm:"column:source;default:'';comment:请求来源(X-Source，回退Domain)" json:"source"`
-	StatusCode   int32                      `gorm:"column:status_code;default:0;comment:HTTP 状态码" json:"statusCode"`
-	Status       string                     `gorm:"column:status;default:'';comment:状态描述(gRPC Code / HTTP Status)" json:"status"`
-	Error        string                     `gorm:"column:error;default:'';comment:错误信息" json:"error"`
-	Response     sqltypes.CompressedText    `gorm:"column:response;default:'';comment:响应体" json:"response"`
-	Bytes        int64                      `gorm:"column:bytes;default:0;comment:响应字节数" json:"bytes"`
-	Slow         bool                       `gorm:"column:slow;default:0;comment:慢请求标记" json:"slow"`
-	Success      bool                       `gorm:"column:success;default:0;comment:操作结果(1=成功)" json:"success"`
-	TraceID      string                     `gorm:"column:trace_id;default:'';comment:跟踪ID" json:"traceID"`
-	RequestID    string                     `gorm:"column:request_id;default:'';comment:请求ID" json:"requestID"`
-	UserID       string                     `gorm:"column:user_id;default:'';comment:用户ID" json:"userID"`
-	Account      string                     `gorm:"column:account;default:'';comment:账号(UserName，回退UserID)" json:"account"`
-	TenantID     string                     `gorm:"column:tenant_id;default:'';comment:租户ID" json:"tenantID"`
-	ClientIP     string                     `gorm:"column:client_ip;default:'';comment:客户端IP" json:"clientIP"`
+	ID           string        `gorm:"column:id;comment:日志ID" json:"id"`
+	Kind         AccessLogKind `gorm:"column:kind;default:'';comment:来源类型(http/grpc_server/grpc_client)" json:"kind"`
+	RequestTime  time.Time     `gorm:"column:request_time;comment:请求时间" json:"requestTime"`
+	ResponseTime time.Time     `gorm:"column:response_time;comment:响应时间" json:"responseTime"`
+	DurationMS   int64         `gorm:"column:duration_ms;default:0;comment:响应时长(毫秒)" json:"durationMs"`
+	Service      string        `gorm:"column:service;default:'';comment:服务名(网关或下游服务)" json:"service"`
+	Method       string        `gorm:"column:method;default:'';comment:HTTP Method / gRPC FullMethod" json:"method"`
+	Path         string        `gorm:"column:path;default:'';comment:请求路径" json:"path"`
+	Query        string        `gorm:"column:query;default:'';comment:URL Query 参数" json:"query"`
+	Headers      AccessHeaders `gorm:"column:headers;comment:请求头" json:"headers"`
+	Body         AccessText    `gorm:"column:body;default:'';comment:请求体" json:"body"`
+	UserAgent    string        `gorm:"column:user_agent;default:'';comment:User-Agent" json:"userAgent"`
+	Source       string        `gorm:"column:source;default:'';comment:请求来源(X-Source，回退Domain)" json:"source"`
+	StatusCode   int32         `gorm:"column:status_code;default:0;comment:HTTP 状态码" json:"statusCode"`
+	Status       string        `gorm:"column:status;default:'';comment:状态描述(gRPC Code / HTTP Status)" json:"status"`
+	Error        string        `gorm:"column:error;default:'';comment:错误信息" json:"error"`
+	Response     AccessText    `gorm:"column:response;default:'';comment:响应体" json:"response"`
+	Bytes        int64         `gorm:"column:bytes;default:0;comment:响应字节数" json:"bytes"`
+	Slow         bool          `gorm:"column:slow;default:0;comment:慢请求标记" json:"slow"`
+	Success      bool          `gorm:"column:success;default:0;comment:操作结果(1=成功)" json:"success"`
+	TraceID      string        `gorm:"column:trace_id;default:'';comment:跟踪ID" json:"traceID"`
+	RequestID    string        `gorm:"column:request_id;default:'';comment:请求ID" json:"requestID"`
+	UserID       string        `gorm:"column:user_id;default:'';comment:用户ID" json:"userID"`
+	Account      string        `gorm:"column:account;default:'';comment:账号(UserName，回退UserID)" json:"account"`
+	TenantID     string        `gorm:"column:tenant_id;default:'';comment:租户ID" json:"tenantID"`
+	ClientIP     string        `gorm:"column:client_ip;default:'';comment:客户端IP" json:"clientIP"`
 }
 
 // AccessLogHandler 访问日志钩子函数
@@ -206,12 +221,12 @@ func captureAccessLog(ctx context.Context, r *http.Request, rw *core.ResponseWri
 		Path:         r.URL.Path,
 		Query:        r.URL.RawQuery,
 		Headers:      maskHeaders(r.Header),
-		Body:         sqltypes.CompressedText(reqBody.get()),
+		Body:         AccessText(reqBody.get()),
 		UserAgent:    r.Header.Get(constants.HeaderUserAgent),
 		Source:       mathx.IfEmpty(r.Header.Get(constants.HeaderXSource), meta.Domain),
 		StatusCode:   int32(rw.StatusCode()),
 		Status:       http.StatusText(rw.StatusCode()),
-		Response:     sqltypes.CompressedText(respBody.get()),
+		Response:     AccessText(respBody.get()),
 		Bytes:        rw.BytesWritten(),
 		Slow:         duration > slowThreshold,
 		Success:      rw.StatusCode() == http.StatusOK,
@@ -228,7 +243,7 @@ func captureAccessLog(ctx context.Context, r *http.Request, rw *core.ResponseWri
 
 // maskHeaders 请求头脱敏后再入库
 //
-// 改造前这里是 sqltypes.CompressedTextMap(r.Header)：请求体与响应体都过了 masker.Mask，
+// 改造前这里是 AccessHeaders(r.Header)：请求体与响应体都过了 masker.Mask，
 // 唯独请求头原样入库 —— 也就是 Authorization、Cookie、X-Token、签名头全以明文落在审计库里，
 // 而审计库恰恰是会被导出、被下游分析、保留期最长的那一份数据
 //
@@ -242,7 +257,7 @@ func captureAccessLog(ctx context.Context, r *http.Request, rw *core.ResponseWri
 //
 // 脱敏后解析不回来时返回 nil：审计日志里宁可缺这一列，也不能漏出凭据
 //
-// [EN] This used to be sqltypes.CompressedTextMap(r.Header): request and response bodies both
+// [EN] This used to be AccessHeaders(r.Header): request and response bodies both
 // went through masker.Mask while the headers went in verbatim, so Authorization, Cookie,
 // X-Token and the signature headers all landed in the audit store in clear — and the audit
 // store is precisely the data that gets exported, analysed downstream and retained longest.
@@ -259,7 +274,7 @@ func captureAccessLog(ctx context.Context, r *http.Request, rw *core.ResponseWri
 //
 // On a parse failure it returns nil: better to miss this column in the audit log than to leak
 // credentials into it.
-func maskHeaders(header http.Header) sqltypes.CompressedTextMap {
+func maskHeaders(header http.Header) AccessHeaders {
 	if len(header) == 0 {
 		return nil
 	}
